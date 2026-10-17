@@ -112,6 +112,21 @@ export type Stage2HotOffer = {
   place_review_count?: number;
 };
 
+/** Partner-managed offers are separate from public hot offers and include moderation state. */
+export type Stage2Offer = {
+  id: string;
+  title: string;
+  discount_label: string;
+  short_description?: string | null;
+  description?: string | null;
+  terms?: string | null;
+  image_url?: string | null;
+  place_image_url?: string | null;
+  valid_until?: string | null;
+  status: "pending" | "approved" | "rejected" | string;
+  moderation_comment?: string | null;
+};
+
 export type Stage2GeoSuggestion = { place_id: string; text: string; main_text: string; secondary_text: string };
 export type Stage2GeoDetails = { place_id: string; formatted_address: string; lat: number; lng: number; city: string; region: string; street: string; house: string };
 

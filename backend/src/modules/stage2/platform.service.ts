@@ -90,7 +90,13 @@ export class PlatformService {
 
   private async customerForToken(token: string) {
     const hash = createHash('sha256').update(token).digest('hex');
-    const result = await this.db.query(`SELECT q.user_id,q.expires_at,q.consumed_at,u.first_name,u.last_name
+    const result = await this.db.query<{
+      user_id: string;
+      expires_at: Date;
+      consumed_at: Date | null;
+      first_name: string | null;
+      last_name: string | null;
+    }>(`SELECT q.user_id,q.expires_at,q.consumed_at,u.first_name,u.last_name
       FROM customer_qr_tokens q JOIN users u ON u.id=q.user_id WHERE q.token_hash=$1`,[hash]);
     const row = result.rows[0];
     if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) throw new BadRequestException('QR недійсний або строк дії минув');
