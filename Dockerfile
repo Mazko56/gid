@@ -28,6 +28,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Next standalone server.js is CommonJS even when the source package is ESM.
+# Give the standalone runtime its own package scope without changing source imports.
+RUN printf '{"type":"commonjs"}\n' > /app/package.json
+
 USER nextjs
 EXPOSE 3000
 

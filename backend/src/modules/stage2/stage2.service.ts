@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, Injectable, NotFoundException
 import { DatabaseService } from "../../database/database.service.js";
 import { makeId } from "../../common/id.js";
 import type { AuthUser } from "../../common/auth.guard.js";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { GooglePlacesService, type GoogleNearbyPlace } from "./google-places.service.js";
 import { GeoapifyPlacesService, type GeoapifyPlace } from "./geoapify-places.service.js";
 import { OutscraperPlacesService, type OutscraperPlace } from "./outscraper-places.service.js";
@@ -147,11 +148,11 @@ export class Stage2Service {
     const streetId = String(ids.street ?? "").trim();
     const houseId = String(ids.house ?? "").trim();
     if (!isVerified || !cityId || !streetId || !houseId) {
-      throw new BadRequestException("Оберіть місто, вулицю та будинок з підказок Google Maps");
+      throw new BadRequestException("Оберіть місто, вулицю та будинок з адресних підказок");
     }
     const verified = await this.geoDetails(houseId);
     if (!verified.city || !verified.street || !verified.house || !verified.lat || !verified.lng) {
-      throw new BadRequestException("Google Maps не підтвердив повну адресу");
+      throw new BadRequestException("Геосервіс не підтвердив повну адресу");
     }
     return verified;
   }
@@ -307,8 +308,66 @@ export class Stage2Service {
     };
   }
 
+  // Geoapify is used only to select an address; public tourist catalogs never import provider places.
+  // Address selections are signed so callers cannot invent coordinates or a verified address.
+  private addressSigningKey() {
+    const key = process.env.GEO_ADDRESS_SIGNING_SECRET || process.env.ADMIN_API_KEY || process.env.TELEGRAM_BOT_TOKEN;
+    if (!key || key.length < 16) throw new BadGatewayException("Налаштуйте GEO_ADDRESS_SIGNING_SECRET для перевірки адрес");
+    return key;
+  }
+
+  private signGeoAddress(details: Record<string, unknown>): string {
+    const payload = Buffer.from(JSON.stringify({ ...details, expires_at: Date.now() + 20 * 60_000 }), "utf8").toString("base64url");
+    const signature = createHmac("sha256", this.addressSigningKey()).update(payload).digest("base64url");
+    return `geoa_${payload}.${signature}`;
+  }
+
+  private decodeGeoAddress(id: string) {
+    const match = /^geoa_([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(id);
+    if (!match) throw new BadRequestException("Невірна адреса: повторіть вибір із підказок");
+    const expected = createHmac("sha256", this.addressSigningKey()).update(match[1]).digest();
+    const supplied = Buffer.from(match[2], "base64url");
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new BadRequestException("Недійсна адреса");
+    const entry = JSON.parse(Buffer.from(match[1], "base64url").toString("utf8")) as Record<string, unknown>;
+    if (Number(entry.expires_at) < Date.now()) throw new BadRequestException("Термін дії підказки минув. Виберіть адресу ще раз");
+    return { place_id: id, formatted_address: String(entry.formatted_address || ""),
+      lat: Number(entry.lat), lng: Number(entry.lng), city: String(entry.city || ""),
+      region: String(entry.region || ""), street: String(entry.street || ""), house: String(entry.house || "") };
+  }
+
+  private async geoapifyAutocomplete(input: string, mode: "city" | "street" | "house", city: string, street: string) {
+    const key = process.env.GEOAPIFY_API_KEY?.trim();
+    if (!key) throw new BadGatewayException("Для автопідказок адрес налаштуйте GOOGLE_MAPS_SERVER_API_KEY або GEOAPIFY_API_KEY на backend Railway");
+    const query = [mode === "city" ? input : mode === "street" ? `${input}, ${city}` : `${input}, ${street}, ${city}`].join("");
+    const params = new URLSearchParams({ text: query, format: "json", lang: "uk", limit: "8", apiKey: key });
+    if (mode === "city") params.set("type", "city");
+    const res = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${params}`, { signal: AbortSignal.timeout(8500) });
+    if (!res.ok) throw new BadGatewayException(`Геопідказки недоступні: Geoapify HTTP ${res.status}. Перевірте ключ та ліміти`);
+    const response = await res.json() as { results?: Array<Record<string, unknown>> };
+    return (response.results || []).filter((item) => {
+      if (mode === "city") return Boolean(item.city || item.town || item.village || item.municipality);
+      if (mode === "street") return Boolean(item.street);
+      return Boolean(item.housenumber && item.street);
+    }).map((item) => {
+      const details = {
+        formatted_address: String(item.formatted || ""), lat: Number(item.lat), lng: Number(item.lon),
+        city: String(item.city || item.town || item.village || item.municipality || ""),
+        region: String(item.state || ""), street: String(item.street || ""), house: String(item.housenumber || ""),
+      };
+      const main = mode === "city" ? details.city : mode === "street" ? details.street : details.house;
+      return { place_id: this.signGeoAddress(details), text: details.formatted_address,
+        main_text: main, secondary_text: details.formatted_address };
+    });
+  }
+
   async geoAutocomplete(input: string, mode: "city" | "street" | "house", city = "", street = "") {
-    return this.google.autocomplete(input, mode, city, street);
+    const text = input.trim();
+    if (!text || text.length > 140) return [];
+    if (this.google.enabled()) {
+      try { return await this.google.autocomplete(text, mode, city, street); }
+      catch (error) { if (!process.env.GEOAPIFY_API_KEY) throw error; }
+    }
+    return this.geoapifyAutocomplete(text, mode, city, street);
   }
 
   async geoReverse(lat: number, lng: number) {
@@ -324,6 +383,7 @@ export class Stage2Service {
   }
 
   async geoDetails(placeId: string) {
+    if (placeId.startsWith("geoa_")) return this.decodeGeoAddress(placeId);
     const place = await this.google.details(placeId);
     const components = place.addressComponents ?? [];
     const pick = (...types: string[]) => components.find((item) => types.some((type) => item.types?.includes(type)))?.longText ?? "";

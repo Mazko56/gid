@@ -30038,3 +30038,8 @@ button.gt-amenities-row {
   border-radius: 7px;
   font-size: 8.4px;
 }
+
+/* The active in-page scanner has an animated sweep; the camera never leaves this screen. */
+@keyframes gt-qr-sweep { 0% { top: 9%; opacity: .55; } 50% { top: 88%; opacity: 1; } 100% { top: 9%; opacity: .55; } }
+.gt-qr-scanner-screen .gt-qr-scan-line { animation: gt-qr-sweep 2.25s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .gt-qr-scanner-screen .gt-qr-scan-line { animation: none; top: 50%; } }

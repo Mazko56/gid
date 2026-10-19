@@ -495,15 +495,97 @@ export class PlatformService {
     return {ok:true,message:'Профіль знеособлено, сесії відкликано; бухгалтерські записи збережено відповідно до строків обліку'};
   }
 
+  async adminClients() {
+    return (await this.db.query(`SELECT u.id,u.telegram_id::text,u.telegram_username,u.first_name,u.last_name,u.phone,u.created_at,u.last_active_at,
+      COALESCE((SELECT SUM(l.amount) FROM bonus_ledger l WHERE l.user_id=u.id AND l.status='available'),0) AS balance,
+      COALESCE((SELECT SUM(l.amount) FROM bonus_ledger l WHERE l.user_id=u.id AND l.entry_type='earn' AND l.status='available'),0) AS earned,
+      COALESCE((SELECT -SUM(l.amount) FROM bonus_ledger l WHERE l.user_id=u.id AND l.entry_type='spent' AND l.status='available'),0) AS spent,
+      (SELECT COUNT(*)::integer FROM purchase_transactions t WHERE t.user_id=u.id AND t.status='confirmed') AS purchases,
+      (SELECT COUNT(*)::integer FROM bookings b WHERE b.user_id=u.id) AS bookings,
+      (SELECT COUNT(*)::integer FROM review_entries r WHERE r.user_id=u.id) AS reviews,
+      (SELECT COUNT(*)::integer FROM activity_events e WHERE e.user_id=u.id) AS events
+      FROM users u WHERE u.telegram_id IS NOT NULL ORDER BY u.last_active_at DESC LIMIT 1000`)).rows;
+  }
+
+  async adminClient(id: string) {
+    const profile = (await this.db.query(`SELECT id,telegram_id::text,telegram_username,first_name,last_name,phone,selected_language,created_at,last_active_at
+      FROM users WHERE id=$1 AND telegram_id IS NOT NULL`,[id])).rows[0];
+    if(!profile) throw new NotFoundException('Клієнта не знайдено');
+    const [ledger,activity,bookings,purchases,reviews,balanceRows] = await Promise.all([
+      this.db.query(`SELECT l.id,l.amount,l.entry_type,l.status,l.expires_at,l.created_at,p.name place_name FROM bonus_ledger l
+        LEFT JOIN purchase_transactions t ON t.id=l.transaction_id LEFT JOIN places p ON p.id=t.place_id
+        WHERE l.user_id=$1 ORDER BY l.created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT e.id,e.event_type,e.created_at,p.name place_name FROM activity_events e
+        LEFT JOIN places p ON p.id=e.place_id WHERE e.user_id=$1 ORDER BY e.created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT id,starts_at,ends_at,status,price FROM bookings WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT id,created_at,amount,spent,earned,status FROM purchase_transactions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT id,rating,status,created_at FROM review_entries WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[id]),
+      this.db.query(`SELECT COALESCE(SUM(amount),0) AS balance FROM bonus_ledger WHERE user_id=$1 AND status='available'`,[id]),
+    ]);
+    return { ...profile, ledger:ledger.rows, activity:activity.rows, bookings:bookings.rows, purchases:purchases.rows,reviews:reviews.rows,
+      balance:Number(balanceRows.rows[0]?.balance||0) };
+  }
+
+  async adminPartnerSummary(placeId:string) {
+    const [purchases,bookings,events,totals] = await Promise.all([
+      this.db.query(`SELECT id,created_at,status,amount,commission,spent,earned FROM purchase_transactions
+        WHERE place_id=$1 ORDER BY created_at DESC LIMIT 100`,[placeId]),
+      this.db.query(`SELECT id,created_at,starts_at,status,party_size,price FROM bookings
+        WHERE place_id=$1 ORDER BY created_at DESC LIMIT 100`,[placeId]),
+      this.db.query(`SELECT id,created_at,event_type FROM activity_events
+        WHERE place_id=$1 ORDER BY created_at DESC LIMIT 100`,[placeId]),
+      this.db.query(`SELECT
+        (SELECT COUNT(*)::integer FROM bookings WHERE place_id=$1) AS bookings_count,
+        (SELECT COUNT(*)::integer FROM purchase_transactions WHERE place_id=$1 AND status='confirmed') AS confirmed_purchases,
+        (SELECT COALESCE(SUM(amount),0) FROM purchase_transactions WHERE place_id=$1 AND status='confirmed') AS turnover,
+        (SELECT COALESCE(SUM(commission),0) FROM purchase_transactions WHERE place_id=$1 AND status='confirmed') AS commission_due,
+        (SELECT COALESCE(SUM(spent),0) FROM purchase_transactions WHERE place_id=$1 AND status='confirmed') AS compensation_due`,[placeId]),
+    ]);
+    const t=totals.rows[0]||{};
+    return {purchases:purchases.rows,bookings:bookings.rows,events:events.rows,
+      confirmed_purchases:Number(t.confirmed_purchases||0),bookings_count:Number(t.bookings_count||0),
+      turnover:Number(t.turnover||0),commission_due:Number(t.commission_due||0),compensation_due:Number(t.compensation_due||0),
+      net_due:Number(t.commission_due||0)-Number(t.compensation_due||0)};
+  }
+
+  async adminSettlements() {
+    return (await this.db.query(`SELECT p.id AS place_id,p.name,p.region_id,r.name AS region_name,c.name AS category_name,
+      COUNT(t.id) FILTER(WHERE t.status='confirmed')::integer AS transactions,
+      COALESCE(SUM(t.amount) FILTER(WHERE t.status='confirmed'),0) AS turnover,
+      COALESCE(SUM(t.commission) FILTER(WHERE t.status='confirmed'),0) AS commission_due,
+      COALESCE(SUM(t.spent) FILTER(WHERE t.status='confirmed'),0) AS compensation_due,
+      COALESCE(SUM(t.commission-t.spent) FILTER(WHERE t.status='confirmed'),0) AS net_due
+      FROM places p JOIN regions r ON r.id=p.region_id JOIN categories c ON c.slug=p.category_slug
+      LEFT JOIN purchase_transactions t ON t.place_id=p.id
+      WHERE p.organization_id IS NOT NULL GROUP BY p.id,p.name,p.region_id,r.name,c.name ORDER BY p.name`)).rows;
+  }
+
   async adminAnalytics(regionId?:string) {
     const region=regionId||null;
-    const [events,places,bookings,transactions]=await Promise.all([
+    const [events,places,bookings,transactions,clients,bonuses,series,categories,locations,topPartners] = await Promise.all([
       this.db.query(`SELECT event_type,COUNT(*)::integer AS count FROM activity_events WHERE ($1::text IS NULL OR region_id=$1) GROUP BY event_type`,[region]),
-      this.db.query(`SELECT status,COUNT(*)::integer AS count FROM places WHERE ($1::text IS NULL OR region_id=$1) GROUP BY status`,[region]),
+      this.db.query(`SELECT status,COUNT(*)::integer AS count FROM places WHERE ($1::text IS NULL OR region_id=$1) AND organization_id IS NOT NULL GROUP BY status`,[region]),
       this.db.query(`SELECT status,COUNT(*)::integer AS count FROM bookings WHERE ($1::text IS NULL OR region_id=$1) GROUP BY status`,[region]),
       this.db.query(`SELECT status,COUNT(*)::integer AS count, COALESCE(SUM(amount),0) AS turnover FROM purchase_transactions WHERE ($1::text IS NULL OR region_id=$1) GROUP BY status`,[region]),
+      this.db.query(`SELECT COUNT(*)::integer AS total,COUNT(*) FILTER(WHERE u.created_at>=now()-interval '30 days')::integer AS new_clients,
+        COUNT(*) FILTER(WHERE u.last_active_at>=now()-interval '30 days')::integer AS active_clients FROM users u WHERE u.telegram_id IS NOT NULL AND ($1::text IS NULL OR EXISTS(SELECT 1 FROM activity_events e WHERE e.user_id=u.id AND e.region_id=$1))`,[region]),
+      this.db.query(`SELECT COALESCE(SUM(l.amount) FILTER(WHERE l.entry_type='earn'),0) AS earned,
+        COALESCE(-SUM(l.amount) FILTER(WHERE l.entry_type='spent'),0) AS spent FROM bonus_ledger l
+        WHERE ($1::text IS NULL OR EXISTS(SELECT 1 FROM purchase_transactions t WHERE t.id=l.transaction_id AND t.region_id=$1))`,[region]),
+      this.db.query(`SELECT TO_CHAR(date_trunc('day',created_at),'YYYY-MM-DD') AS day,COALESCE(SUM(amount),0) AS amount
+        FROM purchase_transactions WHERE status='confirmed' AND created_at>=now()-interval '30 days'
+        AND ($1::text IS NULL OR region_id=$1) GROUP BY 1 ORDER BY 1`,[region]),
+      this.db.query(`SELECT c.name,COALESCE(SUM(t.amount),0) AS amount FROM purchase_transactions t
+        JOIN places p ON p.id=t.place_id JOIN categories c ON c.slug=p.category_slug WHERE t.status='confirmed'
+        AND ($1::text IS NULL OR t.region_id=$1) GROUP BY c.name ORDER BY amount DESC`,[region]),
+      this.db.query(`SELECT r.name,COUNT(*)::integer AS total FROM places p JOIN regions r ON r.id=p.region_id
+        WHERE p.organization_id IS NOT NULL AND ($1::text IS NULL OR p.region_id=$1) GROUP BY r.name ORDER BY total DESC`,[region]),
+      this.db.query(`SELECT p.name,COALESCE(SUM(t.amount),0) AS turnover FROM purchase_transactions t
+        JOIN places p ON p.id=t.place_id WHERE t.status='confirmed' AND ($1::text IS NULL OR t.region_id=$1)
+        GROUP BY p.id,p.name ORDER BY turnover DESC LIMIT 10`,[region]),
     ]);
-    return { region_id:region,events:events.rows,places:places.rows,bookings:bookings.rows,transactions:transactions.rows };
+    return { region_id:region,events:events.rows,places:places.rows,bookings:bookings.rows,transactions:transactions.rows,
+      clients:clients.rows[0],bonuses:bonuses.rows[0],series:series.rows,categories:categories.rows,locations:locations.rows,top_partners:topPartners.rows };
   }
 
   async auditLog(regionId?:string) {

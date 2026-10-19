@@ -366,8 +366,8 @@ export function RealMap({
       setReadyVersion((value) => value + 1);
     };
 
-    if (preferLeaflet) void renderFallback().catch(() => renderGoogle().catch(() => undefined));
-    else void renderGoogle().catch(() => renderFallback().catch(() => undefined));
+    // Map tiles are OSM-based. Only approved platform places enter the markers layer.
+    void renderFallback().catch((error) => console.warn("Map tiles unavailable",error));
 
     return () => {
       cancelled = true;

@@ -62,6 +62,26 @@ type AdminProps = { navigate: Navigate };
 
 const ADMIN_SELECTED_PARTNER_KEY = "gid-tourist-admin-selected-partner-id";
 const ADMIN_EDIT_PARTNER_KEY = "gid-tourist-admin-edit-partner-id";
+const ADMIN_SELECTED_CLIENT_KEY = "gid-tourist-admin-selected-client-id";
+type LiveClient = { id:string; telegram_id?:string|null; telegram_username?:string|null; first_name?:string|null;last_name?:string|null;phone?:string|null;created_at?:string;last_active_at?:string;balance:number|string;earned:number|string;spent:number|string;events:number;bookings:number;purchases:number;reviews:number };
+type LiveClientDetail = LiveClient & { selected_language?:string;ledger:Array<{id:string;amount:number|string;entry_type:string;status:string;created_at:string;place_name?:string|null}>;activity:Array<{id:string;event_type:string;created_at:string;place_name?:string|null}>;bookings:Array<{id:string;starts_at:string;status:string;price:number|string}>;purchases:Array<{id:string;created_at:string;amount:number|string;status:string}>;reviews:Array<{id:string;rating:number;status:string;created_at:string}> };
+type LivePartnerSummary = { purchases:Array<{id:string;created_at:string;status:string;amount:number|string;commission:number|string;spent:number|string;earned:number|string}>; bookings:Array<{id:string;created_at:string;starts_at:string;status:string;party_size:number;price:number|string}>; events:Array<{id:string;created_at:string;event_type:string}>; confirmed_purchases:number;bookings_count:number;turnover:number;commission_due:number;compensation_due:number;net_due:number};
+type LiveSettlement = {place_id:string;name:string;region_name:string;category_name:string;transactions:number;turnover:number|string;commission_due:number|string;compensation_due:number|string;net_due:number|string};
+type LiveAnalytics = {clients:{total:number;new_clients:number;active_clients:number};bonuses:{earned:number|string;spent:number|string};places:Array<{status:string;count:number}>;transactions:Array<{status:string;count:number;turnover:number|string}>;bookings:Array<{status:string;count:number}>;events:Array<{event_type:string;count:number}>;series:Array<{day:string;amount:number|string}>;categories:Array<{name:string;amount:number|string}>;locations:Array<{name:string;total:number}>;top_partners:Array<{name:string;turnover:number|string}>};
+const moneyUA = (value: number|string|undefined|null) => `${Number(value||0).toLocaleString('uk-UA',{maximumFractionDigits:2})} грн`;
+const countUA = (value:number|string|undefined|null) => Number(value||0).toLocaleString('uk-UA');
+const dateUA = (value?:string|null) => value?new Date(value).toLocaleString('uk-UA'):'—';
+const clientFullName = (row:{first_name?:string|null;last_name?:string|null;telegram_username?:string|null;telegram_id?:string|null}) => [row.first_name,row.last_name].filter(Boolean).join(' ')||row.telegram_username||`Telegram ${row.telegram_id||'—'}`;
+function useAdminRemote<T>(url:string) {
+  const [data,setData] = useState<T|null>(null);
+  const [error,setError] = useState('');
+  useEffect(()=>{let active=true;void adminStage2Fetch<T>(url).then(x=>{if(active){setData(x);setError('');}}).catch(e=>{if(active){setData(null);setError(e instanceof Error?e.message:'Помилка API');}});return()=>{active=false;};},[url]);
+  return {data,error};
+}
+function AdminRemoteInfo({error,data}:{error:string;data:unknown}) {
+  return error?<div className="ad-create-message is-error">{error}</div>:data===null?<div className="ad-stage2-empty-row">Завантаження даних із PostgreSQL…</div>:null;
+}
+
 
 type AdminPartnerDetail = {
   id: string;
@@ -254,7 +274,7 @@ function MiniSparkline() {
     </svg>
   );
 }
-function DateRange({ value = "01.05.2024 – 31.05.2024" }: { value?: string }) {
+function DateRange({ value = "Весь період" }: { value?: string }) {
   return (
     <button type="button" className="ad-date-range">
       <CalendarDays size={17} />
@@ -390,39 +410,22 @@ function PartnersScreen({ navigate }: AdminProps) {
   );
 }
 
-const clientRows = [
-  ["ІК", "Ірина Коваль", "Активний користувач", "Івано-Франківськ", "Активний", "1 280 балів", "Сканування QR · 18.05.2024"],
-  ["ОМ", "Олександр Мельник", "Пасивний користувач", "Львів", "Активний", "420 балів", "Перегляд локації · 17.05.2024"],
-  ["МФ", "Марія Федоришин", "Активний користувач", "Яремче", "Активний", "2 150 балів", "Бронювання · 16.05.2024"],
-  ["АП", "Андрій Петрук", "Пасивний користувач", "Київ", "Неактивний", "90 балів", "Вхід у застосунок · 14.05.2024"],
-  ["НБ", "Наталія Бойчук", "Активний користувач", "Татарів", "Активний", "860 балів", "Використано пропозицію · 13.05.2024"],
-  ["ІГ", "Іван Гаврилюк", "Активний користувач", "Буковель", "На модерації", "530 балів", "Залишив відгук · 12.05.2024"],
-  ["ХС", "Христина Савчук", "Пасивний користувач", "Чернівці", "Активний", "300 балів", "Перегляд бонусів · 11.05.2024"],
-  ["ВК", "Василь Клим", "Активний користувач", "Коломия", "Чернетка", "0 балів", "Реєстрація · 10.05.2024"],
-];
-
 function ClientsScreen({ navigate }: AdminProps) {
-  return (
-    <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients">
-      <AdminPageHeader title="Клієнти" />
-      <FilterStrip type="clients" />
-      <AdminTable columns={[
-        { label: "Ім'я", className: "1.5fr" }, { label: "Місто / локація", className: "1fr" }, { label: "Статус", className: ".9fr" },
-        { label: "Бонуси", className: ".8fr" }, { label: "Остання активність", className: "1.45fr" }, { label: "Дії", className: ".8fr" },
-      ]}>
-        {clientRows.map((row) => (
-          <TableRow key={row[1]} columns={["1.5fr", "1fr", ".9fr", ".8fr", "1.45fr", ".8fr"]}>
-            <div className="ad-client-cell"><span>{row[0]}</span><div><strong>{row[1]}</strong><small>{row[2]}</small></div></div>
-            <span>{row[3]}</span>
-            <Status tone={row[4] === "Активний" ? "green" : row[4] === "На модерації" ? "orange" : "gray"}>{row[4]}</Status>
-            <strong>{row[5]}</strong><span>{row[6]}</span>
-            <div className="ad-row-actions"><button className="ad-text-btn" onClick={() => navigate("admin", "admin-client-details")}>Картка</button><button><MoreVertical size={17} /></button></div>
-          </TableRow>
-        ))}
-      </AdminTable>
-      <Pagination label="Показано 1–8 з 8 клієнтів" />
-    </AdminShell>
-  );
+  const {data:clients,error}=useAdminRemote<LiveClient[]>('/admin/platform/clients');
+  return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients">
+    <AdminPageHeader title="Клієнти"/><FilterStrip type="clients"/>
+    <AdminRemoteInfo error={error} data={clients}/>
+    {clients?<><AdminTable columns={[{label:"Ім'я",className:"1.5fr"},{label:"Telegram",className:"1fr"},{label:"Статус",className:".9fr"},{label:"Бонуси",className:".8fr"},{label:"Остання активність",className:"1.45fr"},{label:"Дії",className:".8fr"}]}>
+      {clients.map(c=><TableRow key={c.id} columns={["1.5fr","1fr",".9fr",".8fr","1.45fr",".8fr"]}>
+        <div className="ad-client-cell"><span>{(c.first_name?.[0]||c.telegram_username?.[0]||'T').toUpperCase()}</span><div><strong>{clientFullName(c)}</strong><small>{c.events||0} подій · {c.purchases||0} покупок</small></div></div>
+        <span>{c.telegram_username?`@${c.telegram_username}`:c.telegram_id||'—'}</span>
+        <Status tone={c.last_active_at && Date.now()-new Date(c.last_active_at).getTime()<30*86400000?'green':'gray'}>{c.last_active_at && Date.now()-new Date(c.last_active_at).getTime()<30*86400000?'Активний':'Неактивний'}</Status>
+        <strong>{countUA(c.balance)} балів</strong><span>{dateUA(c.last_active_at)}</span>
+        <button className="ad-text-btn" onClick={()=>{sessionStorage.setItem(ADMIN_SELECTED_CLIENT_KEY,c.id);navigate('admin','admin-client-details');}}>Картка</button>
+      </TableRow>)}
+      {!clients.length?<div className="ad-stage2-empty-row">Користувачів у базі ще немає</div>:null}
+    </AdminTable><Pagination label={`Показано ${clients.length} реальних клієнтів`}/></>:null}
+  </AdminShell>;
 }
 
 function SummaryCard({ label, value, note, tone = "green", icon }: { label: string; value: string; note?: string; tone?: string; icon?: ReactNode }) {
@@ -434,39 +437,23 @@ function SummaryCard({ label, value, note, tone = "green", icon }: { label: stri
   );
 }
 
-function BonusesScreen({ navigate }: AdminProps) {
-  const rows = [
-    ["ІП", "Іван Петренко", "+380 67 123 45 67", "Яремче", "Активний", "2 450", "12 850", "10 400", "Сьогодні, 10:30"],
-    ["ОМ", "Ольга Мельник", "+380 50 765 43 21", "Микуличин", "Активний", "1 870", "8 230", "6 360", "Вчора, 18:45"],
-    ["АС", "Андрій Савчук", "+380 63 987 65 43", "Ворохта", "Неактивний", "560", "5 600", "5 040", "20.05.2024"],
-    ["НК", "Наталія Коваль", "+380 68 234 56 78", "Косів", "Активний", "3 290", "15 750", "12 460", "Сьогодні, 09:15"],
-    ["ДБ", "Дмитро Бондар", "+380 97 654 32 10", "Буковель", "Заблокований", "0", "2 150", "2 150", "10.03.2024"],
-    ["ІВ", "Ірина Василенко", "+380 66 321 45 67", "Яремче", "Активний", "1 120", "4 980", "3 860", "19.05.2024"],
-  ];
-  return (
-    <AdminShell active="bonuses" navigate={navigate}>
-      <AdminPageHeader title="Бонуси" action={<div className="ad-page-actions"><DateRange /><PrimaryButton><Download size={17}/> Експорт</PrimaryButton></div>} />
-      <div className="ad-summary-grid ad-summary-grid--five">
-        <SummaryCard label="Загальний оборот" value="1 245 820 грн" note="+12.5%" tone="green" />
-        <SummaryCard label="Нараховано бонусів" value="124 582" note="+8.3%" tone="violet" />
-        <SummaryCard label="Використано бонусів" value="68 120" note="+10.1%" tone="blue" />
-        <SummaryCard label="Середній відсоток" value="5.48%" note="+0.6%" tone="orange" />
-        <SummaryCard label="Кількість клієнтів" value="1 248" note="+14.2%" tone="green" />
-      </div>
-      <FilterStrip type="bonuses" />
-      <AdminTable columns={[
-        { label: "Ім'я", className: "1.35fr" }, { label: "Телефон", className: "1fr" }, { label: "Місто", className: ".8fr" }, { label: "Загальний статус", className: ".9fr" },
-        { label: "Бонуси на рахунку", className: ".9fr" }, { label: "Нараховано всього", className: ".9fr" }, { label: "Використано всього", className: ".9fr" }, { label: "Остання активність", className: "1fr" },
-      ]}>
-        {rows.map((r) => <TableRow key={r[1]} columns={["1.35fr", "1fr", ".8fr", ".9fr", ".9fr", ".9fr", ".9fr", "1fr"]}>
-          <div className="ad-client-cell"><span>{r[0]}</span><div><strong>{r[1]}</strong><small>{r[2]}</small></div></div>
-          <span>{r[2]}</span><span>{r[3]}</span><Status tone={r[4] === "Активний" ? "green" : r[4] === "Заблокований" ? "red" : "gray"}>{r[4]}</Status>
-          <strong className="ad-green-number">{r[5]}</strong><strong>{r[6]}</strong><strong>{r[7]}</strong><span>{r[8]}</span>
-        </TableRow>)}
-      </AdminTable>
-      <Pagination label="Показано 1–8 з 1 248 клієнтів" />
-    </AdminShell>
-  );
+function BonusesScreen({navigate}: AdminProps) {
+  const {data:clients,error}=useAdminRemote<LiveClient[]>('/admin/platform/clients');
+  const {data:stats,error:statsError}=useAdminRemote<LiveAnalytics>('/admin/platform/analytics');
+  return <AdminShell active="bonuses" navigate={navigate}>
+    <AdminPageHeader title="Бонуси"/><AdminRemoteInfo error={error||statsError} data={clients&&stats}/>
+    {clients&&stats?<><div className="ad-summary-grid ad-summary-grid--five">
+      <SummaryCard label="Оборот підтверджених покупок" value={moneyUA(stats.transactions.find(t=>t.status==='confirmed')?.turnover)}/>
+      <SummaryCard label="Нараховано бонусів" value={moneyUA(stats.bonuses.earned)} tone="violet"/>
+      <SummaryCard label="Використано бонусів" value={moneyUA(stats.bonuses.spent)} tone="blue"/>
+      <SummaryCard label="Баланс клієнтів" value={moneyUA(clients.reduce((sum,c)=>sum+Number(c.balance),0))} tone="orange"/>
+      <SummaryCard label="Клієнтів" value={countUA(stats.clients.total)}/>
+    </div><FilterStrip type="bonuses"/>
+    <AdminTable columns={[{label:"Клієнт",className:"1.35fr"},{label:"Телефон",className:"1fr"},{label:"Telegram ID",className:".8fr"},{label:"Нараховано",className:".9fr"},{label:"Баланс",className:".9fr"},{label:"Списано",className:".9fr"},{label:"Остання активність",className:"1fr"}]}>
+      {clients.map(c=><TableRow key={c.id} columns={["1.35fr","1fr",".8fr",".9fr",".9fr",".9fr","1fr"]}><strong>{clientFullName(c)}</strong><span>{c.phone||'Не надано'}</span><span>{c.telegram_id||'—'}</span><strong>{moneyUA(c.earned)}</strong><strong className="ad-green-number">{moneyUA(c.balance)}</strong><strong>{moneyUA(c.spent)}</strong><span>{dateUA(c.last_active_at)}</span></TableRow>)}
+      {!clients.length?<div className="ad-stage2-empty-row">Бонусних операцій ще немає</div>:null}
+    </AdminTable></>:null}
+  </AdminShell>;
 }
 
 async function adminImageToDataUrl(file: File) {
@@ -531,6 +518,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [mapSelected, setMapSelected] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [mapDraft, setMapDraft] = useState({ lat: 48.34535, lng: 24.57855 });
+  const [geoHintError, setGeoHintError] = useState("");
   const [citySuggestions, setCitySuggestions] = useState<Stage2GeoSuggestion[]>([]);
   const [streetSuggestions, setStreetSuggestions] = useState<Stage2GeoSuggestion[]>([]);
   const [houseSuggestions, setHouseSuggestions] = useState<Stage2GeoSuggestion[]>([]);
@@ -592,25 +580,25 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     if (cityPlaceId || city.trim().length < 1) { setCitySuggestions([]); return; }
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(city.trim())}&mode=city`)
-        .then(setCitySuggestions).catch(() => setCitySuggestions([]));
+        .then((items) => { setCitySuggestions(items); setGeoHintError(""); }).catch((e) => { setCitySuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
     }, 220);
     return () => window.clearTimeout(timer);
   }, [city, cityPlaceId]);
 
   useEffect(() => {
-    if (!cityPlaceId || streetPlaceId || street.trim().length < 1) { setStreetSuggestions([]); return; }
+    if (!city.trim() || streetPlaceId || street.trim().length < 1) { setStreetSuggestions([]); return; }
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(street.trim())}&mode=street&city=${encodeURIComponent(city)}`)
-        .then(setStreetSuggestions).catch(() => setStreetSuggestions([]));
+        .then((items) => { setStreetSuggestions(items); setGeoHintError(""); }).catch((e) => { setStreetSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
     }, 220);
     return () => window.clearTimeout(timer);
   }, [street, streetPlaceId, city, cityPlaceId]);
 
   useEffect(() => {
-    if (!streetPlaceId || housePlaceId || house.trim().length < 1) { setHouseSuggestions([]); return; }
+    if (!street.trim() || housePlaceId || house.trim().length < 1) { setHouseSuggestions([]); return; }
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(house.trim())}&mode=house&city=${encodeURIComponent(city)}&street=${encodeURIComponent(street)}`)
-        .then(setHouseSuggestions).catch(() => setHouseSuggestions([]));
+        .then((items) => { setHouseSuggestions(items); setGeoHintError(""); }).catch((e) => { setHouseSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
     }, 220);
     return () => window.clearTimeout(timer);
   }, [house, housePlaceId, city, street, streetPlaceId]);
@@ -668,7 +656,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     if (!name.trim()) return setError("Вкажіть назву партнера");
     if (!categorySlug) return setError("Оберіть категорію");
     if (!ids.length || ids.some((item) => !/^\d{5,20}$/.test(item))) return setError("Вкажіть один або декілька коректних числових Telegram ID");
-    if (!mapSelected && (!cityPlaceId || !streetPlaceId || !housePlaceId)) return setError("Оберіть адресу з Google-підказок або вкажіть точку на мапі");
+    if (!mapSelected && (!cityPlaceId || !streetPlaceId || !housePlaceId)) return setError("Оберіть повну адресу з підказок або вкажіть точку на мапі");
     setSaving(true);
     try {
       const requestBody = {
@@ -715,14 +703,15 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
         {citySuggestions.length ? <div className="ad-admin-suggestions">{citySuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "city")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <div className="ad-admin-autocomplete">
-        <input value={street} disabled={!cityPlaceId && !mapSelected} onChange={(e) => { setStreet(e.target.value); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder={cityPlaceId || mapSelected ? "Вулиця" : "Спочатку виберіть місто"} />
+        <input value={street} disabled={!city.trim() && !mapSelected} onChange={(e) => { setStreet(e.target.value); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder={cityPlaceId || mapSelected ? "Вулиця" : "Спочатку виберіть місто"} />
         {streetSuggestions.length ? <div className="ad-admin-suggestions">{streetSuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "street")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <div className="ad-admin-autocomplete">
-        <input value={house} disabled={!streetPlaceId && !mapSelected} onChange={(e) => { setHouse(e.target.value); setHousePlaceId(""); setMapSelected(false); }} placeholder={streetPlaceId || mapSelected ? "Будинок" : "Спочатку виберіть вулицю"} />
+        <input value={house} disabled={!street.trim() && !mapSelected} onChange={(e) => { setHouse(e.target.value); setHousePlaceId(""); setMapSelected(false); }} placeholder={streetPlaceId || mapSelected ? "Будинок" : "Спочатку виберіть вулицю"} />
         {houseSuggestions.length ? <div className="ad-admin-suggestions">{houseSuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "house")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <OutlineButton onClick={() => { setMapDraft({ lat, lng }); setMapOpen(true); }}><MapPin size={16}/> Вказати на мапі</OutlineButton>
+      {geoHintError ? <small className="ad-admin-address-result" role="alert">{geoHintError}</small> : null}
       {address ? <small className="ad-admin-address-result">{address}</small> : null}
     </div>
   );
@@ -755,73 +744,39 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   );
 }
 
-function ClientHeader({ navigate }: AdminProps) {
-  return (
-    <div className="ad-detail-header ad-client-detail-header">
-      <div className="ad-detail-person">
-        <span className="ad-client-header-avatar"><UserRound size={25} /></span>
-        <div>
-          <div className="ad-detail-title-line"><h1>Ірина Коваль</h1><Status>Активний</Status></div>
-          <small>ID клієнта: 00187 · Зареєстровано: 03.02.2024 · Оновлено: 20.05.2024</small>
-        </div>
-      </div>
-      <div className="ad-page-actions"><OutlineButton><Edit3 size={16}/> Редагувати</OutlineButton><OutlineButton><ShieldCheck size={16}/> Заблокувати</OutlineButton><PrimaryButton onClick={() => navigate("admin", "admin-client-history")}>Інші дії <ChevronDown size={15}/></PrimaryButton></div>
-    </div>
-  );
+function ClientHeader({navigate,client}:{navigate:Navigate;client:LiveClientDetail}) {
+  return <div className="ad-detail-header ad-client-detail-header"><div className="ad-detail-person"><span className="ad-client-header-avatar"><UserRound size={25}/></span><div>
+    <div className="ad-detail-title-line"><h1>{clientFullName(client)}</h1><Status>Telegram</Status></div>
+    <small>ID: {client.id} · Створено: {dateUA(client.created_at)} · Активність: {dateUA(client.last_active_at)}</small>
+  </div></div><div className="ad-page-actions"><OutlineButton onClick={()=>navigate('admin','admin-clients')}><ArrowLeft size={16}/> До клієнтів</OutlineButton><PrimaryButton onClick={()=>navigate('admin','admin-client-history')}>Історія</PrimaryButton></div></div>;
 }
-
-function ClientInfoItem({ icon, label, children, className = "" }: { icon: ReactNode; label: string; children: ReactNode; className?: string }) {
-  return (
-    <div className={`ad-client-info-item ${className}`.trim()}>
-      <span className="ad-client-info-item__icon">{icon}</span>
-      <div><small>{label}</small>{children}</div>
-    </div>
-  );
+function useSelectedClient(){const id=typeof window!=='undefined'?window.sessionStorage.getItem(ADMIN_SELECTED_CLIENT_KEY)||'':'';return useAdminRemote<LiveClientDetail>(`/admin/platform/clients/${encodeURIComponent(id)}`);}
+function ClientDetailsScreen({navigate}:AdminProps){
+  const {data:client,error}=useSelectedClient();
+  return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients ad-main--client-detail">
+    <AdminRemoteInfo error={error} data={client}/>{client?<><ClientHeader client={client} navigate={navigate}/>
+    <section className="ad-detail-card ad-client-detail-card"><h2>Дані клієнта</h2><div className="ad-client-reference-grid">
+      <div className="ad-client-reference-col"><p>Telegram: {client.telegram_username?`@${client.telegram_username}`:'—'}</p><p>Telegram ID: {client.telegram_id||'—'}</p><p>Телефон: {client.phone||'Не надано'}</p></div>
+      <div className="ad-client-reference-col"><p>Мова: {client.selected_language||'uk'}</p><p>Остання активність: {dateUA(client.last_active_at)}</p></div>
+    </div></section>
+    <section className="ad-detail-card"><h2>Бонуси та активність</h2><div className="ad-summary-grid ad-summary-grid--four">
+      <SummaryCard label="Доступно бонусів" value={countUA(client.balance)}/><SummaryCard label="Транзакцій" value={countUA(client.purchases.length)}/><SummaryCard label="Бронювань" value={countUA(client.bookings.length)}/><SummaryCard label="Відгуків" value={countUA(client.reviews.length)}/>
+    </div></section></>:null}
+  </AdminShell>;
 }
-
-function ClientDetailsScreen({ navigate }: AdminProps) {
-  return (
-    <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients ad-main--client-detail">
-      <ClientHeader navigate={navigate}/>
-      <section className="ad-detail-card ad-client-detail-card">
-        <div className="ad-detail-card__title"><h2>Дані клієнта</h2><Status>Після погодження даних ви зможете редагувати клієнта</Status></div>
-        <div className="ad-client-reference-grid">
-          <div className="ad-client-reference-col">
-            <ClientInfoItem icon={<UserRound size={17}/>} label="Тип клієнта"><strong>Активний користувач</strong></ClientInfoItem>
-            <ClientInfoItem icon={<Phone size={17}/>} label="Телефон"><strong>+380 (98) 555-12-34</strong></ClientInfoItem>
-            <ClientInfoItem icon={<MapPin size={17}/>} label="Місто / локація"><strong>Івано-Франківськ</strong></ClientInfoItem>
-            <ClientInfoItem icon={<Clock3 size={17}/>} label="Остання активність"><strong>Сканування QR · 18.05.2024</strong></ClientInfoItem>
-          </div>
-          <div className="ad-client-reference-col">
-            <ClientInfoItem icon={<ShieldCheck size={17}/>} label="Статус"><strong>Підтверджений</strong></ClientInfoItem>
-            <ClientInfoItem icon={<Send size={17}/>} label="Telegram ID"><strong>@iryna_koval</strong></ClientInfoItem>
-          </div>
-          <div className="ad-client-reference-col ad-client-reference-col--wide">
-            <ClientInfoItem icon={<FileText size={17}/>} label="Короткий профіль"><strong>Любить сімейний відпочинок у Карпатах, активні маршрути та локальну кухню.<br/>Часто користується рекомендаціями сервісу.</strong></ClientInfoItem>
-            <ClientInfoItem icon={<Star size={17}/>} label="Інтереси"><span className="ad-tags"><i>Сімейний відпочинок</i><i>Релакс</i><i>Локальна кухня</i><i>Екскурсії</i></span></ClientInfoItem>
-          </div>
-        </div>
-      </section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Бонуси</h2><Info size={16}/></div><div className="ad-summary-grid ad-summary-grid--four"><SummaryCard label="Поточний бонусний баланс" value="1 280 балів" note="Доступно для використання"/><SummaryCard label="Нараховано" value="3 640 балів" note="За весь період" tone="neutral"/><SummaryCard label="Використано" value="2 360 балів" note="За весь період" tone="neutral"/><SummaryCard label="Запрошені друзі" value="7" note="Успішні реєстрації" tone="neutral"/></div></section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Статистика</h2><DateRange /></div><div className="ad-mini-stats">{[["Відкрито карток","86"],["QR-сканувань","24"],["Бронювань","5"],["Відвідано локацій","18"],["Відгуки","9"],["Використані пропозиції","12"]].map(([l,v])=><div key={l}><small>{l}</small><strong>{v}</strong><span>↗ 11%</span><MiniSparkline/></div>)}</div></section>
-    </AdminShell>
-  );
-}
-
-function ClientHistoryScreen({ navigate }: AdminProps) {
-  const bonusHistory = [
-    ["28.05.2024 14:32","Нарахування","Бронювання №B-4821\nГірський Затишок","+240","Зараховано"],
-    ["24.05.2024 10:15","Нарахування","QR-сканування в локації\nВодоспад Пробій","+15","Зараховано"],
-    ["20.05.2024 16:40","Списання","Оплата за бронювання №B-4710\nГірський Затишок","-180","Списано"],
-    ["18.05.2024 09:22","Нарахування","Відгук про перебування\nГірський Затишок","+20","Зараховано"],
-  ];
-  return (
-    <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients ad-main--client-history">
-      <ClientHeader navigate={navigate}/>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Історія бонусів</h2><DateRange/></div><AdminTable columns={[{label:"Дата / час",className:"1fr"},{label:"Тип операції",className:"1fr"},{label:"Опис",className:"2.2fr"},{label:"Бонуси",className:".7fr"},{label:"Партнер",className:"1.2fr"},{label:"Статус",className:".8fr"}]}>{bonusHistory.map((r)=><TableRow key={r[0]} columns={["1fr","1fr","2.2fr",".7fr","1.2fr",".8fr"]}><span>{r[0]}</span><Status tone={r[1]==="Списання"?"red":"green"}>{r[1]}</Status><span className="ad-preline">{r[2]}</span><strong className={r[3].startsWith("-")?"ad-red-number":"ad-green-number"}>{r[3]}</strong><span>Гірський Затишок</span><Status>{r[4]}</Status></TableRow>)}</AdminTable></section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Історія активності</h2><DateRange/></div><AdminTable columns={[{label:"Дата / час",className:"1fr"},{label:"Тип активності",className:"1fr"},{label:"Деталі",className:"2fr"},{label:"Партнер / Локація",className:"1.4fr"},{label:"Пристрій",className:"1.2fr"}]}>{[["28.05.2024 14:32","Бронювання","Бронювання №B-4821\n2 дорослих, 2 ночі","Гірський Затишок\nЯремче","Веб\nChrome / Windows"],["24.05.2024 10:15","QR-сканування","Водоспад Пробій\nОтримано 15 бонусів","Гірський Затишок\nЯремче","Мобільний додаток\niOS 17.4"],["20.05.2024 16:40","Відгук","Оцінка 5 ⭐\nЧудове місце для відпочинку!","Гірський Затишок\nЯремче","Мобільний додаток\niOS 17.4"]].map((r)=><TableRow key={r[0]} columns={["1fr","1fr","2fr","1.4fr","1.2fr"]}><span>{r[0]}</span><strong>{r[1]}</strong><span className="ad-preline">{r[2]}</span><span className="ad-preline">{r[3]}</span><span className="ad-preline">{r[4]}</span></TableRow>)}</AdminTable></section>
-    </AdminShell>
-  );
+function ClientHistoryScreen({navigate}:AdminProps){
+  const {data:client,error}=useSelectedClient();
+  return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients ad-main--client-history">
+    <AdminRemoteInfo error={error} data={client}/>{client?<><ClientHeader client={client} navigate={navigate}/>
+      <section className="ad-detail-card"><h2>Історія бонусів</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Тип",className:"1fr"},{label:"Партнер",className:"1.5fr"},{label:"Сума",className:".7fr"},{label:"Статус",className:".8fr"}]}>
+        {client.ledger.map(x=><TableRow key={x.id} columns={["1fr","1fr","1.5fr",".7fr",".8fr"]}><span>{dateUA(x.created_at)}</span><span>{x.entry_type}</span><span>{x.place_name||'—'}</span><strong>{countUA(x.amount)}</strong><Status>{x.status}</Status></TableRow>)}
+        {!client.ledger.length?<div className="ad-stage2-empty-row">Операцій ще немає</div>:null}
+      </AdminTable></section>
+      <section className="ad-detail-card"><h2>Історія дій</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"1.3fr"},{label:"Заклад",className:"1.5fr"}]}>
+        {client.activity.map(x=><TableRow key={x.id} columns={["1fr","1.3fr","1.5fr"]}><span>{dateUA(x.created_at)}</span><strong>{x.event_type}</strong><span>{x.place_name||'—'}</span></TableRow>)}
+        {!client.activity.length?<div className="ad-stage2-empty-row">Подій ще немає</div>:null}
+      </AdminTable></section></>:null}
+  </AdminShell>;
 }
 
 function PartnerDetailHeader({ navigate, partner, onEdit, onToggleStatus }: AdminProps & { partner: AdminPartnerDetail; onEdit: () => void; onToggleStatus: () => void }) {
@@ -872,6 +827,8 @@ function PartnerDetailsScreen({ navigate }: AdminProps) {
   };
 
   useEffect(() => { void load(); }, []);
+
+  const {data:partnerSummary,error:summaryError}=useAdminRemote<LivePartnerSummary>(`/admin/platform/partners/${encodeURIComponent(partner?.id||"none")}/summary`);
 
   if (!partner) {
     return <AdminShell active="partners" navigate={navigate} contentClassName="ad-main--partner-detail"><AdminPageHeader title="Партнер" />{error ? <div className="ad-create-message is-error">{error}</div> : <div className="ad-stage2-empty-row">Завантаження даних партнера…</div>}</AdminShell>;
@@ -929,14 +886,18 @@ function PartnerDetailsScreen({ navigate }: AdminProps) {
           </div>
         </div>
       </section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Взаєморозрахунки</h2><Info size={16}/></div><div className="ad-settlement-equation"><SummaryCard label="Загальна сума продажів через додаток" value="0 ₴" note="Реальні операції ще відсутні"/><span>−</span><SummaryCard label="Нараховано комісії" value="0 ₴" note={`Ставка ${rate}%`} tone="neutral"/><span>−</span><SummaryCard label="Компенсації / бонуси" value="0 ₴" note="Операцій ще немає" tone="neutral"/><span>=</span><SummaryCard label="Баланс взаєморозрахунків" value="0 ₴" note="За реальними даними" tone="green"/></div></section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Статистика</h2></div><div className="ad-mini-stats">{[["Перегляди",String(partner.views ?? 0)],["QR-сканування",String(partner.qr_scans ?? 0)],["Переходи в маршрут",String(partner.route_clicks ?? 0)],["Дзвінки",String(partner.call_clicks ?? 0)],["Бронювання","0"],["Операції","0"]].map(([l,v])=><div key={l}><small>{l}</small><strong>{v}</strong><span>Реальні дані</span></div>)}</div></section>
+      {summaryError ? <div className="ad-create-message is-error">{summaryError}</div> : null}
+      <section className="ad-detail-card"><div className="ad-section-title"><h2>Взаєморозрахунки</h2><Info size={16}/></div>
+        {partnerSummary?<div className="ad-settlement-equation"><SummaryCard label="Загальний оборот" value={moneyUA(partnerSummary.turnover)}/><span>−</span><SummaryCard label="Нараховано комісії" value={moneyUA(partnerSummary.commission_due)} tone="neutral"/><span>−</span><SummaryCard label="Компенсації бонусів" value={moneyUA(partnerSummary.compensation_due)} tone="neutral"/><span>=</span><SummaryCard label="Нетто взаєморозрахунків" value={moneyUA(partnerSummary.net_due)} tone="green"/></div>:<div className="ad-stage2-empty-row">Завантаження взаєморозрахунків…</div>}
+      </section>
+      <section className="ad-detail-card"><div className="ad-section-title"><h2>Статистика</h2></div><div className="ad-mini-stats">{[["Перегляди",String(partner.views??0)],["QR-сканування",String(partner.qr_scans??0)],["Переходи в маршрут",String(partner.route_clicks??0)],["Дзвінки",String(partner.call_clicks??0)],["Бронювання",String(partnerSummary?.bookings_count??'—')],["Підтверджені операції",String(partnerSummary?.confirmed_purchases??'—')]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong><span>Дані з PostgreSQL</span></div>)}</div></section>
     </AdminShell>
   );
 }
 
 function PartnerHistoryScreen({ navigate }: AdminProps) {
   const [partner, setPartner] = useState<AdminPartnerDetail | null>(null);
+  const {data:history,error:historyError}=useAdminRemote<LivePartnerSummary>(`/admin/platform/partners/${encodeURIComponent(partner?.id||"none")}/summary`);
   useEffect(() => {
     const id = selectedAdminPartnerId();
     if (id) void adminStage2Fetch<AdminPartnerDetail>(`/admin/stage2/partners/${encodeURIComponent(id)}`).then(setPartner).catch(() => undefined);
@@ -944,29 +905,36 @@ function PartnerHistoryScreen({ navigate }: AdminProps) {
   return (
     <AdminShell active="partners" navigate={navigate} contentClassName="ad-main--partner-history">
       <AdminPageHeader title={partner ? `Історія — ${partner.name}` : "Історія партнера"} action={<OutlineButton onClick={() => navigate("admin", "admin-partner-details")}><ArrowLeft size={16}/> До партнера</OutlineButton>} />
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Історія взаєморозрахунків</h2></div><div className="ad-stage2-empty-row">Реальних фінансових операцій для цього партнера ще немає</div></section>
-      <section className="ad-detail-card"><div className="ad-section-title"><h2>Історія активності партнера</h2></div><div className="ad-stage2-empty-row">Історія буде заповнюватися реальними діями після підключення відповідних модулів</div></section>
+      {historyError?<div className="ad-create-message is-error">{historyError}</div>:null}
+      <section className="ad-detail-card"><h2>Історія операцій</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Статус",className:"1fr"},{label:"Сума",className:"1fr"},{label:"Комісія",className:"1fr"}]}>
+        {(history?.purchases||[]).map(row=><TableRow key={row.id} columns={["1fr","1fr","1fr","1fr"]}><span>{dateUA(row.created_at)}</span><Status>{row.status}</Status><strong>{moneyUA(row.amount)}</strong><span>{moneyUA(row.commission)}</span></TableRow>)}
+        {history&&!history.purchases.length?<div className="ad-stage2-empty-row">Операцій ще немає</div>:null}
+      </AdminTable></section>
+      <section className="ad-detail-card"><h2>Активність</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"2fr"}]}>
+        {(history?.events||[]).map(row=><TableRow key={row.id} columns={["1fr","2fr"]}><span>{dateUA(row.created_at)}</span><strong>{row.event_type}</strong></TableRow>)}
+        {history&&!history.events.length?<div className="ad-stage2-empty-row">Подій ще немає</div>:null}
+      </AdminTable></section>
     </AdminShell>
   );
 }
 
-function SettlementsScreen({ navigate }: AdminProps) {
-  const rows = [
-    ["🏠","Колиба “Біля річки”","Татарів","Де поїсти","1","7 400 грн","7 400 грн","0 грн","Оплачено","green"],
-    ["🏨","Готель “Карпатські зорі”","Микуличин","Де відпочити","1","26 000 грн","18 000 грн","8 000 грн","Частково оплачено","orange"],
-    ["🎡","Парк розваг “Драйв”","Поляниця","Розваги","1","18 750 грн","0 грн","18 750 грн","Прострочено","red"],
-    ["🛍","Магазин “Гірські товари”","Яремче","Де купити","1","5 600 грн","5 600 грн","0 грн","Оплачено","green"],
-    ["🚕","Таксі Карпати","Ворохта","Трансфер","1","3 200 грн","0 грн","3 200 грн","Очікує оплату","orange"],
-  ];
-  return (
-    <AdminShell active="settlements" navigate={navigate} contentClassName="ad-main--settlements">
-      <AdminPageHeader title="Взаєморозрахунки з партнерами" subtitle="Контроль рахунків і платежів партнерів" action={<div className="ad-page-actions"><DateRange/><PrimaryButton><Download size={17}/> Експорт</PrimaryButton></div>} />
-      <div className="ad-summary-grid ad-summary-grid--five"><SummaryCard label="Виставлено рахунків" value="128 450 грн" note="12 рахунків" tone="blue"/><SummaryCard label="Оплачено" value="92 350 грн" note="8 рахунків"/><SummaryCard label="Очікує оплату" value="28 100 грн" note="3 рахунки" tone="orange"/><SummaryCard label="Прострочено" value="7 850 грн" note="2 рахунки" tone="red"/><SummaryCard label="Загальна заборгованість" value="35 950 грн" note="Очікує + Прострочено" tone="violet"/></div>
-      <FilterStrip type="settlements" />
-      <div className="ad-category-chips">{["Усі категорії","Де купити","Де поїсти","Де відпочити","Розваги","Трансфер","Халепа?"].map((x,i)=><button className={i===0?"is-active":""} key={x}>{x}</button>)}</div>
-      <div className="ad-settlement-layout"><div><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".8fr"},{label:"Категорія",className:".9fr"},{label:"Виставлено рахунків",className:".7fr"},{label:"Сума рахунків",className:".9fr"},{label:"Оплачено",className:".9fr"},{label:"Борг",className:".8fr"},{label:"Статус",className:"1fr"}]}>{rows.map(r=><TableRow key={r[1]} columns={["1.6fr",".8fr",".9fr",".7fr",".9fr",".9fr",".8fr","1fr"]}><div className="ad-entity-cell"><span>{r[0]}</span><strong>{r[1]}</strong></div><span>{r[2]}</span><span>{r[3]}</span><span>{r[4]}</span><strong>{r[5]}</strong><strong className="ad-green-number">{r[6]}</strong><strong className={r[7]!=="0 грн"?"ad-red-number":""}>{r[7]}</strong><Status tone={r[9] as "green"|"orange"|"red"}>{r[8]}</Status></TableRow>)}</AdminTable><Pagination label="Показано 1–6 з 6 партнерів"/><div className="ad-settlement-bottom"><div className="ad-debtors"><h3>⚠ Боржники</h3><div><span>Парк розваг “Драйв”</span><b>15 днів</b><strong>18 750 грн</strong></div><div><span>Таксі Карпати</span><b>5 днів</b><strong>3 200 грн</strong></div><button>Переглянути всіх боржників (2)</button></div><div className="ad-quick-actions"><h3>Швидкі дії</h3>{["Сформувати рахунки за період","Надіслати рахунки партнерам","Імпорт оплат з банку","Відмітити оплату готівкою"].map(t=><button key={t}>{t}</button>)}</div></div></div><aside className="ad-invoice-details"><div className="ad-section-title"><h2>Деталі рахунку</h2><button>×</button></div><div className="ad-invoice-partner"><span>🏠</span><div><strong>Колиба “Біля річки”</strong><small>Ресторан · Татарів</small></div></div>{[["Період","01.05.2024 – 31.05.2024"],["Номер рахунку","INV-2024-05-0007"],["Дата виставлення","01.06.2024"],["Сума до оплати","7 400 грн"],["Статус оплати","Оплачено"],["Дата оплати","02.06.2024"],["Спосіб оплати","Банківський переказ"]].map(([l,v])=><div className="ad-invoice-line" key={l}><span>{l}</span><strong>{v}</strong></div>)}<OutlineButton><FileText size={16}/> Переглянути рахунок</OutlineButton><h3>Історія рахунків</h3>{["01.05.2024 – 31.05.2024","01.04.2024 – 30.04.2024","01.03.2024 – 31.03.2024"].map((d,i)=><div className="ad-invoice-history" key={d}><span>{d}<small>INV-2024-0{i+3}-000{7-i}</small></span><strong>{["7 400 грн","6 800 грн","6 200 грн"][i]}<Status>Оплачено</Status></strong></div>)}</aside></div>
-    </AdminShell>
-  );
+function SettlementsScreen({navigate}:AdminProps){
+  const {data:rows,error}=useAdminRemote<LiveSettlement[]>('/admin/platform/settlements');
+  const commission=(rows||[]).reduce((s,r)=>s+Number(r.commission_due),0);
+  const reimbursement=(rows||[]).reduce((s,r)=>s+Number(r.compensation_due),0);
+  const turnover=(rows||[]).reduce((s,r)=>s+Number(r.turnover),0);
+  return <AdminShell active="settlements" navigate={navigate} contentClassName="ad-main--settlements">
+    <AdminPageHeader title="Взаєморозрахунки з партнерами" subtitle="За підтвердженими операціями із PostgreSQL; рахунки й оплати вручну не вигадуються"/>
+    <AdminRemoteInfo error={error} data={rows}/>{rows?<><div className="ad-summary-grid ad-summary-grid--five">
+      <SummaryCard label="Оборот" value={moneyUA(turnover)}/><SummaryCard label="Комісія платформи" value={moneyUA(commission)} tone="blue"/>
+      <SummaryCard label="Компенсація бонусів" value={moneyUA(reimbursement)} tone="orange"/>
+      <SummaryCard label="Нетто до розрахунку" value={moneyUA(commission-reimbursement)} tone="violet"/>
+      <SummaryCard label="Партнерів" value={countUA(rows.length)}/>
+    </div><FilterStrip type="settlements"/><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".9fr"},{label:"Категорія",className:".9fr"},{label:"Операцій",className:".7fr"},{label:"Оборот",className:".9fr"},{label:"Комісія",className:".9fr"},{label:"Компенсації",className:".9fr"},{label:"Нетто",className:".9fr"}]}>
+      {rows.map(r=><TableRow key={r.place_id} columns={["1.6fr",".9fr",".9fr",".7fr",".9fr",".9fr",".9fr",".9fr"]}><strong>{r.name}</strong><span>{r.region_name}</span><span>{r.category_name}</span><span>{r.transactions}</span><strong>{moneyUA(r.turnover)}</strong><span>{moneyUA(r.commission_due)}</span><span>{moneyUA(r.compensation_due)}</span><strong className={Number(r.net_due)<0?'ad-red-number':'ad-green-number'}>{moneyUA(r.net_due)}</strong></TableRow>)}
+      {!rows.length?<div className="ad-stage2-empty-row">Партнерів немає</div>:null}
+    </AdminTable><Pagination label={`Показано ${rows.length} партнерів · Рахунки/банківські оплати не інтегровані`}/></>:null}
+  </AdminShell>;
 }
 
 const statTabs = [
@@ -978,7 +946,7 @@ function StatsTabs({ slug, navigate }: { slug: string; navigate: Navigate }) {
 }
 
 function StatTop({ slug, navigate, title }: { slug: string; navigate: Navigate; title: string }) {
-  return <><AdminPageHeader title={title} action={<div className="ad-page-actions"><DateRange/><PrimaryButton><Download size={17}/> Експорт <ChevronDown size={15}/></PrimaryButton></div>}/><StatsTabs slug={slug} navigate={navigate}/></>;
+  return <><AdminPageHeader title={title} subtitle="Дані з PostgreSQL, без демонстраційних значень"/><StatsTabs slug={slug} navigate={navigate}/></>;
 }
 
 function LineChart({ variant = "green" }: { variant?: "green" | "mixed" }) {
@@ -989,20 +957,56 @@ function Donut({ center, colors = "green" }: { center: string; colors?: string }
   return <div className={`ad-donut ad-donut--${colors}`}><span>{center}<small>Всього</small></span></div>;
 }
 
-function StatisticsOverview({ navigate }: AdminProps) {
-  return <AdminShell active="statistics" navigate={navigate} contentClassName="ad-main--statistics"><StatTop slug="admin-statistics" navigate={navigate} title="Статистика"/><div className="ad-summary-grid ad-summary-grid--four"><SummaryCard label="Загальний оборот" value="1 245 820 грн" note="+12.5% порівняно з 01.04.2024 – 30.04.2024"/><SummaryCard label="Кількість клієнтів" value="8 732" note="+8.2% порівняно з попереднім періодом" tone="violet"/><SummaryCard label="Нараховано бонусів" value="124 582 грн" note="+9.7% порівняно з попереднім періодом" tone="orange"/><SummaryCard label="Кількість партнерів" value="186" note="+6 нових партнерів" tone="blue"/></div><FilterStrip type="stats"/><div className="ad-stats-dashboard"><section className="ad-chart-card ad-chart-card--wide"><div className="ad-section-title"><h2>Оборот за період</h2><SelectBox value="По днях"/></div><LineChart variant="mixed"/></section><section className="ad-chart-card ad-category-turnover-card"><h2>Оборот за категоріями</h2><div className="ad-donut-layout"><Donut center="1 245 820 грн" colors="multi"/><ul>{["Де купити 32%","Де поїсти 24%","Де відпочити 18%","Розваги 12%","Трансфер 9%","Халепа? 5%"].map(x=><li key={x}>{x}</li>)}</ul></div></section><section className="ad-chart-card"><h2>Розподіл по локаціях</h2>{["Яремче 28%","Татарів 24%","Микуличин 18%","Ворохта 16%","Поляниця 9%","Інше 5%"].map((x,i)=><div className="ad-progress-line" key={x}><span>{x}</span><i><b style={{width:`${92-i*12}%`}}/></i></div>)}</section><section className="ad-chart-card"><h2>Топ партнерів за оборотом</h2><div className="ad-simple-table">{["Колиба “Біля річки”","Готель “Карпатські зорі”","Магазин “Гірські товари”","Парк розваг “Драйв”","Таксі Карпати"].map((x,i)=><div key={x}><span>{i+1}</span><strong>{x}</strong><span>{["98 450 грн","82 600 грн","75 320 грн","62 180 грн","55 310 грн"][i]}</span></div>)}</div></section><section className="ad-chart-card ad-client-activity-card"><h2>Активність клієнтів</h2><div className="ad-summary-grid ad-summary-grid--four"><SummaryCard label="Нові клієнти" value="1 245"/><SummaryCard label="Активні клієнти" value="5 672"/><SummaryCard label="Повернулися" value="2 815"/><SummaryCard label="Здійснено покупок" value="18 732"/></div><div className="ad-simple-table">{["QR код","Партнер","Рекомендації","Соціальні мережі","Інше"].map((x,i)=><div key={x}><strong>{x}</strong><span>{["3 245","2 876","1 254","856","501"][i]}</span><span>{["468 250 грн","389 420 грн","182 310 грн","128 450 грн","77 390 грн"][i]}</span></div>)}</div></section><section className="ad-chart-card"><h2>Фінансова картина</h2>{[["Виставлено рахунків","128 450 грн"],["Оплачено","92 350 грн"],["Очікує оплату","28 100 грн"],["Прострочено","7 850 грн"],["Загальна заборгованість","35 950 грн"]].map(([l,v])=><div className="ad-key-value" key={l}><span>{l}</span><strong>{v}</strong></div>)}<h2>Бонусна програма</h2>{[["Нараховано бонусів","124 582 грн"],["Використано бонусів","68 420 грн"],["Кількість операцій","2 856"],["Середній чек з бонусами","132 грн"]].map(([l,v])=><div className="ad-key-value" key={l}><span>{l}</span><strong>{v}</strong></div>)}</section></div></AdminShell>;
+function StatisticsOverview({navigate}:AdminProps){
+  const {data:stats,error}=useAdminRemote<LiveAnalytics>('/admin/platform/analytics');
+  const confirmed=stats?.transactions.find(x=>x.status==='confirmed');
+  const partnerCount=stats?.places.reduce((sum,x)=>sum+x.count,0)||0;
+  return <AdminShell active="statistics" navigate={navigate} contentClassName="ad-main--statistics">
+    <StatTop slug="admin-statistics" navigate={navigate} title="Статистика"/><AdminRemoteInfo error={error} data={stats}/>
+    {stats?<><div className="ad-summary-grid ad-summary-grid--four">
+      <SummaryCard label="Оборот підтверджених покупок" value={moneyUA(confirmed?.turnover)}/>
+      <SummaryCard label="Кількість клієнтів" value={countUA(stats.clients.total)} tone="violet"/>
+      <SummaryCard label="Нараховано бонусів" value={moneyUA(stats.bonuses.earned)} tone="orange"/>
+      <SummaryCard label="Кількість партнерів" value={countUA(partnerCount)} tone="blue"/>
+    </div><FilterStrip type="stats"/><div className="ad-stats-dashboard">
+      <section className="ad-chart-card ad-chart-card--wide"><h2>Оборот за останні 30 днів</h2>
+        {stats.series.length?stats.series.map(item=><div className="ad-key-value" key={item.day}><span>{item.day}</span><strong>{moneyUA(item.amount)}</strong></div>):<div className="ad-stage2-empty-row">Підтверджених операцій за період немає</div>}
+      </section>
+      <section className="ad-chart-card"><h2>Оборот за категоріями</h2>{stats.categories.length?stats.categories.map(item=><div className="ad-key-value" key={item.name}><span>{item.name}</span><strong>{moneyUA(item.amount)}</strong></div>):<p>Даних поки немає</p>}</section>
+      <section className="ad-chart-card"><h2>Партнери по локаціях</h2>{stats.locations.length?stats.locations.map(item=><div className="ad-key-value" key={item.name}><span>{item.name}</span><strong>{countUA(item.total)}</strong></div>):<p>Даних поки немає</p>}</section>
+      <section className="ad-chart-card"><h2>Топ партнерів за оборотом</h2>{stats.top_partners.length?stats.top_partners.map(item=><div className="ad-key-value" key={item.name}><span>{item.name}</span><strong>{moneyUA(item.turnover)}</strong></div>):<p>Даних поки немає</p>}</section>
+      <section className="ad-chart-card ad-client-activity-card"><h2>Активність клієнтів</h2><div className="ad-summary-grid ad-summary-grid--four">
+        <SummaryCard label="Нові клієнти (30 днів)" value={countUA(stats.clients.new_clients)}/>
+        <SummaryCard label="Активні клієнти (30 днів)" value={countUA(stats.clients.active_clients)}/>
+        <SummaryCard label="Підтверджено покупок" value={countUA(confirmed?.count)}/>
+        <SummaryCard label="Бронювань" value={countUA(stats.bookings.reduce((sum,b)=>sum+b.count,0))}/>
+      </div></section>
+      <section className="ad-chart-card"><h2>Бонуси та події</h2><div className="ad-key-value"><span>Нараховано</span><strong>{moneyUA(stats.bonuses.earned)}</strong></div><div className="ad-key-value"><span>Використано</span><strong>{moneyUA(stats.bonuses.spent)}</strong></div>{stats.events.map(e=><div className="ad-key-value" key={e.event_type}><span>{e.event_type}</span><strong>{countUA(e.count)}</strong></div>)}</section>
+    </div></>:null}
+  </AdminShell>;
 }
-
-function StatsMetricGrid({ kind }: { kind: "partners" | "clients" | "bonuses" | "settlements" }) {
-  const data = kind === "partners" ? [["Усього партнерів","186"],["Активні партнери","148"],["Нові партнери","12"],["Неактивні партнери","38"]] : kind === "clients" ? [["Усього клієнтів","8 732"],["Нові клієнти","1 245"],["Активні клієнти","5 672"],["Повернулися клієнти","2 815"]] : kind === "bonuses" ? [["Нараховано бонусів","124 582 грн"],["Використано бонусів","68 420 грн"],["Кількість операцій з бонусами","2 856"],["Середній чек з бонусами","132 грн"]] : [["Виставлено рахунків","128 450 грн"],["Оплачено","92 350 грн"],["Очікує оплату","28 100 грн"],["Прострочено","7 850 грн"],["Заборгованість","35 950 грн"]];
-  return <div className={`ad-summary-grid ${kind==="settlements"?"ad-summary-grid--five":"ad-summary-grid--four"}`}>{data.map(([l,v],i)=><SummaryCard key={l} label={l} value={v} note={i===0?"+8.2% порівняно з попер. періодом":"+6.1%"} tone={i===2?"orange":i===3?"red":"green"}/>)}</div>;
+function StatsMetricGrid({kind,stats}:{kind:'partners'|'clients'|'bonuses'|'settlements';stats:LiveAnalytics}){
+  const approved=stats.places.find(x=>x.status==='approved')?.count||0;
+  const partners=stats.places.reduce((sum,x)=>sum+x.count,0);
+  const confirmed=stats.transactions.find(x=>x.status==='confirmed');
+  const data=kind==='partners'?[['Усього партнерів',countUA(partners)],['Підтверджені',countUA(approved)],['На модерації',countUA(stats.places.find(x=>x.status==='pending')?.count)],['Інші статуси',countUA(partners-approved-(stats.places.find(x=>x.status==='pending')?.count||0))]]:
+    kind==='clients'?[['Усього клієнтів',countUA(stats.clients.total)],['Нові за 30 днів',countUA(stats.clients.new_clients)],['Активні за 30 днів',countUA(stats.clients.active_clients)],['Підтверджено покупок',countUA(confirmed?.count)]]:
+    kind==='bonuses'?[['Нараховано бонусів',moneyUA(stats.bonuses.earned)],['Використано бонусів',moneyUA(stats.bonuses.spent)],['Залишок (обліковий)',moneyUA(Number(stats.bonuses.earned)-Number(stats.bonuses.spent))],['Кількість покупок',countUA(confirmed?.count)]]:
+    [['Оборот',moneyUA(confirmed?.turnover)],['Покупок',countUA(confirmed?.count)],['Нараховано бонусів',moneyUA(stats.bonuses.earned)],['Списано бонусів',moneyUA(stats.bonuses.spent)]];
+  return <div className="ad-summary-grid ad-summary-grid--four">{data.map(([label,value])=><SummaryCard key={label} label={label} value={value}/>)}</div>;
 }
-
-function StatisticsSubscreen({ navigate, kind }: AdminProps & { kind: "partners" | "clients" | "bonuses" | "settlements" }) {
-  const slug = `admin-statistics-${kind}`;
-  const titleMap = { partners: "Статистика — Партнери", clients: "Статистика — Клієнти", bonuses: "Статистика — Бонуси", settlements: "Статистика — Розрахунки" };
-  const donutCenter = kind === "partners" ? "186" : kind === "clients" ? "8 732" : kind === "bonuses" ? "124 582 грн" : "128 450 грн";
-  return <AdminShell active="statistics" navigate={navigate} contentClassName="ad-main--statistics"><StatTop slug={slug} navigate={navigate} title={titleMap[kind]}/><StatsMetricGrid kind={kind}/><FilterStrip type="stats"/><div className="ad-stats-subgrid"><section className="ad-chart-card ad-chart-card--wide"><h2>{kind==="clients"?"Динаміка клієнтів":kind==="partners"?"Динаміка кількості партнерів":kind==="bonuses"?"Динаміка бонусів, грн":"Динаміка розрахунків, грн"}</h2><LineChart variant="mixed"/></section><section className="ad-chart-card"><h2>{kind==="clients"?"Клієнти за локаціями":kind==="partners"?"Партнери за категоріями":kind==="bonuses"?"Бонуси за категоріями (нараховано)":"Статус рахунків"}</h2><div className="ad-donut-layout"><Donut center={donutCenter} colors="multi"/><ul>{["Де купити 32%","Де поїсти 24%","Де відпочити 18%","Розваги 12%","Трансфер 9%","Інше 5%"].map(x=><li key={x}>{x}</li>)}</ul></div></section><section className="ad-chart-card"><h2>{kind==="clients"?"Клієнти за статтю":kind==="partners"?"Топ партнерів за оборотом":kind==="bonuses"?"Топ партнерів за нарахованими бонусами":"Заборгованість по локаціях"}</h2>{["Колиба “Біля річки”","Готель “Карпатські зорі”","Магазин “Гірські товари”","Парк розваг “Драйв”","Таксі Карпати"].map((x,i)=><div className="ad-progress-line" key={x}><span>{x}</span><i><b style={{width:`${92-i*13}%`}}/></i></div>)}</section><section className="ad-chart-card"><h2>{kind==="clients"?"Топ клієнтів":kind==="partners"?"Активність партнерів":kind==="bonuses"?"Топ клієнтів за використаними бонусами":"Рахунки"}</h2><div className="ad-simple-table">{["Олександр К.","Марія І.","Іван П.","Наталія Т.","Андрій С."].map((x,i)=><div key={x}><span>{i+1}</span><strong>{x}</strong><span>{["28","24","21","19","18"][i]}</span></div>)}</div></section></div></AdminShell>;
+function StatisticsSubscreen({navigate,kind}:AdminProps & {kind:'partners'|'clients'|'bonuses'|'settlements'}){
+  const {data:stats,error}=useAdminRemote<LiveAnalytics>('/admin/platform/analytics');
+  const titles={partners:'Партнери',clients:'Клієнти',bonuses:'Бонуси',settlements:'Розрахунки'};
+  return <AdminShell active="statistics" navigate={navigate} contentClassName="ad-main--statistics">
+    <StatTop slug={`admin-statistics-${kind}`} navigate={navigate} title={`Статистика — ${titles[kind]}`}/><AdminRemoteInfo error={error} data={stats}/>
+    {stats?<><StatsMetricGrid kind={kind} stats={stats}/><FilterStrip type="stats"/><div className="ad-stats-subgrid">
+      <section className="ad-chart-card ad-chart-card--wide"><h2>Фактичні події</h2>{stats.events.length?stats.events.map(e=><div className="ad-key-value" key={e.event_type}><span>{e.event_type}</span><strong>{countUA(e.count)}</strong></div>):<p>Подій ще немає</p>}</section>
+      <section className="ad-chart-card"><h2>Партнери по регіонах</h2>{stats.locations.map(x=><div className="ad-key-value" key={x.name}><span>{x.name}</span><strong>{countUA(x.total)}</strong></div>)}</section>
+      <section className="ad-chart-card"><h2>Бронювання за статусами</h2>{stats.bookings.map(x=><div className="ad-key-value" key={x.status}><span>{x.status}</span><strong>{countUA(x.count)}</strong></div>)}</section>
+      <section className="ad-chart-card"><h2>Покупки за статусами</h2>{stats.transactions.map(x=><div className="ad-key-value" key={x.status}><span>{x.status}</span><strong>{moneyUA(x.turnover)}</strong></div>)}</section>
+    </div></>:null}
+  </AdminShell>;
 }
 
 type SettingsSlug =

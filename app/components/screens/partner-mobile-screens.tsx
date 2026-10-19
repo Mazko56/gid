@@ -807,7 +807,7 @@ function AddressAutocompleteRow({
         if (!cancelled) {
           setSuggestions([]);
           setOpen(true);
-          setError(requestError instanceof Error ? requestError.message : "Не вдалося отримати підказки Google");
+          setError(requestError instanceof Error ? requestError.message : "Не вдалося отримати адресні підказки");
         }
       }).finally(() => { if (!cancelled) setLoading(false); });
     }, 260);
@@ -847,7 +847,7 @@ function AddressAutocompleteRow({
           </span>
         ) : open && !loading && value.trim() ? (
           <span className="gt-partner-address-suggestions gt-partner-address-suggestions--empty">
-            {error ? "Не вдалося завантажити підказки Google. Перевірте Places API (New) та ключ backend." : "Збігів не знайдено. Продовжуйте вводити назву."}
+            {error ? error : "Збігів не знайдено. Продовжуйте вводити назву."}
           </span>
         ) : null}
       </span>
@@ -941,10 +941,10 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
         back={goBack}
         nextLabel="Далі"
         onNext={() => {
-          const hasGoogleAddress = Boolean(profile.cityPlaceId && profile.streetPlaceId && profile.housePlaceId);
+          const hasVerifiedAddress = Boolean(profile.cityPlaceId && profile.streetPlaceId && profile.housePlaceId);
           const hasSavedLocation = Boolean(profile.address.trim() && Number.isFinite(Number(profile.lat)) && Number.isFinite(Number(profile.lng)));
-          if (!hasGoogleAddress && !hasSavedLocation) {
-            setAddressError("Оберіть реальну адресу з підказок Google або використайте вже збережене адміністратором місцезнаходження.");
+          if (!hasVerifiedAddress && !hasSavedLocation) {
+            setAddressError("Оберіть реальну адресу з підказок пошуку або використайте вже збережене адміністратором місцезнаходження.");
             return;
           }
           setAddressError("");
@@ -1020,7 +1020,7 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
             })}
           />
           <AddressAutocompleteRow
-            label="Вулиця" mode="street" value={profile.street} city={profile.city} disabled={!profile.cityPlaceId} verified={Boolean(profile.streetPlaceId)}
+            label="Вулиця" mode="street" value={profile.street} city={profile.city} disabled={!profile.city.trim()} verified={Boolean(profile.streetPlaceId)}
             onText={(street) => {
               setAddressError("");
               setProfile((prev) => ({ ...prev, street, streetPlaceId: "", house: "", housePlaceId: "", address: buildAddress({ ...prev, street, house: "" }) }));
@@ -1031,7 +1031,7 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
             })}
           />
           <AddressAutocompleteRow
-            label="Будинок" mode="house" value={profile.house} city={profile.city} street={profile.street} disabled={!profile.streetPlaceId} verified={Boolean(profile.housePlaceId)}
+            label="Будинок" mode="house" value={profile.house} city={profile.city} street={profile.street} disabled={!profile.street.trim()} verified={Boolean(profile.housePlaceId)}
             onText={(house) => {
               setAddressError("");
               setProfile((prev) => ({ ...prev, house, housePlaceId: "", address: buildAddress({ ...prev, house }) }));
@@ -2757,6 +2757,7 @@ type PendingPartnerPurchase = {id:string;amount:number;spent:number;earned:numbe
 function ScannerScreen({ navigate }: { navigate: Navigate }) {
   const videoRef=useRef<HTMLVideoElement|null>(null);
   const [cameraReady,setCameraReady]=useState(false);
+  const [cameraMessage,setCameraMessage]=useState('');
   const [token,setToken]=useState('');
   const [customer,setCustomer]=useState<ScannedCustomer|null>(null);
   const [purchase,setPurchase]=useState<PendingPartnerPurchase|null>(null);
@@ -2767,27 +2768,51 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
   const placeId=typeof window!=='undefined'?window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'':'';
   useEffect(()=>{
     let stream:MediaStream|null=null,cancelled=false;
-    const open=async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();setCameraReady(true);}}catch{setCameraReady(false);}};
+    const open=async()=>{try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('Камера недоступна у цьому браузері');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();setCameraReady(true);setCameraMessage('');}}catch(e){setCameraReady(false);setCameraMessage(e instanceof Error?e.message:'Не вдалося відкрити камеру');}};
     void open();return()=>{cancelled=true;stream?.getTracks().forEach(t=>t.stop());};
   },[]);
   useEffect(()=>{
     if(!cameraReady||customer)return;
-    const candidate=window as Window & {BarcodeDetector?:new(options:{formats:string[]})=>{detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>}};
-    if(!candidate.BarcodeDetector||!videoRef.current)return;
-    const detector=new candidate.BarcodeDetector({formats:['qr_code']});let scanning=false;
-    const timer=setInterval(()=>{if(scanning||!videoRef.current)return;scanning=true;void detector.detect(videoRef.current).then(codes=>{const value=codes[0]?.rawValue||'';if(value.startsWith('gt_'))setToken(value);}).catch(()=>undefined).finally(()=>{scanning=false;});},800);
-    return()=>clearInterval(timer);
+    let stopped=false;
+    let timer:ReturnType<typeof setInterval>|null=null;
+    const browser=window as Window & {BarcodeDetector?:new(options:{formats:string[]})=>{detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>};jsQR?:(pixels:Uint8ClampedArray,width:number,height:number,options?:Record<string,string>)=>{data:string}|null};
+    const accept=(value:string)=>{if(value.startsWith('gt_')&&!stopped){setToken(value);setCameraMessage('QR-код розпізнано');if(timer)clearInterval(timer);}};
+    const start=async()=>{
+      const video=videoRef.current;
+      if(!video)return;
+      if(browser.BarcodeDetector){
+        const detector=new browser.BarcodeDetector({formats:['qr_code']});let busy=false;
+        timer=setInterval(()=>{if(stopped||busy||!video.videoWidth)return;busy=true;
+          void detector.detect(video).then(codes=>accept(codes[0]?.rawValue||'')).catch(()=>undefined).finally(()=>{busy=false;});
+        },250);
+        return;
+      }
+      // Older Telegram WebViews lack BarcodeDetector. Keep the same in-page camera and decode frames.
+      if(!browser.jsQR){
+        const id='gt-qr-decoder-jsqr';
+        let script=document.getElementById(id) as HTMLScriptElement|null;
+        if(!script){script=document.createElement('script');script.id=id;script.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';script.async=true;document.head.appendChild(script);}
+        try{await new Promise<void>((resolve,reject)=>{if(browser.jsQR){resolve();return;}script!.addEventListener('load',()=>resolve(),{once:true});script!.addEventListener('error',()=>reject(new Error('QR-декодер недоступний. Перевірте інтернет-з’єднання')),{once:true});});}
+        catch(error){if(!stopped)setCameraMessage(error instanceof Error?error.message:'Не вдалося завантажити QR-декодер');return;}
+      }
+      if(stopped||!browser.jsQR)return;
+      const canvas=document.createElement('canvas');const context=canvas.getContext('2d',{willReadFrequently:true});
+      timer=setInterval(()=>{if(stopped||!context||!video.videoWidth||!video.videoHeight)return;
+        // Downscale to reduce battery use on phones while preserving QR patterns.
+        const scale=Math.min(1,640/video.videoWidth);canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+        try{context.drawImage(video,0,0,canvas.width,canvas.height);const pixels=context.getImageData(0,0,canvas.width,canvas.height);
+          accept(browser.jsQR?.(pixels.data,canvas.width,canvas.height,{inversionAttempts:'attemptBoth'})?.data||'');}
+        catch{/* keep scanning */}
+      },240);
+    };
+    void start();
+    return()=>{stopped=true;if(timer)clearInterval(timer);};
   },[cameraReady,customer]);
   useEffect(()=>{if(!token.startsWith('gt_')||!placeId||customer)return;let cancelled=false;
     void stage2Fetch<ScannedCustomer>('/partner/scan/resolve',{method:'POST',body:JSON.stringify({place_id:placeId,token})})
       .then(x=>{if(!cancelled){setCustomer(x);setError('');}}).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:'QR недійсний');});
     return()=>{cancelled=true;};
   },[token,placeId,customer]);
-  const telegramScan=()=>{
-    const webapp=(window as Window & {Telegram?:{WebApp?:{showScanQrPopup?:(params:{text:string},callback:(value:string)=>boolean)=>void;closeScanQrPopup?:()=>void}}}).Telegram?.WebApp;
-    if(webapp?.showScanQrPopup){webapp.showScanQrPopup({text:'Скануйте QR клієнта'},value=>{if(value.startsWith('gt_')){setToken(value);webapp.closeScanQrPopup?.();return true;}return false;});}
-    else setError('Якщо QR не розпізнається камерою, вставте код вручну нижче.');
-  };
   const sendQuote=async()=>{if(!customer||!placeId)return;setBusy(true);setError('');try{
     const result=await stage2Fetch<PendingPartnerPurchase>('/transactions/quote',{method:'POST',body:JSON.stringify({place_id:placeId,token,amount:Number(amount),spend:Number(spend),idempotency_key:`${token.slice(0,18)}-${amount}-${spend}`})});setPurchase(result);
   }catch(e){setError(e instanceof Error?e.message:'Не вдалося створити операцію');}finally{setBusy(false);}};
@@ -2800,7 +2825,7 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
     <main className="gt-qr-scanner-screen__content"><div className="gt-qr-viewfinder"><span className="gt-qr-corner top-left"/><span className="gt-qr-corner top-right"/><span className="gt-qr-corner bottom-left"/><span className="gt-qr-corner bottom-right"/><div className="gt-qr-scan-line"/></div>
     <p>Наведіть камеру на QR-код клієнта для надання знижки або бонусу</p>
     <section style={{width:'100%',maxWidth:390,padding:18,borderRadius:20,background:'#fff',color:'#17372f',margin:'14px auto',display:'grid',gap:12,position:'relative',zIndex:8}}>
-      {!customer?<><button type="button" className="gt-partner-secondary-button" onClick={telegramScan}>Відкрити сканер Telegram</button><label>Код клієнта<input aria-label="Код QR" placeholder="gt_..." value={token} onChange={e=>setToken(e.target.value.trim())} style={{display:'block',width:'100%',padding:10,border:'1px solid #dae2dd',borderRadius:10}}/></label></>:<><strong>{customer.customer_name} · {customer.place_name}</strong><small>Доступно бонусів: {customer.balance}</small>{!purchase?<><label>Сума покупки, ₴<input inputMode="decimal" type="number" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><label>Списати бонусів (максимум 20% чека)<input type="number" min="0" value={spend} onChange={e=>setSpend(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><button type="button" disabled={busy} className="gt-partner-secondary-button" onClick={()=>void sendQuote()}>Надіслати покупку клієнту</button></>:<><strong>Сума: {Number(purchase.amount)} ₴ · До сплати: {Number(purchase.cash_due)} ₴</strong><p>Статус: {purchase.status==='confirmed'?'Підтверджено клієнтом':purchase.status==='pending_customer'?'Очікує підтвердження клієнта':purchase.status}</p><button type="button" className="gt-partner-secondary-button" onClick={()=>void checkStatus()}>Оновити статус</button></> }</>}
+      {!customer?<><p style={{color:'#17372f'}}>{cameraMessage||(cameraReady?'Сканер активний. Наведіть камеру на QR клієнта.':'Запускаємо камеру…')}</p><details><summary style={{cursor:'pointer'}}>Ввести код вручну</summary><label>Код клієнта<input aria-label="Код QR" placeholder="gt_..." value={token} onChange={e=>setToken(e.target.value.trim())} style={{display:'block',width:'100%',padding:10,border:'1px solid #dae2dd',borderRadius:10}}/></label></details></>:<><strong>{customer.customer_name} · {customer.place_name}</strong><small>Доступно бонусів: {customer.balance}</small>{!purchase?<><label>Сума покупки, ₴<input inputMode="decimal" type="number" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><label>Списати бонусів (максимум 20% чека)<input type="number" min="0" value={spend} onChange={e=>setSpend(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><button type="button" disabled={busy} className="gt-partner-secondary-button" onClick={()=>void sendQuote()}>Надіслати покупку клієнту</button></>:<><strong>Сума: {Number(purchase.amount)} ₴ · До сплати: {Number(purchase.cash_due)} ₴</strong><p>Статус: {purchase.status==='confirmed'?'Підтверджено клієнтом':purchase.status==='pending_customer'?'Очікує підтвердження клієнта':purchase.status}</p><button type="button" className="gt-partner-secondary-button" onClick={()=>void checkStatus()}>Оновити статус</button></> }</>}
       {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}<button type="button" onClick={reset} style={{padding:10}}>Сканувати наступний код</button>
     </section></main></div>;
 }

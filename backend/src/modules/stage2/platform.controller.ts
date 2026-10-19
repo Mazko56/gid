@@ -45,6 +45,10 @@ export class PlatformController {
   @UseGuards(SessionGuard) @Get('ambassador/me') ambassador(@Req() r:AuthRequest) { return this.platform.ambassador(r.user!); }
   @UseGuards(SessionGuard) @Post('ambassador/register') register(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.registerAmbassador(r.user!,b); }
   @UseGuards(SessionGuard) @Post('ambassador/attribute') attribute(@Req() r:AuthRequest,@Body() b:{start_param:string}) { return this.platform.attribute(r.user!,b.start_param); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/clients') clients() { return this.platform.adminClients(); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/clients/:id') client(@Param('id') id:string) { return this.platform.adminClient(id); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/partners/:id/summary') partnerSummary(@Param('id') id:string) { return this.platform.adminPartnerSummary(id); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/settlements') settlements() { return this.platform.adminSettlements(); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/analytics') analytics(@Query('region_id') p?:string) { return this.platform.adminAnalytics(p); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/audit') audit(@Query('region_id') p?:string) { return this.platform.auditLog(p); }
 }
