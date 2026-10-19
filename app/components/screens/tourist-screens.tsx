@@ -3433,10 +3433,6 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" className="gt-profile-row--support" onClick={() => navigate("tourist", "community")}><Headset size={27} /><span>{tr(runtime.language, "Підтримка / спільнота", "Support / community", "Wsparcie / społeczność")}</span><ChevronRight size={20} /></button>
         </div>
         <div className="gt-profile-list gt-profile-list--reference">
-          <button type="button" onClick={() => void stage2Fetch<Record<string,unknown>>('/me/export').then(data=>{
-            const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-            const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='gid-tourist-personal-data.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
-          }).catch(e=>window.alert(e instanceof Error?e.message:'Не вдалося отримати дані'))}><ShieldCheck size={25}/><span>Експортувати мої дані</span><ChevronRight size={20}/></button>
           <button type="button" onClick={() => { if(window.confirm('Видалити обліковий запис? Особисті дані будуть знеособлені, а фінансові записи збережено згідно зі строками обліку.')) void stage2Fetch('/me/account',{method:'DELETE'}).then(()=>{window.alert('Обліковий запис знеособлено.');window.location.assign('/tourist/welcome');}).catch(e=>window.alert(e instanceof Error?e.message:'Не вдалося видалити профіль')); }}><LogOut size={25}/><span>Видалити мій обліковий запис</span><ChevronRight size={20}/></button>
         </div>
         {!runtime.user ? <div className="gt-notice"><Info size={20} /><p>{tr(runtime.language, "Профіль автоматично активується після відкриття Mini App у Telegram.", "Your profile is activated automatically when the Mini App opens in Telegram.", "Profil aktywuje się automatycznie po otwarciu Mini App w Telegramie.")}</p></div> : null}

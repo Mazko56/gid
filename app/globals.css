@@ -30041,5 +30041,169 @@ button.gt-amenities-row {
 
 /* The active in-page scanner has an animated sweep; the camera never leaves this screen. */
 @keyframes gt-qr-sweep { 0% { top: 9%; opacity: .55; } 50% { top: 88%; opacity: 1; } 100% { top: 9%; opacity: .55; } }
+
+.gt-qr-scanner-screen__content {
+  justify-content: space-between;
+  gap: 18px;
+  padding: clamp(34px, 10vh, 78px) 18px calc(18px + env(safe-area-inset-bottom));
+}
+
+.gt-qr-scanner-focus {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.gt-qr-scanner-card {
+  position: relative;
+  z-index: 8;
+  width: min(100%, 392px);
+  margin: 0 auto;
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255,255,255,.98);
+  color: #17372f;
+  box-shadow: 0 16px 46px rgba(0,0,0,.22);
+  display: grid;
+  gap: 12px;
+  max-height: min(54dvh, 430px);
+  overflow: auto;
+}
+
+.gt-qr-scanner-card__header {
+  display: grid;
+  gap: 4px;
+}
+
+.gt-qr-scanner-card__header strong {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.gt-qr-scanner-card__header small,
+.gt-qr-scanner-status-text {
+  color: #56736b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.gt-qr-scanner-manual {
+  border-top: 1px solid #e2ebe7;
+  padding-top: 10px;
+}
+
+.gt-qr-scanner-manual summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #17372f;
+}
+
+.gt-qr-field {
+  display: grid;
+  gap: 7px;
+  color: #17372f;
+  font-size: 14px;
+}
+
+.gt-qr-field span {
+  font-weight: 700;
+}
+
+.gt-qr-field input {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid #d6e1dc;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px 14px;
+  font-size: 16px;
+  color: #17372f;
+}
+
+.gt-qr-scanner-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 16px;
+  background: #f4f8f6;
+  padding: 12px 14px;
+}
+
+.gt-qr-scanner-status span {
+  font-size: 13px;
+  color: #56736b;
+}
+
+.gt-qr-scanner-status b {
+  font-size: 22px;
+  color: #17372f;
+}
+
+.gt-qr-scanner-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gt-qr-scanner-result-grid > div {
+  border-radius: 16px;
+  background: #f4f8f6;
+  padding: 12px;
+  display: grid;
+  gap: 3px;
+}
+
+.gt-qr-scanner-result-grid span {
+  color: #56736b;
+  font-size: 12px;
+}
+
+.gt-qr-scanner-result-grid b {
+  color: #17372f;
+  font-size: 17px;
+}
+
+.gt-qr-scanner-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.gt-qr-scanner-reset {
+  min-height: 46px;
+  border: 1px solid #d6e1dc;
+  border-radius: 14px;
+  background: #fff;
+  color: #17372f;
+  font-weight: 700;
+}
+
+.gt-stat-caption {
+  margin: -2px 0 8px;
+  color: #56736b;
+  font-size: 13px;
+}
+
+@media (max-width: 480px) {
+  .gt-qr-scanner-screen__content {
+    padding-right: 14px;
+    padding-left: 14px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .gt-qr-scanner-card {
+    padding: 16px;
+    border-radius: 22px;
+    max-height: min(58dvh, 440px);
+  }
+
+  .gt-qr-scanner-result-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .gt-qr-scanner-screen .gt-qr-scan-line { animation: gt-qr-sweep 2.25s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .gt-qr-scanner-screen .gt-qr-scan-line { animation: none; top: 50%; } }

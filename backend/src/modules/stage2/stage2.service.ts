@@ -1196,7 +1196,13 @@ export class Stage2Service {
 
   async partnerPlaces(user: AuthUser) {
     const result = await this.db.query(
-      `SELECT DISTINCT p.*
+      `SELECT DISTINCT p.*,
+              COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='place_viewed'),0) AS views,
+              COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='qr_scanned'),0) AS qr_scans,
+              COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='route_clicked'),0) AS route_clicks,
+              COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='call_clicked'),0) AS call_clicks,
+              COALESCE((SELECT COUNT(*)::int FROM review_entries v WHERE v.place_id=p.id AND v.status='pending'),0) AS reviews_pending_moderation,
+              COALESCE((SELECT COUNT(*)::int FROM review_entries v WHERE v.place_id=p.id AND v.status='approved'),0) AS reviews_approved
        FROM places p
        JOIN organizations o ON o.id=p.organization_id
        LEFT JOIN organization_telegram_access a ON a.organization_id=o.id AND a.active=true

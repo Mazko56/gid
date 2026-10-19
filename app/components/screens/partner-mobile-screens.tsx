@@ -1541,33 +1541,321 @@ function ContactsScreen({ navigate, activated, onActivate }: PartnerProps & { on
 
 type PartnerStatisticsTab = "general" | "clients" | "services";
 
-const statisticsClients = [
-  { initials: "ІП", name: "Іван Петренко", operations: 5, total: "2 450 ₴", commission: "123 ₴" },
-  { initials: "МК", name: "Марія Коваль", operations: 3, total: "1 800 ₴", commission: "90 ₴" },
-  { initials: "ОБ", name: "Олександр Бондар", operations: 2, total: "1 350 ₴", commission: "68 ₴" },
-  { initials: "АШ", name: "Анна Шевченко", operations: 2, total: "980 ₴", commission: "49 ₴" },
-  { initials: "ДР", name: "Дмитро Романюк", operations: 1, total: "750 ₴", commission: "38 ₴" },
-  { initials: "НМ", name: "Наталія Мельник", operations: 1, total: "620 ₴", commission: "31 ₴" },
-  { initials: "ЮГ", name: "Юрій Гнатюк", operations: 1, total: "540 ₴", commission: "27 ₴" },
-  { initials: "ІК", name: "Ірина Климчук", operations: 1, total: "510 ₴", commission: "26 ₴" },
-  { initials: "ВТ", name: "Василь Ткачук", operations: 1, total: "460 ₴", commission: "23 ₴" },
-];
+type PartnerStatisticsClientRow = {
+  key: string;
+  initials: string;
+  name: string;
+  operations: number;
+  total: number;
+  commission: number;
+  firstSeenAt: number;
+};
 
-const statisticsServices = [
-  { name: "Чан", operations: 56, total: "9 450 ₴", commission: "473 ₴", image: "/images/service-tub.webp" },
-  { name: "Сауна", operations: 34, total: "6 120 ₴", commission: "306 ₴", image: "/images/service-sauna.webp" },
-  { name: "Ресторан", operations: 28, total: "5 680 ₴", commission: "284 ₴", image: "/images/rest-excursion.webp" },
-  { name: "SPA масаж", operations: 14, total: "2 650 ₴", commission: "133 ₴", image: "/images/rest-massage.webp" },
-  { name: "Прокат велосипедів", operations: 8, total: "2 080 ₴", commission: "104 ₴", image: "/images/service-bikes.webp" },
-  { name: "Пральня", operations: 6, total: "1 240 ₴", commission: "62 ₴", image: "/images/travel-thumbnails.webp" },
-  { name: "Басейн", operations: 5, total: "980 ₴", commission: "49 ₴", image: "/images/service-pool.webp" },
-];
+type PartnerStatisticsServiceRow = {
+  key: string;
+  name: string;
+  operations: number;
+  total: number;
+  commission: number;
+  image: string;
+};
 
-function StatisticsDateFilter() {
+type PartnerStatisticsData = {
+  loading: boolean;
+  error: string;
+  placeName: string;
+  totalViews: number;
+  realClients: number;
+  operations: number;
+  turnover: number;
+  commission: number;
+  previousViews: number;
+  previousClients: number;
+  previousOperations: number;
+  previousTurnover: number;
+  previousCommission: number;
+  lineDays: string[];
+  lineValues: number[];
+  clients: PartnerStatisticsClientRow[];
+  newClients: number;
+  returningClients: number;
+  services: PartnerStatisticsServiceRow[];
+};
+
+const PARTNER_SERVICE_IMAGES: Record<string, string> = {
+  чан: "/images/service-tub.webp",
+  сауна: "/images/service-sauna.webp",
+  ресторан: "/images/rest-excursion.webp",
+  ресторану: "/images/rest-excursion.webp",
+  масаж: "/images/rest-massage.webp",
+  велосипед: "/images/service-bikes.webp",
+  басейн: "/images/service-pool.webp",
+  бронювання: "/images/travel-thumbnails.webp",
+  qr: "/images/travel-thumbnails.webp",
+};
+
+const EMPTY_PARTNER_STATS: PartnerStatisticsData = {
+  loading: true,
+  error: "",
+  placeName: "",
+  totalViews: 0,
+  realClients: 0,
+  operations: 0,
+  turnover: 0,
+  commission: 0,
+  previousViews: 0,
+  previousClients: 0,
+  previousOperations: 0,
+  previousTurnover: 0,
+  previousCommission: 0,
+  lineDays: [],
+  lineValues: [],
+  clients: [],
+  newClients: 0,
+  returningClients: 0,
+  services: [],
+};
+
+function partnerStatsNumber(value: unknown) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function partnerStatsMoney(value: number) {
+  return `${new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(Math.round(value || 0))} ₴`;
+}
+
+function partnerStatsCount(value: number) {
+  return new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(Math.round(value || 0));
+}
+
+function partnerStatsInitials(name: string) {
+  const parts = name.split(/\s+/).filter(Boolean).slice(0, 2);
+  const initials = parts.map((part) => part.charAt(0).toUpperCase()).join("");
+  return initials || "GT";
+}
+
+function partnerStatsChange(current: number, previous: number, withContext = false) {
+  if (previous <= 0 && current <= 0) return "без змін";
+  if (previous <= 0 && current > 0) return withContext ? "нові дані за період" : "нові дані";
+  const diff = ((current - previous) / previous) * 100;
+  const rounded = Math.round(Math.abs(diff));
+  if (!rounded) return withContext ? "0% до попереднього періоду" : "0%";
+  return `${diff >= 0 ? "↑" : "↓"} ${rounded}%${withContext ? " до попереднього періоду" : ""}`;
+}
+
+function partnerStatsServiceImage(name: string) {
+  const lower = name.toLocaleLowerCase("uk");
+  const match = Object.entries(PARTNER_SERVICE_IMAGES).find(([key]) => lower.includes(key));
+  return match?.[1] || "/images/travel-thumbnails.webp";
+}
+
+function partnerStatsDayKey(dateLike: string | null | undefined) {
+  if (!dateLike) return "";
+  const date = new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function partnerStatsDayLabel(dayKey: string) {
+  const date = new Date(`${dayKey}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return dayKey;
+  return new Intl.DateTimeFormat("uk-UA", { weekday: "short" }).format(date).replace('.', '');
+}
+
+function partnerStatsSeries(transactions: Array<Record<string, any>>) {
+  const days: string[] = [];
+  const amounts = new Map<string, number>();
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+    const key = date.toISOString().slice(0, 10);
+    days.push(key);
+    amounts.set(key, 0);
+  }
+  transactions.forEach((item) => {
+    const key = partnerStatsDayKey(String(item.confirmed_at || item.created_at || ""));
+    if (!key || !amounts.has(key)) return;
+    amounts.set(key, partnerStatsNumber(amounts.get(key)) + partnerStatsNumber(item.amount));
+  });
+  return { days, values: days.map((day) => partnerStatsNumber(amounts.get(day))) };
+}
+
+function buildPartnerStatistics(
+  place: Record<string, any> | undefined,
+  transactions: Array<Record<string, any>>,
+  bookings: Array<Record<string, any>>,
+  resources: Array<Record<string, any>>,
+): PartnerStatisticsData {
+  const now = Date.now();
+  const currentPeriodStart = now - (7 * 24 * 60 * 60 * 1000);
+  const previousPeriodStart = now - (14 * 24 * 60 * 60 * 1000);
+  const lastThirtyDays = now - (30 * 24 * 60 * 60 * 1000);
+
+  const confirmedTransactions = transactions.filter((item) => item.status === "confirmed");
+  const activeBookings = bookings.filter((item) => !String(item.status || "").startsWith("cancelled"));
+
+  const currentTransactions = confirmedTransactions.filter((item) => new Date(String(item.confirmed_at || item.created_at || "")).getTime() >= currentPeriodStart);
+  const previousTransactions = confirmedTransactions.filter((item) => {
+    const time = new Date(String(item.confirmed_at || item.created_at || "")).getTime();
+    return time >= previousPeriodStart && time < currentPeriodStart;
+  });
+
+  const totalViews = partnerStatsNumber(place?.views);
+  const totalQrScans = partnerStatsNumber(place?.qr_scans);
+  const turnover = confirmedTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.amount), 0);
+  const commission = confirmedTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.commission), 0);
+  const previousTurnover = previousTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.amount), 0);
+  const previousCommission = previousTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.commission), 0);
+
+  const clients = new Map<string, PartnerStatisticsClientRow>();
+  const touchClient = (key: string, name: string, seenAt: number, total = 0, commissionAmount = 0) => {
+    const safeKey = key || `${name}-${seenAt}`;
+    const existing = clients.get(safeKey);
+    if (existing) {
+      existing.operations += 1;
+      existing.total += total;
+      existing.commission += commissionAmount;
+      existing.firstSeenAt = Math.min(existing.firstSeenAt, seenAt);
+      return;
+    }
+    clients.set(safeKey, {
+      key: safeKey,
+      initials: partnerStatsInitials(name),
+      name,
+      operations: 1,
+      total,
+      commission: commissionAmount,
+      firstSeenAt: seenAt,
+    });
+  };
+
+  confirmedTransactions.forEach((item) => {
+    const seenAt = new Date(String(item.confirmed_at || item.created_at || "")).getTime() || now;
+    const key = String(item.user_id || item.customer_name || item.id);
+    const name = String(item.customer_name || "Клієнт");
+    touchClient(key, name, seenAt, partnerStatsNumber(item.amount), partnerStatsNumber(item.commission));
+  });
+  activeBookings.forEach((item) => {
+    const seenAt = new Date(String(item.starts_at || item.created_at || "")).getTime() || now;
+    const fallbackName = String(item.client_name || item.customer_name || item.phone || item.resource_name || "Клієнт");
+    const key = String(item.user_id || item.phone || `${fallbackName}-${item.id}`);
+    touchClient(key, fallbackName, seenAt, partnerStatsNumber(item.price), 0);
+  });
+
+  const clientRows = Array.from(clients.values()).sort((a, b) => b.total - a.total || b.operations - a.operations || a.name.localeCompare(b.name, "uk"));
+  const realClients = clientRows.length;
+  const newClients = clientRows.filter((item) => item.firstSeenAt >= lastThirtyDays).length;
+  const returningClients = Math.max(0, realClients - newClients);
+  const previousClients = Math.max(0, clientRows.filter((item) => item.firstSeenAt < currentPeriodStart && item.firstSeenAt >= previousPeriodStart).length);
+
+  const resourceNames = new Map<string, string>();
+  resources.forEach((item) => { resourceNames.set(String(item.id), String(item.name || "Послуга")); });
+  const servicesMap = new Map<string, PartnerStatisticsServiceRow>();
+  const touchService = (key: string, name: string, total = 0, commissionAmount = 0) => {
+    const safeKey = key || name;
+    const existing = servicesMap.get(safeKey);
+    if (existing) {
+      existing.operations += 1;
+      existing.total += total;
+      existing.commission += commissionAmount;
+      return;
+    }
+    servicesMap.set(safeKey, {
+      key: safeKey,
+      name,
+      operations: 1,
+      total,
+      commission: commissionAmount,
+      image: partnerStatsServiceImage(name),
+    });
+  };
+
+  activeBookings.forEach((item) => {
+    const resourceId = String(item.resource_id || "");
+    const name = String(item.resource_name || resourceNames.get(resourceId) || "Бронювання");
+    touchService(resourceId || name, name, partnerStatsNumber(item.price), 0);
+  });
+  if (confirmedTransactions.length) {
+    touchService("qr-purchases", "QR-покупки", turnover, commission);
+    const qrService = servicesMap.get("qr-purchases");
+    if (qrService) qrService.operations = confirmedTransactions.length;
+  }
+
+  const services = Array.from(servicesMap.values()).sort((a, b) => b.operations - a.operations || b.total - a.total || a.name.localeCompare(b.name, "uk"));
+  const { days, values } = partnerStatsSeries(currentTransactions.length ? currentTransactions : confirmedTransactions);
+
+  return {
+    loading: false,
+    error: "",
+    placeName: String(place?.name || ""),
+    totalViews,
+    realClients,
+    operations: confirmedTransactions.length,
+    turnover,
+    commission,
+    previousViews: Math.max(0, totalViews - currentTransactions.length),
+    previousClients,
+    previousOperations: previousTransactions.length,
+    previousTurnover,
+    previousCommission,
+    lineDays: days.map(partnerStatsDayLabel),
+    lineValues: values,
+    clients: clientRows,
+    newClients,
+    returningClients,
+    services,
+  };
+}
+
+function usePartnerStatisticsData() {
+  const [state, setState] = useState<PartnerStatisticsData>(EMPTY_PARTNER_STATS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setState((current) => ({ ...current, loading: true, error: "" }));
+      try {
+        const places = await stage2Fetch<Array<Record<string, any>>>("/partner/places");
+        if (cancelled) return;
+        const savedPlaceId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "" : "";
+        const place = places.find((item) => String(item.id) === savedPlaceId) ?? places[0];
+        if (!place?.id) {
+          setState({ ...EMPTY_PARTNER_STATS, loading: false, error: "Для статистики ще не знайдено заклад партнера." });
+          return;
+        }
+        const placeId = String(place.id);
+        const [transactions, bookings, resources] = await Promise.all([
+          stage2Fetch<Array<Record<string, any>>>(`/transactions?place_id=${encodeURIComponent(placeId)}`),
+          stage2Fetch<Array<Record<string, any>>>(`/bookings?place_id=${encodeURIComponent(placeId)}`),
+          stage2Fetch<Array<Record<string, any>>>(`/partner/resources/${encodeURIComponent(placeId)}`).catch(() => [] as Array<Record<string, any>>),
+        ]);
+        if (cancelled) return;
+        setState(buildPartnerStatistics(place, transactions, bookings, resources));
+      } catch (error) {
+        if (cancelled) return;
+        setState({
+          ...EMPTY_PARTNER_STATS,
+          loading: false,
+          error: error instanceof Error ? error.message : "Не вдалося завантажити статистику",
+        });
+      }
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return state;
+}
+
+function StatisticsDateFilter({ label = "За весь час" }: { label?: string }) {
   return (
-    <button type="button" className="gt-stat-date-filter">
+    <button type="button" className="gt-stat-date-filter" aria-label={label}>
       <CalendarDays size={16} />
-      <span>10 – 17 липня 2026</span>
+      <span>{label}</span>
       <ChevronRight size={14} className="gt-stat-date-filter__arrow" />
     </button>
   );
@@ -1586,113 +1874,129 @@ function StatisticMetricCard({
     <article className="gt-stat-metric-card">
       <small>{title}</small>
       <strong>{value}</strong>
-      {change ? <span>↑ {change}</span> : null}
+      {change ? <span>{change}</span> : null}
     </article>
   );
 }
 
-function StatisticsGeneralTab() {
+function StatisticsLineChart({ labels, values }: { labels: string[]; values: number[] }) {
+  const chartWidth = 340;
+  const chartHeight = 142;
+  const left = 40;
+  const top = 18;
+  const bottom = 110;
+  const right = 324;
+  const max = Math.max(...values, 1);
+  const stepX = values.length > 1 ? (right - left) / (values.length - 1) : 0;
+  const points = values.map((value, index) => {
+    const x = left + stepX * index;
+    const ratio = max === 0 ? 0 : value / max;
+    const y = bottom - ((bottom - top) * ratio);
+    return [x, y] as const;
+  });
+  const pointString = points.map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(" ");
+  const yLabels = [max, max * 0.66, max * 0.33, 0].map((item) => Math.round(item));
+
+  return (
+    <div className="gt-stat-line-chart">
+      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Динаміка операцій за останні сім днів">
+        <g className="gt-stat-chart-grid">
+          <line x1={left} y1={top} x2={right + 8} y2={top} />
+          <line x1={left} y1={48} x2={right + 8} y2={48} />
+          <line x1={left} y1={78} x2={right + 8} y2={78} />
+          <line x1={left} y1={108} x2={right + 8} y2={108} />
+        </g>
+        <g className="gt-stat-chart-ylabels">
+          <text x="2" y="22">{yLabels[0]}</text>
+          <text x="2" y="52">{yLabels[1]}</text>
+          <text x="2" y="82">{yLabels[2]}</text>
+          <text x="22" y="112">{yLabels[3]}</text>
+        </g>
+        {pointString ? <polyline className="gt-stat-chart-line" points={pointString} fill="none" /> : null}
+        <g className="gt-stat-chart-points">
+          {points.map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="5" />)}
+        </g>
+      </svg>
+      <div className="gt-stat-chart-days">{labels.map((label, index) => <span key={`${label}-${index}`}>{label}</span>)}</div>
+    </div>
+  );
+}
+
+function StatisticsGeneralTab({ stats }: { stats: PartnerStatisticsData }) {
   return (
     <>
       <h3 className="gt-stat-section-heading">Ключові показники</h3>
       <section className="gt-stat-metric-grid">
-        <StatisticMetricCard title="Переходи на сторінку" value="1 248" change="18% до попереднього тижня" />
-        <StatisticMetricCard title="Реальні клієнти" value="328" change="18% до попереднього тижня" />
-        <StatisticMetricCard title="Операції (сканування QR)" value="146" change="22% до попереднього тижня" />
-        <StatisticMetricCard title="Сума операцій" value="24 560 ₴" change="20% до попереднього тижня" />
-        <StatisticMetricCard title="Комісія Gid Tourist" value="1 228 ₴" change="5% від суми операцій" />
+        <StatisticMetricCard title="Перегляди сторінки" value={partnerStatsCount(stats.totalViews)} change={partnerStatsChange(stats.totalViews, stats.previousViews, true)} />
+        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} change={partnerStatsChange(stats.realClients, stats.previousClients, true)} />
+        <StatisticMetricCard title="Підтверджені операції" value={partnerStatsCount(stats.operations)} change={partnerStatsChange(stats.operations, stats.previousOperations, true)} />
+        <StatisticMetricCard title="Сума операцій" value={partnerStatsMoney(stats.turnover)} change={partnerStatsChange(stats.turnover, stats.previousTurnover, true)} />
+        <StatisticMetricCard title="Комісія Gid Tourist" value={partnerStatsMoney(stats.commission)} change={partnerStatsChange(stats.commission, stats.previousCommission, true)} />
       </section>
 
       <section className="gt-stat-line-block">
-        <h3 className="gt-stat-section-heading">Динаміка переходів</h3>
-        <div className="gt-stat-line-chart">
-          <svg viewBox="0 0 340 142" role="img" aria-label="Динаміка переходів за тиждень">
-            <g className="gt-stat-chart-grid">
-              <line x1="38" y1="18" x2="332" y2="18" />
-              <line x1="38" y1="48" x2="332" y2="48" />
-              <line x1="38" y1="78" x2="332" y2="78" />
-              <line x1="38" y1="108" x2="332" y2="108" />
-            </g>
-            <g className="gt-stat-chart-ylabels">
-              <text x="1" y="22">1500</text>
-              <text x="1" y="52">1200</text>
-              <text x="10" y="82">600</text>
-              <text x="16" y="112">300</text>
-              <text x="24" y="134">0</text>
-            </g>
-            <polyline
-              className="gt-stat-chart-line"
-              points="50,108 94,100 138,63 182,92 226,62 270,81 324,28"
-              fill="none"
-            />
-            <g className="gt-stat-chart-points">
-              {[
-                [50, 108], [94, 100], [138, 63], [182, 92], [226, 62], [270, 81], [324, 28],
-              ].map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="5" />)}
-            </g>
-          </svg>
-          <div className="gt-stat-chart-days">
-            <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Нд</span>
-          </div>
-        </div>
+        <h3 className="gt-stat-section-heading">Динаміка суми операцій за 7 днів</h3>
+        <StatisticsLineChart labels={stats.lineDays} values={stats.lineValues} />
       </section>
 
       <section className="gt-stat-summary-block">
-        <h3 className="gt-stat-section-heading">Підсумки за період</h3>
+        <h3 className="gt-stat-section-heading">Підсумки</h3>
         <div className="gt-stat-summary-list">
-          <div><Search size={16} /><span>Переходи на сторінку</span><strong>1 248</strong></div>
-          <div><Users size={16} /><span>Реальні клієнти</span><strong>328</strong></div>
-          <div><QrCode size={16} /><span>Операції (сканування QR)</span><strong>146</strong></div>
-          <div><WalletCards size={16} /><span>Загальна вартість операцій</span><strong>24 560 ₴</strong></div>
-          <div><ReceiptText size={16} /><span>Комісія Gid Tourist</span><strong>1 228 ₴</strong></div>
+          <div><Search size={16} /><span>Перегляди сторінки</span><strong>{partnerStatsCount(stats.totalViews)}</strong></div>
+          <div><Users size={16} /><span>Реальні клієнти</span><strong>{partnerStatsCount(stats.realClients)}</strong></div>
+          <div><QrCode size={16} /><span>Підтверджені операції</span><strong>{partnerStatsCount(stats.operations)}</strong></div>
+          <div><WalletCards size={16} /><span>Загальна сума операцій</span><strong>{partnerStatsMoney(stats.turnover)}</strong></div>
+          <div><ReceiptText size={16} /><span>Комісія Gid Tourist</span><strong>{partnerStatsMoney(stats.commission)}</strong></div>
         </div>
       </section>
     </>
   );
 }
 
-function StatisticsClientsTab() {
+function StatisticsClientsTab({ stats }: { stats: PartnerStatisticsData }) {
   const [showAll, setShowAll] = useState(false);
-  const visibleClients = showAll ? statisticsClients : statisticsClients.slice(0, 7);
+  const visibleClients = showAll ? stats.clients : stats.clients.slice(0, 7);
+  const totalClients = stats.realClients || 1;
+  const newPercent = Math.round((stats.newClients / totalClients) * 100) || 0;
+  const returningPercent = Math.max(0, 100 - newPercent);
 
   return (
     <div className="gt-stat-clients-tab">
       <section className="gt-stat-client-metrics">
-        <StatisticMetricCard title="Реальні клієнти" value="328" change="18%" />
-        <StatisticMetricCard title="Нові клієнти" value="86" change="18%" />
-        <StatisticMetricCard title="Повернулися" value="242" change="14%" />
+        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} change={partnerStatsChange(stats.realClients, stats.previousClients)} />
+        <StatisticMetricCard title="Нові клієнти (30 днів)" value={partnerStatsCount(stats.newClients)} />
+        <StatisticMetricCard title="Повернулися" value={partnerStatsCount(stats.returningClients)} />
       </section>
 
       <section className="gt-stat-table-section gt-stat-clients-section">
         <div className="gt-stat-section-title-row">
           <h3 className="gt-stat-section-heading">Список клієнтів</h3>
-          <button type="button" className="gt-stat-filter-button"><SlidersHorizontal size={15} /> Фільтри</button>
         </div>
-        <div className="gt-stat-client-table">
+        {!stats.clients.length ? <div className="gt-stage2-empty">Ще немає підтверджених клієнтів для статистики.</div> : <div className="gt-stat-client-table">
           <div className="gt-stat-client-table__head">
             <span>Клієнт</span><span>Операції</span><span>Сума операцій</span><span>Комісія</span>
           </div>
           {visibleClients.map((client) => (
-            <div className="gt-stat-client-table__row" key={client.name}>
+            <div className="gt-stat-client-table__row" key={client.key}>
               <span className="gt-stat-client-name"><i>{client.initials}</i><b>{client.name}</b></span>
-              <span>{client.operations}</span>
-              <span>{client.total}</span>
-              <span>{client.commission}</span>
+              <span>{partnerStatsCount(client.operations)}</span>
+              <span>{partnerStatsMoney(client.total)}</span>
+              <span>{partnerStatsMoney(client.commission)}</span>
             </div>
           ))}
-        </div>
-        <button type="button" className="gt-stat-show-all" onClick={() => setShowAll((value) => !value)}>
+        </div>}
+        {stats.clients.length > 7 ? <button type="button" className="gt-stat-show-all" onClick={() => setShowAll((value) => !value)}>
           {showAll ? "Показати основних клієнтів" : "Показати всіх клієнтів"}<ChevronRight size={17} />
-        </button>
+        </button> : null}
       </section>
 
       <section className="gt-stat-segmentation">
         <h3 className="gt-stat-section-heading">Сегментація клієнтів</h3>
         <div className="gt-stat-donut-layout">
-          <div className="gt-stat-donut gt-stat-donut--clients"><span><strong>328</strong><small>клієнтів</small></span></div>
+          <div className="gt-stat-donut gt-stat-donut--clients"><span><strong>{partnerStatsCount(stats.realClients)}</strong><small>клієнтів</small></span></div>
           <div className="gt-stat-donut-legend">
-            <div><i className="is-blue" /><span>Нові</span><strong>86 (26%)</strong></div>
-            <div><i className="is-green" /><span>Повернулися</span><strong>242 (74%)</strong></div>
+            <div><i className="is-blue" /><span>Нові</span><strong>{partnerStatsCount(stats.newClients)} ({newPercent}%)</strong></div>
+            <div><i className="is-green" /><span>Повернулися</span><strong>{partnerStatsCount(stats.returningClients)} ({returningPercent}%)</strong></div>
           </div>
         </div>
       </section>
@@ -1700,52 +2004,57 @@ function StatisticsClientsTab() {
   );
 }
 
-function StatisticsServicesTab() {
+function StatisticsServicesTab({ stats }: { stats: PartnerStatisticsData }) {
   const [showAll, setShowAll] = useState(false);
-  const visibleServices = showAll ? statisticsServices : statisticsServices.slice(0, 6);
+  const visibleServices = showAll ? stats.services : stats.services.slice(0, 6);
+  const topService = stats.services[0];
+  const totalOperations = stats.services.reduce((sum, item) => sum + item.operations, 0) || 1;
 
   return (
     <>
       <article className="gt-stat-top-service">
-        <div><small>Найпопулярніша послуга</small><strong>Чан</strong><span>56 операцій</span></div>
-        <img src="/images/service-tub.webp" alt="Чан" />
+        <div><small>Найпопулярніша послуга</small><strong>{topService?.name || "Ще немає даних"}</strong><span>{topService ? `${partnerStatsCount(topService.operations)} операцій` : "Очікуємо на перші операції"}</span></div>
+        <img src={topService?.image || "/images/travel-thumbnails.webp"} alt={topService?.name || "Статистика послуг"} />
       </article>
 
       <section className="gt-stat-table-section gt-stat-services-section">
-        <h3 className="gt-stat-section-heading">Популярні послуги</h3>
-        <div className="gt-stat-services-table">
+        <h3 className="gt-stat-section-heading">Послуги та операції</h3>
+        {!stats.services.length ? <div className="gt-stage2-empty">Ще немає операцій або бронювань для побудови статистики послуг.</div> : <div className="gt-stat-services-table">
           <div className="gt-stat-services-table__head">
             <span>Послуга</span><span>Операції</span><span>Сума операцій</span><span>Комісія</span>
           </div>
           {visibleServices.map((service) => (
-            <div className="gt-stat-services-table__row" key={service.name}>
+            <div className="gt-stat-services-table__row" key={service.key}>
               <span className="gt-stat-service-name"><img src={service.image} alt="" /><b>{service.name}</b></span>
-              <span>{service.operations}</span>
-              <span>{service.total}</span>
-              <span>{service.commission}</span>
+              <span>{partnerStatsCount(service.operations)}</span>
+              <span>{partnerStatsMoney(service.total)}</span>
+              <span>{partnerStatsMoney(service.commission)}</span>
             </div>
           ))}
-        </div>
-        <button type="button" className="gt-stat-show-all" onClick={() => setShowAll((value) => !value)}>
+        </div>}
+        {stats.services.length > 6 ? <button type="button" className="gt-stat-show-all" onClick={() => setShowAll((value) => !value)}>
           {showAll ? "Показати основні послуги" : "Показати всі послуги"}<ChevronRight size={17} />
-        </button>
+        </button> : null}
       </section>
 
       <section className="gt-stat-categories">
-        <h3 className="gt-stat-section-heading">Категорії послуг</h3>
+        <h3 className="gt-stat-section-heading">Розподіл по послугах</h3>
         <div className="gt-stat-donut-layout">
-          <div className="gt-stat-donut gt-stat-donut--services"><span><strong>146</strong><small>операцій</small></span></div>
+          <div className="gt-stat-donut gt-stat-donut--services"><span><strong>{partnerStatsCount(stats.services.reduce((sum, item) => sum + item.operations, 0))}</strong><small>операцій</small></span></div>
           <div className="gt-stat-donut-legend gt-stat-donut-legend--categories">
-            <div><i className="is-dark-green" /><span>Де поїсти</span><strong>70 (48%)</strong></div>
-            <div><i className="is-green" /><span>Де купити</span><strong>28 (19%)</strong></div>
-            <div><i className="is-sky" /><span>Розваги</span><strong>22 (15%)</strong></div>
-            <div><i className="is-gray" /><span>Інше</span><strong>26 (18%)</strong></div>
+            {stats.services.slice(0, 4).map((service, index) => {
+              const tones = ["is-dark-green", "is-green", "is-sky", "is-gray"];
+              const percent = Math.round((service.operations / totalOperations) * 100) || 0;
+              return <div key={service.key}><i className={tones[index] || "is-gray"} /><span>{service.name}</span><strong>{partnerStatsCount(service.operations)} ({percent}%)</strong></div>;
+            })}
+            {!stats.services.length ? <div><i className="is-gray" /><span>Немає даних</span><strong>0 (0%)</strong></div> : null}
           </div>
         </div>
       </section>
     </>
   );
 }
+
 
 
 function moderationPendingText(placeType: string) {
@@ -1812,6 +2121,7 @@ function PartnerPendingScreen({ navigate, onActivate }: { navigate: Navigate; on
 
 function StatisticsScreen({ navigate, activated }: PartnerProps) {
   const [tab, setTab] = useState<PartnerStatisticsTab>("general");
+  const stats = usePartnerStatisticsData();
 
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav gt-partner-stats-screen">
@@ -1823,11 +2133,16 @@ function StatisticsScreen({ navigate, activated }: PartnerProps) {
           <button type="button" className={tab === "services" ? "is-active" : ""} onClick={() => setTab("services")}>Послуги</button>
         </div>
 
-        <div className="gt-stat-date-wrap"><StatisticsDateFilter /></div>
+        <div className="gt-stat-date-wrap"><StatisticsDateFilter label="За весь час" /></div>
+        {stats.placeName ? <p className="gt-stat-caption">Заклад: <strong>{stats.placeName}</strong></p> : null}
+        {stats.loading ? <div className="gt-stage2-empty">Завантажуємо реальну статистику…</div> : null}
+        {!stats.loading && stats.error ? <div className="gt-stage2-empty">{stats.error}</div> : null}
 
-        {tab === "general" ? <StatisticsGeneralTab /> : null}
-        {tab === "clients" ? <StatisticsClientsTab /> : null}
-        {tab === "services" ? <StatisticsServicesTab /> : null}
+        {!stats.loading && !stats.error ? <>
+          {tab === "general" ? <StatisticsGeneralTab stats={stats} /> : null}
+          {tab === "clients" ? <StatisticsClientsTab stats={stats} /> : null}
+          {tab === "services" ? <StatisticsServicesTab stats={stats} /> : null}
+        </> : null}
       </main>
       <PartnerBottomNav active="stats" activated={activated} navigate={navigate} />
     </div>
@@ -2819,15 +3134,45 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
   const checkStatus=async()=>{if(!purchase)return;try{const list=await stage2Fetch<PendingPartnerPurchase[]>(`/transactions?place_id=${encodeURIComponent(placeId)}`);const match=list.find(x=>x.id===purchase.id);if(match)setPurchase(match);}catch(e){setError(String(e));}};
   const reset=()=>{setToken('');setCustomer(null);setPurchase(null);setAmount('');setSpend('0');setError('');};
   return <div className="gt-qr-scanner-screen">
-    <video ref={videoRef} className={`gt-qr-scanner-video ${cameraReady?'is-ready':''}`} muted playsInline/>
-    <div className="gt-qr-scanner-shade"/>
-    <header className="gt-qr-scanner-screen__header"><button type="button" onClick={()=>navigate('partner','partner-dashboard')} aria-label="Закрити"><X size={22}/></button><strong>Сканувати QR-код</strong><span/></header>
-    <main className="gt-qr-scanner-screen__content"><div className="gt-qr-viewfinder"><span className="gt-qr-corner top-left"/><span className="gt-qr-corner top-right"/><span className="gt-qr-corner bottom-left"/><span className="gt-qr-corner bottom-right"/><div className="gt-qr-scan-line"/></div>
-    <p>Наведіть камеру на QR-код клієнта для надання знижки або бонусу</p>
-    <section style={{width:'100%',maxWidth:390,padding:18,borderRadius:20,background:'#fff',color:'#17372f',margin:'14px auto',display:'grid',gap:12,position:'relative',zIndex:8}}>
-      {!customer?<><p style={{color:'#17372f'}}>{cameraMessage||(cameraReady?'Сканер активний. Наведіть камеру на QR клієнта.':'Запускаємо камеру…')}</p><details><summary style={{cursor:'pointer'}}>Ввести код вручну</summary><label>Код клієнта<input aria-label="Код QR" placeholder="gt_..." value={token} onChange={e=>setToken(e.target.value.trim())} style={{display:'block',width:'100%',padding:10,border:'1px solid #dae2dd',borderRadius:10}}/></label></details></>:<><strong>{customer.customer_name} · {customer.place_name}</strong><small>Доступно бонусів: {customer.balance}</small>{!purchase?<><label>Сума покупки, ₴<input inputMode="decimal" type="number" min="0.01" value={amount} onChange={e=>setAmount(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><label>Списати бонусів (максимум 20% чека)<input type="number" min="0" value={spend} onChange={e=>setSpend(e.target.value)} style={{display:'block',width:'100%',padding:10}}/></label><button type="button" disabled={busy} className="gt-partner-secondary-button" onClick={()=>void sendQuote()}>Надіслати покупку клієнту</button></>:<><strong>Сума: {Number(purchase.amount)} ₴ · До сплати: {Number(purchase.cash_due)} ₴</strong><p>Статус: {purchase.status==='confirmed'?'Підтверджено клієнтом':purchase.status==='pending_customer'?'Очікує підтвердження клієнта':purchase.status}</p><button type="button" className="gt-partner-secondary-button" onClick={()=>void checkStatus()}>Оновити статус</button></> }</>}
-      {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}<button type="button" onClick={reset} style={{padding:10}}>Сканувати наступний код</button>
-    </section></main></div>;
+    <video ref={videoRef} className={`gt-qr-scanner-video ${cameraReady ? 'is-ready' : ''}`} muted playsInline />
+    <div className="gt-qr-scanner-shade" />
+    <header className="gt-qr-scanner-screen__header"><button type="button" onClick={() => navigate('partner', 'partner-dashboard')} aria-label="Закрити"><X size={22} /></button><strong>Сканувати QR-код</strong><span /></header>
+    <main className="gt-qr-scanner-screen__content">
+      <div className="gt-qr-scanner-focus">
+        <div className="gt-qr-viewfinder"><span className="gt-qr-corner top-left" /><span className="gt-qr-corner top-right" /><span className="gt-qr-corner bottom-left" /><span className="gt-qr-corner bottom-right" /><div className="gt-qr-scan-line" /></div>
+        <p>Наведіть камеру на QR-код клієнта для надання знижки або бонусу</p>
+      </div>
+
+      <section className="gt-qr-scanner-card">
+        {!customer ? <>
+          <div className="gt-qr-scanner-card__header"><strong>Сканування клієнта</strong><small>{cameraMessage || (cameraReady ? 'Сканер активний. Наведіть камеру на QR клієнта.' : 'Запускаємо камеру…')}</small></div>
+          <details className="gt-qr-scanner-manual">
+            <summary>Ввести код вручну</summary>
+            <label className="gt-qr-field"><span>Код клієнта</span><input aria-label="Код QR" placeholder="gt_..." value={token} onChange={(e) => setToken(e.target.value.trim())} /></label>
+          </details>
+        </> : <>
+          <div className="gt-qr-scanner-card__header"><strong>{customer.customer_name}</strong><small>{customer.place_name}</small></div>
+          <div className="gt-qr-scanner-status"><span>Доступно бонусів</span><b>{partnerStatsCount(customer.balance)}</b></div>
+          {!purchase ? <>
+            <label className="gt-qr-field"><span>Сума покупки, ₴</span><input inputMode="decimal" type="number" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+            <label className="gt-qr-field"><span>Списати бонусів (максимум 20% чека)</span><input type="number" min="0" value={spend} onChange={(e) => setSpend(e.target.value)} /></label>
+            <button type="button" disabled={busy} className="gt-partner-secondary-button" onClick={() => void sendQuote()}>{busy ? 'Надсилаємо…' : 'Надіслати покупку клієнту'}</button>
+          </> : <>
+            <div className="gt-qr-scanner-result-grid">
+              <div><span>Сума покупки</span><b>{partnerStatsMoney(Number(purchase.amount))}</b></div>
+              <div><span>До сплати</span><b>{partnerStatsMoney(Number(purchase.cash_due))}</b></div>
+              <div><span>Списання бонусів</span><b>{partnerStatsCount(Number(purchase.spent))}</b></div>
+              <div><span>Нарахування</span><b>+{partnerStatsCount(Number(purchase.earned))}</b></div>
+            </div>
+            <p className="gt-qr-scanner-status-text">Статус: {purchase.status === 'confirmed' ? 'Підтверджено клієнтом' : purchase.status === 'pending_customer' ? 'Очікує підтвердження клієнта' : purchase.status}</p>
+            <button type="button" className="gt-partner-secondary-button" onClick={() => void checkStatus()}>Оновити статус</button>
+          </>}
+        </>}
+        {error ? <p role="alert" className="gt-qr-scanner-error">{error}</p> : null}
+        <button type="button" className="gt-qr-scanner-reset" onClick={reset}>Сканувати наступний код</button>
+      </section>
+    </main>
+  </div>;
 }
 
 function ProfileInfoRow({
