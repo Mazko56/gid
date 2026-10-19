@@ -1,0 +1,13 @@
+.git
+.next
+.sites-runtime
+.wrangler
+backend
+coverage
+dist
+node_modules
+outputs
+work
+*.log
+*.tsbuildinfo
+*.zip
