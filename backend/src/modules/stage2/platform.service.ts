@@ -211,33 +211,57 @@ export class PlatformService {
     return rows.rows;
   }
 
-  private async paymentClaims(placeId: string) {
-    return (await this.db.query(`SELECT c.id,c.place_id,c.amount,c.status,c.reference,c.receipt_filename,c.receipt_mime,
-      c.created_at,c.reviewed_at,c.review_comment FROM partner_settlement_payment_claims c
-      WHERE c.place_id=$1 ORDER BY c.created_at DESC LIMIT 200`,[placeId])).rows;
+  private settlementPeriod(from?: string, to?: string) {
+    const pattern = /^\d{4}-\d{2}-\d{2}$/;
+    if ((from && !pattern.test(from)) || (to && !pattern.test(to))) throw new BadRequestException('Некоректний формат дати. Використовуйте YYYY-MM-DD');
+    if ((from && Number.isNaN(Date.parse(`${from}T00:00:00Z`))) || (to && Number.isNaN(Date.parse(`${to}T00:00:00Z`)))) throw new BadRequestException('Некоректна дата');
+    if (from && to && from > to) throw new BadRequestException('Початок періоду пізніше завершення');
+    return {from:from || null,to:to || null};
   }
 
-  async settlement(user: AuthUser, placeId: string) {
+  private async paymentClaims(placeId: string, from?: string | null, to?: string | null) {
+    return (await this.db.query(`SELECT c.id,c.place_id,c.amount,c.status,c.reference,c.receipt_filename,c.receipt_mime,
+      c.created_at,c.reviewed_at,c.review_comment FROM partner_settlement_payment_claims c
+      WHERE c.place_id=$1 AND ($2::date IS NULL OR c.created_at >= $2::date)
+      AND ($3::date IS NULL OR c.created_at < ($3::date + interval '1 day'))
+      ORDER BY c.created_at DESC LIMIT 200`,[placeId,from||null,to||null])).rows;
+  }
+
+  async settlement(user: AuthUser, placeId: string, from?: string, to?: string) {
     const place = await this.placeWithRole(user,placeId,['owner','manager']);
-    const [summary, payments, verifiedPaid] = await Promise.all([
+    const period=this.settlementPeriod(from,to);
+    const [summary, payments, verifiedPaid, overall, pendingClaim] = await Promise.all([
       this.db.query(`SELECT COUNT(*) FILTER(WHERE status='confirmed')::integer AS transactions,
         COALESCE(SUM(amount) FILTER(WHERE status='confirmed'),0)::numeric AS turnover,
         COALESCE(SUM(commission) FILTER(WHERE status='confirmed'),0)::numeric AS commission_due,
         COALESCE(SUM(spent) FILTER(WHERE status='confirmed'),0)::numeric AS bonus_compensation_due
-        FROM purchase_transactions WHERE place_id=$1`,[placeId]),
-      this.paymentClaims(placeId),
-      this.db.query(`SELECT COALESCE(SUM(amount),0) AS total FROM partner_settlement_payment_claims WHERE place_id=$1 AND status='approved'`,[placeId]),
+        FROM purchase_transactions WHERE place_id=$1
+        AND ($2::date IS NULL OR COALESCE(confirmed_at,created_at) >= $2::date)
+        AND ($3::date IS NULL OR COALESCE(confirmed_at,created_at) < ($3::date + interval '1 day'))`,[placeId,period.from,period.to]),
+      this.paymentClaims(placeId,period.from,period.to),
+      this.db.query(`SELECT COALESCE(SUM(amount),0) AS total FROM partner_settlement_payment_claims
+        WHERE place_id=$1 AND status='approved'
+        AND ($2::date IS NULL OR reviewed_at >= $2::date)
+        AND ($3::date IS NULL OR reviewed_at < ($3::date + interval '1 day'))`,[placeId,period.from,period.to]),
+      this.db.query(`SELECT
+        COALESCE((SELECT SUM(commission-spent) FROM purchase_transactions WHERE place_id=$1 AND status='confirmed'),0)
+        - COALESCE((SELECT SUM(amount) FROM partner_settlement_payment_claims WHERE place_id=$1 AND status='approved'),0) AS total_due`,[placeId]),
+      this.db.query(`SELECT EXISTS(SELECT 1 FROM partner_settlement_payment_claims WHERE place_id=$1 AND status='pending') AS has_pending`,[placeId]),
     ]);
     const commission = money(summary.rows[0]?.commission_due ?? 0);
     const compensation = money(summary.rows[0]?.bonus_compensation_due ?? 0);
     const paid = money(verifiedPaid.rows[0]?.total ?? 0);
-    const balance = money(commission-compensation-paid);
+    const balance = money(overall.rows[0]?.total_due ?? 0);
     const transactions = (await this.db.query(`SELECT t.id,t.created_at,t.confirmed_at,t.status,t.amount,t.commission,t.commission_rate,t.spent,
       u.first_name AS customer_name FROM purchase_transactions t JOIN users u ON u.id=t.user_id
-      WHERE t.place_id=$1 ORDER BY t.created_at DESC LIMIT 500`,[placeId])).rows;
-    return {place_id:place.id,place_name:place.name,...summary.rows[0],confirmed_transactions:Number(summary.rows[0]?.transactions||0),net_due:money(commission-compensation),
-      paid_commission:paid,balance_due:balance,transactions,payments,
-      notice:'Сплачено лише за підтвердженими фінансовим оператором заявками; подання заявки не є оплатою.'};
+      WHERE t.place_id=$1
+      AND ($2::date IS NULL OR COALESCE(t.confirmed_at,t.created_at) >= $2::date)
+      AND ($3::date IS NULL OR COALESCE(t.confirmed_at,t.created_at) < ($3::date + interval '1 day'))
+      ORDER BY t.created_at DESC LIMIT 500`,[placeId,period.from,period.to])).rows;
+    return {place_id:place.id,place_name:place.name,...summary.rows[0],confirmed_transactions:Number(summary.rows[0]?.transactions||0),
+      net_due:money(commission-compensation), paid_commission:paid,balance_due:balance,transactions,payments,
+      period_from:period.from,period_to:period.to,pending_payment_claim:pendingClaim.rows[0]?.has_pending===true,
+      notice:'Оборот, комісії та підтверджені оплати відфільтровано за періодом. Поточний борг показано за весь час. Платіж зараховується лише після перевірки.'};
   }
 
   async submitSettlementPayment(user: AuthUser, body: Record<string,unknown>) {
@@ -247,12 +271,12 @@ export class PlatformService {
     if(reference.length<5) throw new BadRequestException('Вкажіть номер або призначення реального платежу (від 5 символів)');
     const filename=txt(body.receipt_filename,150);
     const mime=txt(body.receipt_mime,60);
-    const raw=txt(body.receipt_base64,3_000_000);
+    const raw=txt(body.receipt_base64,8_500_000);
     if(!raw || !['image/jpeg','image/png','application/pdf'].includes(mime) || !filename)
       throw new BadRequestException('Додайте квитанцію JPG, PNG або PDF');
     if(!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) throw new BadRequestException('Пошкоджений файл квитанції');
     const receipt=Buffer.from(raw,'base64');
-    if(receipt.length>2*1024*1024 || receipt.length<100) throw new BadRequestException('Розмір квитанції має бути від 100 байт до 2 МБ');
+    if(receipt.length>6*1024*1024 || receipt.length<100) throw new BadRequestException('Розмір квитанції має бути від 100 байт до 6 МБ');
     if((mime==='application/pdf' && receipt.subarray(0,4).toString()!=='%PDF') ||
       (mime==='image/png' && receipt.subarray(0,4).toString('hex')!=='89504e47') ||
       (mime==='image/jpeg' && receipt.subarray(0,3).toString('hex')!=='ffd8ff'))
@@ -310,6 +334,74 @@ export class PlatformService {
         VALUES($1,'admin',$2,'partner_payment',$3,$4,$5::jsonb)`,[makeId('audit'),claim.region_id,id,status,json({amount:claim.amount,reference:claim.reference,comment:txt(comment,500)})]);
       return updated;
     });
+  }
+
+  async partnerOffers(user: AuthUser) {
+    const result = await this.db.query(`SELECT o.id,o.place_id,o.title,o.discount AS discount_label,
+      o.description AS short_description,o.detail AS description,o.terms,o.image_url,o.valid_until,
+      o.moderation_status AS status,o.moderation_comment,p.image_url AS place_image_url
+      FROM hot_offers o JOIN places p ON p.id=o.place_id JOIN organizations org ON org.id=p.organization_id
+      LEFT JOIN organization_telegram_access a ON a.organization_id=org.id AND a.active=true AND a.telegram_id::text=$2
+      WHERE (org.owner_user_id=$1 OR a.role IN ('owner','manager')) AND o.submitted_by_user_id IS NOT NULL AND o.active=true
+      ORDER BY o.updated_at DESC`,[user.id,user.telegram_id||'']);
+    return result.rows;
+  }
+
+  async savePartnerOffer(user: AuthUser, body: Record<string,unknown>, offerId?: string) {
+    const id=offerId || makeId('offer');
+    let placeId=txt(body.place_id,90);
+    if(offerId) {
+      const existing=(await this.db.query('SELECT place_id,submitted_by_user_id FROM hot_offers WHERE id=$1 AND active=true',[offerId])).rows[0];
+      if(!existing || !existing.submitted_by_user_id) throw new NotFoundException('Пропозицію партнера не знайдено');
+      placeId=existing.place_id;
+    }
+    if(!placeId) throw new BadRequestException('Не знайдено заклад для пропозиції');
+    const place=await this.placeWithRole(user,placeId,['owner','manager']);
+    if(place.status!=='approved') throw new ForbiddenException('Створювати пропозиції можна після схвалення закладу');
+    const title=txt(body.title,160);
+    const discount=txt(body.discount_label,120);
+    if(!title || !discount) throw new BadRequestException('Заповніть назву та умову акції');
+    const shortDescription=txt(body.short_description,450);
+    const fullDescription=txt(body.description,3000);
+    const terms=txt(body.terms,2000);
+    const imageUrl=txt(body.image_url,4_500_000) || null;
+    if(imageUrl && !(/^(data:image\/(jpeg|png|webp);base64,)/.test(imageUrl) || /^https:\/\//.test(imageUrl)))
+      throw new BadRequestException('Некоректний формат фото');
+    const rawUntil=txt(body.valid_until,50);
+    const validUntil=rawUntil && !Number.isNaN(Date.parse(rawUntil)) ? new Date(rawUntil) : null;
+    if(rawUntil && !validUntil) throw new BadRequestException('Некоректна дата завершення');
+    if(validUntil && validUntil.getTime()<=Date.now()) throw new BadRequestException('Дата завершення має бути у майбутньому');
+    const category=(await this.db.query('SELECT category_slug,subcategory FROM places WHERE id=$1',[place.id])).rows[0];
+    const result=offerId
+      ? await this.db.query(`UPDATE hot_offers SET title=$3,discount=$4,description=$5,detail=$6,terms=$7,
+         image_url=$8,valid_until=$9,moderation_status='pending',moderation_comment='',updated_at=now()
+         WHERE id=$1 AND place_id=$2 AND submitted_by_user_id IS NOT NULL AND active=true RETURNING id`,
+        [id,place.id,title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil])
+      : await this.db.query(`INSERT INTO hot_offers(id,region_id,place_id,category_slug,category_label,title,discount,
+          description,detail,terms,image_url,valid_until,badge,badge_tone,active,moderation_status,submitted_by_user_id)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Партнер','green',true,'pending',$13) RETURNING id`,
+        [id,place.region_id,place.id,category?.category_slug||'',category?.subcategory||'',title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil,user.id]);
+    if(!result.rows[0]) throw new NotFoundException('Пропозицію не знайдено');
+    await this.audit(user.id,place.region_id,'hot_offer',id,offerId?'partner_resubmitted':'partner_submitted');
+    return {id,status:'pending'};
+  }
+
+  async deletePartnerOffer(user: AuthUser, offerId: string) {
+    const existing=(await this.db.query('SELECT place_id,region_id,submitted_by_user_id FROM hot_offers WHERE id=$1 AND active=true',[offerId])).rows[0];
+    if(!existing || !existing.submitted_by_user_id) throw new NotFoundException('Пропозицію не знайдено');
+    await this.placeWithRole(user,existing.place_id,['owner','manager']);
+    await this.db.query('UPDATE hot_offers SET active=false,updated_at=now() WHERE id=$1',[offerId]);
+    await this.audit(user.id,existing.region_id,'hot_offer',offerId,'partner_deleted');
+    return {ok:true};
+  }
+
+  async moderatePartnerOffer(id: string, status: string, comment='') {
+    if(!['approved','rejected'].includes(status)) throw new BadRequestException('Некоректний статус модерації');
+    const result=(await this.db.query(`UPDATE hot_offers SET moderation_status=$2,moderation_comment=$3,updated_at=now()
+      WHERE id=$1 AND submitted_by_user_id IS NOT NULL AND active=true RETURNING id,region_id`,[id,status,txt(comment,800)])).rows[0];
+    if(!result) throw new NotFoundException('Пропозицію на модерації не знайдено');
+    await this.audit(null,result.region_id,'hot_offer',id,'moderated',{status,comment:txt(comment,800)});
+    return {id,status};
   }
 
   async resources(placeId: string) {

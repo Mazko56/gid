@@ -2481,6 +2481,18 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
       setSavingOffer(false);
     }
   };
+  const moderatePartnerOffer = async (offer:Stage2HotOffer,status:"approved"|"rejected") => {
+    const comment = status === "rejected" ? window.prompt("Причина відхилення пропозиції:", "") : "";
+    if (status === "rejected" && comment === null) return;
+    try {
+      await adminStage2Fetch(`/admin/platform/offers/${encodeURIComponent(offer.id)}/moderate`,adminKey,{method:"PATCH",body:JSON.stringify({status,comment:comment||""})});
+      setMessage(status === "approved" ? "Пропозицію схвалено та опубліковано." : "Пропозицію відхилено.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Помилка модерації пропозиції");
+    }
+  };
+
   const deleteOffer = async (offer:Stage2HotOffer) => {
     if(!window.confirm(`Видалити пропозицію «${offer.title}»?`))return;
     try {
@@ -2535,7 +2547,11 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
         <label className="ad-stage2-check"><input type="checkbox" checked={offerActive} onChange={(e)=>setOfferActive(e.target.checked)} /><span>Пропозиція активна</span></label>
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={()=>void saveOffer()} disabled={savingOffer}>{offerId?<Check size={14}/>:<Plus size={14}/>} {savingOffer?"Збереження...":offerId?"Зберегти пропозицію":"Додати пропозицію"}</PrimaryButton>{offerId?<OutlineButton onClick={resetOffer}>Скасувати</OutlineButton>:null}</div>
         <div className="ad-page-editor-list">
-          {offers.map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span><strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small></span><div><button type="button" onClick={()=>editOffer(offer)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteOffer(offer)}><Trash2 size={13}/> Видалити</button></div></article>)}
+          {offers.map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span><strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small>
+              {offer.submitted_by_user_id ? <small>Від партнера · {offer.moderation_status==='pending'?'На модерації':offer.moderation_status==='rejected'?'Відхилено':'Схвалено'} {offer.moderation_comment?`· ${offer.moderation_comment}`:''}</small> : null}
+              </span><div>{offer.submitted_by_user_id && offer.moderation_status!=='approved' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"approved")}><Check size={13}/> Схвалити</button>:null}
+              {offer.submitted_by_user_id && offer.moderation_status==='pending' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"rejected")}><X size={13}/> Відхилити</button>:null}
+              <button type="button" onClick={()=>editOffer(offer)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteOffer(offer)}><Trash2 size={13}/> Видалити</button></div></article>)}
         </div>
       </section>
     </AdminShell>

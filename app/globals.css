@@ -30248,3 +30248,97 @@ button.gt-amenities-row {
 
 .ad-settlement-search { display:flex; align-items:center; gap:10px; max-width:500px; margin:14px 0; border:1px solid #d5e6dc; background:#fff; border-radius:12px; padding:0 14px; color:#567963; }
 .ad-settlement-search input { flex:1; min-width:0; padding:13px 4px; border:0; outline:none; background:transparent; color:#1b4230; }
+
+
+/* 2026-10-19: partner receipts, date-range filters and booking resource mobile layout. */
+.gt-finance-upload-box { position: relative; overflow: hidden; gap: 12px; width: 100%; min-height: 92px; background:#f7faf8; border: 1.5px dashed #9bd7ba; border-radius: 16px; padding: 16px; }
+.gt-finance-upload-box input[type="file"] { display: block !important; position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2; font-size: 30px; }
+.gt-finance-upload-box > svg { flex-shrink: 0; color: #178950; }
+.gt-finance-upload-box span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gt-finance-upload-box span b { font-size: 13px; line-height: 1.35; color: #18392c; }
+.gt-finance-upload-box span small { font-size: 11px; line-height: 1.35; color: #617469; }
+.gt-finance-attachment-success { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; color: #178950; overflow-wrap: anywhere; }
+.gt-finance-date-selector { display: grid; gap: 10px; width: 100%; min-width: 0; padding: 0; }
+.gt-finance-period-select { display: flex; align-items: center; gap: 10px; min-height: 48px; width: 100%; border: 1px solid #dde7e0; border-radius: 14px; background: #fff; padding: 0 12px; color: #1d4b35; }
+.gt-finance-period-select > svg { flex-shrink: 0; }
+.gt-finance-period-select > span { font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.gt-finance-period-select > svg:last-child { transform: rotate(90deg); }
+.gt-finance-period-select select { font-size: 13px; font-weight: 700; color: #1b352b; min-width: 0; flex: 1; background: transparent; border: 0; outline: 0; appearance: none; padding: 10px 2px; width: 100%; }
+.gt-finance-period-dates { width: 100%; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.gt-finance-period-dates label { min-width: 0; display: grid; gap: 5px; font-size: 11px; font-weight: 700; color: #64796d; }
+.gt-finance-period-dates input { min-width: 0; width: 100%; height: 47px; padding: 6px 8px; background: #fff; color: #1b352b; border: 1px solid #dce7df; border-radius: 12px; font-size: 13px; box-sizing: border-box; }
+.gt-finance-period-dates input::-webkit-date-and-time-value { text-align: left; }
+.gt-finance-content { min-width: 0; }
+.gt-partner-booking-content { display: grid; align-content: start; gap: 14px; min-width: 0; padding: 12px 14px calc(96px + env(safe-area-inset-bottom)); }
+.gt-booking-panel { min-width: 0; width: 100%; display: grid; align-content: start; gap: 14px; background: #fff; border: 1px solid #e4ebe6; border-radius: 19px; padding: 17px 15px; box-shadow: 0 3px 13px rgba(30,76,50,.04); }
+.gt-booking-panel__heading { min-width: 0; display: flex; align-items: flex-start; gap: 11px; }
+.gt-booking-panel__heading > div { min-width: 0; flex: 1; }
+.gt-booking-panel__icon { width: 37px; height: 37px; display: grid; place-items: center; flex: 0 0 auto; background: #eaf7f0; border-radius: 12px; color: #12975c; }
+.gt-booking-panel__heading h2 { margin: 0; color: #1b372a; font-size: 17px; line-height: 1.25; font-weight: 750; overflow-wrap: anywhere; }
+.gt-booking-panel__heading p { margin: 4px 0 0; color: #819087; font-size: 11px; line-height: 1.4; }
+.gt-booking-panel__subheading { margin-top: 4px; font-size: 14px; font-weight: 750; color: #1a402d; }
+.gt-booking-resource-list { display: grid; min-width: 0; }
+.gt-booking-resource-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; min-width: 0; border-bottom: 1px solid #e8eee9; }
+.gt-booking-resource-row > div { min-width: 0; display: grid; gap: 3px; flex: 1; }
+.gt-booking-resource-row strong { min-width: 0; font-size: 13px; font-weight: 750; line-height: 1.35; color: #1b362b; overflow-wrap: anywhere; }
+.gt-booking-resource-row small { color: #798a7e; font-size: 11px; line-height: 1.4; }
+.gt-booking-resource-row > b { flex: 0 0 auto; max-width: 44%; color: #0f9259; font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.gt-booking-field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; min-width: 0; }
+.gt-booking-field-grid > :first-child { grid-column: 1 / -1; }
+.gt-booking-field { min-width: 0; display: grid; gap: 6px; color: #42594b; font-size: 12px; font-weight: 650; }
+.gt-booking-field > span { line-height: 1.3; }
+.gt-booking-field input,.gt-booking-field select { width: 100%; min-width: 0; min-height: 47px; padding: 10px 11px; box-sizing: border-box; border: 1px solid #dbe5df; border-radius: 12px; background: #f9fbfa; color: #1e3c2d; font-size: 15px; font-weight: 500; outline-offset: 2px; }
+.gt-booking-field input[type="date"],.gt-booking-field input[type="time"] { font-size: 13px; padding: 10px 7px; appearance: auto; -webkit-appearance: auto; }
+.gt-booking-field input::-webkit-date-and-time-value { text-align: left; min-height: 1em; }
+.gt-booking-date-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; min-width: 0; }
+.gt-booking-action { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; padding: 12px 14px; border: 0; border-radius: 13px; background: #159660; color: #fff; font-size: 13px; font-weight: 750; line-height: 1.3; white-space: normal; text-align: center; overflow-wrap: anywhere; }
+.gt-booking-action:disabled { opacity: .48; }
+.gt-booking-empty { margin: 0; font-size: 12px; line-height: 1.45; color: #7c8c82; }
+.gt-booking-request { display: grid; gap: 7px; min-width: 0; padding: 13px; background: #f8fbf9; border: 1px solid #e6eee7; border-radius: 14px; }
+.gt-booking-request__head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.gt-booking-request__head strong { color: #1a3c2b; font-size: 13px; overflow-wrap: anywhere; }
+.gt-booking-request__head span { color: #168c56; background: #e6f7ee; border-radius: 8px; padding: 5px 7px; font-size: 10px; font-weight: 700; }
+.gt-booking-request time { font-size: 12px; font-weight: 650; color: #2f6045; }
+.gt-booking-request p { font-size: 12px; margin: 0; color: #496456; overflow-wrap: anywhere; }
+.gt-booking-request small { color: #7b8b80; overflow-wrap: anywhere; }
+.gt-booking-request__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.gt-booking-request__actions button { min-height: 39px; flex: 1 1 110px; border: 1px solid #168c56; border-radius: 11px; padding: 9px 12px; background: #159660; color: #fff; font-size: 12px; font-weight: 700; white-space: normal; }
+.gt-booking-request__actions button.is-muted { background: #fff; border-color: #d6e0d8; color: #58665e; }
+.gt-booking-message { font-size: 12px; font-weight: 650; line-height: 1.5; margin: 0; padding: 12px; background: #ecf6ee; border-radius: 13px; overflow-wrap: anywhere; }
+@media (max-width: 360px) {
+ .gt-partner-booking-content { padding-left: 9px; padding-right: 9px; }
+ .gt-booking-panel { padding: 14px 11px; }
+ .gt-booking-field-grid { gap: 8px; }
+ .gt-booking-date-grid { grid-template-columns: 1fr; }
+ .gt-finance-period-dates { grid-template-columns: 1fr; }
+}
+/* Partner hot offers: reuse the green/white mobile cabinet design system. */
+.gt-partner-offers-screen .gt-partner-mobile-content { padding-top: 12px; padding-bottom: calc(100px + env(safe-area-inset-bottom)); min-width: 0; }
+.gt-partner-offer-editor,.gt-partner-offers-list { min-width: 0; background: #fff; border: 1px solid #e6eee7; border-radius: 18px; padding: 16px; display: grid; gap: 12px; }
+.gt-partner-offer-editor__title { display: flex; align-items: center; gap: 11px; min-width: 0; color: #178b54; }
+.gt-partner-offer-editor__title > div { display: grid; gap: 3px; min-width: 0; }
+.gt-partner-offer-editor__title strong,.gt-partner-offers-list h2 { color: #1b3a2a; font-size: 17px; margin: 0; }
+.gt-partner-offer-editor__title small { font-size: 11px; color: #829087; line-height: 1.4; }
+.gt-partner-offer-editor > label { display: grid; gap: 6px; min-width: 0; font-size: 12px; color: #435d4c; font-weight: 700; }
+.gt-partner-offer-editor input:not([type=file]),.gt-partner-offer-editor textarea { min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid #dce7df; border-radius: 12px; padding: 12px; background: #fbfcfb; color: #1f3b2d; font-size: 14px; font-weight: 500; }
+.gt-partner-offer-editor textarea { resize: vertical; line-height: 1.45; }
+.gt-partner-offer-editor input[type=date] { -webkit-appearance: auto; }
+.gt-partner-offer-photo { position: relative; border: 1px dashed #add6bf; border-radius: 14px; padding: 12px; min-height: 82px; overflow: hidden; }
+.gt-partner-offer-photo > img { display: block; width: 100%; max-height: 210px; border-radius: 10px; object-fit: contain; }
+.gt-partner-offer-photo__empty { display: flex; align-items: center; gap: 9px; font-size: 12px; color: #238251; }
+.gt-partner-offer-photo input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.gt-partner-offer-editor__actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.gt-partner-offer-editor__actions button { min-width: 0; flex: 1 1 128px; min-height: 45px; padding: 9px 12px; font-size: 12px; white-space: normal; overflow-wrap: anywhere; border-radius: 12px; }
+.gt-partner-offer-message { font-size: 12px; color: #1f653b; margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.gt-partner-offers-list { margin-top: 15px; }
+.gt-partner-offer-card { display: grid; grid-template-columns: 58px minmax(0,1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #edf2ee; padding: 8px 0 13px; }
+.gt-partner-offer-card > img,.gt-partner-offer-card__image { display: grid; place-items: center; width: 58px; height: 65px; border-radius: 12px; background: #eaf4ed; color: #298b5e; object-fit: cover; }
+.gt-partner-offer-card > div:nth-child(2) { display: grid; min-width: 0; gap: 4px; }
+.gt-partner-offer-card > div:nth-child(2) strong { font-size: 13px; color: #1e3c2a; overflow-wrap: anywhere; }
+.gt-partner-offer-card > div:nth-child(2) small,.gt-partner-offer-card em { font-size: 11px; color: #798a7e; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }
+.gt-partner-offer-status { display: inline-block; justify-self: start; font-size: 10px; background: #fdf5e9; color: #9c6926; border-radius: 7px; padding: 4px 7px; }
+.gt-partner-offer-status.is-approved { background: #ebf7ee; color: #188e50; }
+.gt-partner-offer-status.is-rejected { background: #fcecec; color: #b84141; }
+.gt-partner-offer-card__actions { display: grid; gap: 6px; }
+.gt-partner-offer-card__actions button { display: grid; place-items: center; width: 32px; height: 32px; background: #f1f7f3; border: 1px solid #e0e9e2; border-radius: 9px; color: #278253; }
+@media (max-width: 360px) { .gt-partner-offer-card { grid-template-columns: 44px minmax(0,1fr) auto; gap: 7px; } .gt-partner-offer-card > img,.gt-partner-offer-card__image { width: 44px; height: 51px; } }

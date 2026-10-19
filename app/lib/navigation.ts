@@ -375,6 +375,14 @@ export const screens: ScreenDefinition[] = [
     role: "partner",
   },
   {
+    id: "P01OFF",
+    slug: "partner-offers",
+    title: "Гарячі пропозиції",
+    shortTitle: "Пропозиції",
+    description: "Створення та модерація акцій партнерів",
+    role: "partner",
+  },
+  {
     id: "P01I",
     slug: "partner-services",
     title: "Послуги закладу",

@@ -2243,7 +2243,9 @@ function CabinetScreen({ navigate }: { navigate: Navigate }) {
     "Налаштування",
   ];
   const configuredModules = profile.cabinetModules ?? [];
-  const moduleNames = configuredModules.length >= 3 ? configuredModules : baseModules;
+  const moduleNames = configuredModules.length >= 3
+    ? [...configuredModules, ...(!configuredModules.includes("Гарячі пропозиції") ? ["Гарячі пропозиції"] : [])]
+    : baseModules;
   const enabled = moduleNames
     .filter((name) => profile.hasWifi || name !== "Wi‑Fi")
     .map((name) => definitions[name] ?? { slug: "partner-update", icon: Info, title: name, note: "Налаштування цього розділу кабінету" })
@@ -2304,7 +2306,9 @@ function PartnerOffersScreen({ navigate }: { navigate: Navigate }) {
     if (!title.trim() || !discount.trim()) { setMessage("Вкажіть назву та розмір знижки / умову акції"); return; }
     setSaving(true); setMessage("");
     try {
-      const body = JSON.stringify({ title: title.trim(), discount_label: discount.trim(), short_description: shortDescription.trim(), description: description.trim(), valid_until: validUntil ? `${validUntil}T23:59:59+03:00` : null, terms: terms.trim(), image_url: imageUrl, badge: "Партнер", badge_tone: "green" });
+      const placeId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "" : "";
+      if (!placeId) throw new Error("Спочатку відкрийте свій заклад у кабінеті партнера");
+      const body = JSON.stringify({ place_id: placeId, title: title.trim(), discount_label: discount.trim(), short_description: shortDescription.trim(), description: description.trim(), valid_until: validUntil ? `${validUntil}T23:59:59+03:00` : null, terms: terms.trim(), image_url: imageUrl, badge: "Партнер", badge_tone: "green" });
       if (editingId) await stage2Fetch(`/partner/offers/${encodeURIComponent(editingId)}`, { method: "PATCH", body });
       else await stage2Fetch("/partner/offers", { method: "POST", body });
       setMessage("Пропозицію збережено та відправлено адміністрації на модерацію.");
@@ -3000,24 +3004,99 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const placeId=typeof window!=='undefined'?window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'':'';
   const [resources,setResources]=useState<PartnerResource[]>([]);
   const [bookings,setBookings]=useState<PartnerBooking[]>([]);
-  const [name,setName]=useState('');const [capacity,setCapacity]=useState('4');const [duration,setDuration]=useState('60');const [price,setPrice]=useState('0');
-  const [selectedResource,setSelectedResource]=useState('');const [clientName,setClientName]=useState('');const [phone,setPhone]=useState('');
-  const [date,setDate]=useState(()=>new Date(Date.now()+86400000).toISOString().slice(0,10));const [time,setTime]=useState('12:00');
-  const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
-  const reload=async()=>{if(!placeId)return;try{const [r,b]=await Promise.all([stage2Fetch<PartnerResource[]>(`/partner/resources/${encodeURIComponent(placeId)}`),stage2Fetch<PartnerBooking[]>(`/bookings?place_id=${encodeURIComponent(placeId)}`)]);setResources(r);setBookings(b);if(!selectedResource&&r[0])setSelectedResource(r[0].id);}catch(e){setMessage(e instanceof Error?e.message:'Помилка завантаження');}};
+  const [name,setName]=useState('');
+  const [capacity,setCapacity]=useState('4');
+  const [duration,setDuration]=useState('60');
+  const [price,setPrice]=useState('0');
+  const [selectedResource,setSelectedResource]=useState('');
+  const [clientName,setClientName]=useState('');
+  const [phone,setPhone]=useState('');
+  const [date,setDate]=useState(()=>new Date(Date.now()+86400000).toISOString().slice(0,10));
+  const [time,setTime]=useState('12:00');
+  const [message,setMessage]=useState('');
+  const [busy,setBusy]=useState(false);
+  const reload=async()=>{
+    if(!placeId) return;
+    try {
+      const [r,b]=await Promise.all([
+        stage2Fetch<PartnerResource[]>(`/partner/resources/${encodeURIComponent(placeId)}`),
+        stage2Fetch<PartnerBooking[]>(`/bookings?place_id=${encodeURIComponent(placeId)}`),
+      ]);
+      setResources(r);setBookings(b);
+      if(!r.some(item=>item.id===selectedResource))setSelectedResource(r[0]?.id||'');
+    }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося завантажити бронювання');}
+  };
   useEffect(()=>{void reload();},[placeId]);
-  const createResource=async()=>{setBusy(true);setMessage('');try{await stage2Fetch('/partner/resources',{method:'POST',body:JSON.stringify({place_id:placeId,name,capacity:Number(capacity),duration_minutes:Number(duration),price:Number(price)})});setName('');await reload();setMessage('Ресурс збережено');}catch(e){setMessage(e instanceof Error?e.message:'Не вдалося зберегти');}finally{setBusy(false);}};
-  const updateStatus=async(id:string,status:string)=>{setBusy(true);try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();}catch(e){setMessage(e instanceof Error?e.message:'Не вдалося оновити статус');}finally{setBusy(false);}};
-  const addManual=async()=>{setBusy(true);try{await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName,phone,party_size:1,starts_at:new Date(`${date}T${time}:00+03:00`).toISOString()})});setMessage('Ручний запис додано');setClientName('');await reload();}catch(e){setMessage(e instanceof Error?e.message:'Слот зайнятий');}finally{setBusy(false);}};
-  return <div className="gt-partner-mobile-screen has-bottom-nav"><PartnerHeader title="Бронювання і ресурси" navigate={navigate} back="partner-cabinet"/>
-    <main className="gt-partner-mobile-content gt-partner-form-page" style={{display:'grid',gap:18}}>
-      <FormCard><h3>Ресурси для бронювання</h3>{resources.map(r=><div key={r.id} style={{display:'flex',justifyContent:'space-between',padding:'12px 0',borderBottom:'1px solid #e4e9e6'}}><span>{r.name}</span><strong>{Number(r.price)} ₴ · {r.duration_minutes} хв</strong></div>)}
-        <h4>Додати ресурс</h4><InputRow label="Назва (чан №1, столик, номер...)" value={name} onChange={setName}/><InputRow label="Місткість" value={capacity} onChange={setCapacity}/><InputRow label="Тривалість (хв)" value={duration} onChange={setDuration}/><InputRow label="Ціна (₴)" value={price} onChange={setPrice}/>
-        <button className="gt-partner-primary-button" type="button" disabled={busy||!name.trim()} onClick={()=>void createResource()}>Додати ресурс</button></FormCard>
-      <FormCard><h3>Календар і заявки</h3>{bookings.length===0?<p>Заявок поки немає.</p>:bookings.map(b=><div key={b.id} style={{display:'grid',gap:7,padding:'12px 0',borderBottom:'1px solid #e4e9e6'}}><strong>{b.resource_name} · {new Date(b.starts_at).toLocaleString('uk-UA')}</strong><span>{b.client_name||'Гість'} · {b.phone||'без телефону'} · {b.party_size} ос.</span><span>Статус: {b.status}</span>{b.comment?<small>{b.comment}</small>:null}{['new','pending_partner','alternative_proposed'].includes(b.status)?<div style={{display:'flex',gap:8}}><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'confirmed')}>Підтвердити</button><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Відхилити</button></div>:null}{b.status==='confirmed'?<button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button>:null}</div>)}</FormCard>
-      <FormCard><h3>Ручне бронювання</h3><label>Ресурс <select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{resources.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label><InputRow label="Імʼя клієнта" value={clientName} onChange={setClientName}/><InputRow label="Контакт" value={phone} onChange={setPhone}/><label>Дата <input type="date" value={date} min={new Date().toISOString().slice(0,10)} onChange={e=>setDate(e.target.value)}/></label><label>Час <input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label><button className="gt-partner-primary-button" type="button" disabled={busy||!selectedResource} onClick={()=>void addManual()}>Зберегти ручний запис</button></FormCard>
-      {message?<p role="status">{message}</p>:null}
-    </main><PartnerBottomNav active="home" activated navigate={navigate}/></div>;
+  const createResource=async()=>{
+    setBusy(true);setMessage('');
+    try {
+      await stage2Fetch('/partner/resources',{method:'POST',body:JSON.stringify({place_id:placeId,name:name.trim(),capacity:Number(capacity),duration_minutes:Number(duration),price:Number(price)})});
+      setName('');await reload();setMessage('Ресурс збережено');
+    }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося зберегти ресурс');}
+    finally{setBusy(false);}
+  };
+  const updateStatus=async(id:string,status:string)=>{
+    setBusy(true);setMessage('');
+    try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();}
+    catch(e){setMessage(e instanceof Error?e.message:'Не вдалося оновити статус');}
+    finally{setBusy(false);}
+  };
+  const addManual=async()=>{
+    if(!selectedResource||!date||!time){setMessage('Оберіть ресурс, дату та час.');return;}
+    setBusy(true);setMessage('');
+    try{
+      await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName.trim(),phone:phone.trim(),party_size:1,starts_at:new Date(`${date}T${time}:00+03:00`).toISOString()})});
+      setMessage('Ручне бронювання успішно додано');setClientName('');await reload();
+    }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося створити бронювання');}
+    finally{setBusy(false);}
+  };
+  const bookingStatusText:Record<string,string>={new:'Нова',pending_partner:'Очікує підтвердження',confirmed:'Підтверджено',completed:'Завершено',alternative_proposed:'Запропоновано інший час',cancelled_by_partner:'Скасовано закладом',cancelled_by_user:'Скасовано гостем',no_show:'Не зʼявився',refunded:'Повернення'};
+  const inputField=(label:string,value:string,onChange:(v:string)=>void,props:{type?:string;min?:string;step?:string;placeholder?:string}={})=><label className="gt-booking-field"><span>{label}</span><input type={props.type||'text'} value={value} min={props.min} step={props.step} placeholder={props.placeholder} onChange={e=>onChange(e.target.value)}/></label>;
+  return <div className="gt-partner-mobile-screen has-bottom-nav gt-partner-booking-screen">
+    <PartnerHeader title="Бронювання і ресурси" navigate={navigate} back="partner-cabinet"/>
+    <main className="gt-partner-mobile-content gt-partner-booking-content">
+      <section className="gt-booking-panel">
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ресурси для бронювання</h2><p>Керуйте доступними місцями та послугами</p></div></div>
+        <div className="gt-booking-resource-list">
+          {resources.map(r=><div key={r.id} className="gt-booking-resource-row"><div><strong>{r.name}</strong><small>Місткість: {r.capacity} · {r.duration_minutes} хв</small></div><b>{financeAmount(r.price)}</b></div>)}
+          {!resources.length?<p className="gt-booking-empty">Ресурсів поки немає. Додайте перший ресурс нижче.</p>:null}
+        </div>
+        <div className="gt-booking-panel__subheading">Додати ресурс</div>
+        <div className="gt-booking-field-grid">
+          {inputField('Назва ресурсу',name,setName,{placeholder:'Наприклад, чан №1'})}
+          {inputField('Місткість (осіб)',capacity,setCapacity,{type:'number',min:'1',step:'1'})}
+          {inputField('Тривалість (хв)',duration,setDuration,{type:'number',min:'15',step:'15'})}
+          {inputField('Ціна (₴)',price,setPrice,{type:'number',min:'0',step:'0.01'})}
+        </div>
+        <button className="gt-booking-action" type="button" disabled={busy||!name.trim()} onClick={()=>void createResource()}><Plus size={18}/> Додати ресурс</button>
+      </section>
+
+      <section className="gt-booking-panel">
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><ClipboardList size={20}/></span><div><h2>Календар і заявки</h2><p>Тільки реальні бронювання вашого закладу</p></div></div>
+        {!bookings.length?<p className="gt-booking-empty">Заявок поки немає.</p>:bookings.map(b=><article key={b.id} className="gt-booking-request">
+          <div className="gt-booking-request__head"><strong>{b.resource_name}</strong><span>{bookingStatusText[b.status]||b.status}</span></div>
+          <time>{new Date(b.starts_at).toLocaleString('uk-UA',{dateStyle:'medium',timeStyle:'short'})}</time>
+          <p>{b.client_name||'Гість'} · {b.phone||'без телефону'} · {b.party_size} ос.</p>
+          {b.comment?<small>{b.comment}</small>:null}
+          {['new','pending_partner','alternative_proposed'].includes(b.status)?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'confirmed')}>Підтвердити</button><button type="button" disabled={busy} className="is-muted" onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Відхилити</button></div>:null}
+          {b.status==='confirmed'?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button></div>:null}
+        </article>)}
+      </section>
+
+      <section className="gt-booking-panel">
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ручне бронювання</h2><p>Зайняті слоти перевіряються автоматично</p></div></div>
+        <label className="gt-booking-field"><span>Ресурс</span><select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{!resources.length?<option value="">Спочатку створіть ресурс</option>:null}{resources.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
+        {inputField('Імʼя клієнта',clientName,setClientName,{placeholder:'Імʼя гостя'})}
+        {inputField('Контакт',phone,setPhone,{placeholder:'+380 …'})}
+        <div className="gt-booking-date-grid">
+          <label className="gt-booking-field"><span>Дата</span><input type="date" value={date} min={new Date().toISOString().slice(0,10)} onChange={e=>setDate(e.target.value)}/></label>
+          <label className="gt-booking-field"><span>Час</span><input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label>
+        </div>
+        <button className="gt-booking-action" type="button" disabled={busy||!selectedResource||!date||!time} onClick={()=>void addManual()}><Check size={18}/> Зберегти бронювання</button>
+      </section>
+      {message?<p role="status" className="gt-booking-message">{message}</p>:null}
+    </main><PartnerBottomNav active="home" activated navigate={navigate}/>
+  </div>;
 }
 
 function CheckInScreen({ navigate }: { navigate: Navigate }) {
@@ -3291,6 +3370,9 @@ type PartnerSettlement = {
   turnover: number | string;
   net_due: number | string;
   notice: string;
+  pending_payment_claim?: boolean;
+  period_from?: string | null;
+  period_to?: string | null;
 };
 
 function financeAmount(value: number | string | undefined | null) {
@@ -3301,7 +3383,19 @@ function financeDate(value?: string | null) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("uk-UA", { dateStyle: "medium", timeStyle: "short" });
 }
-function usePartnerSettlement() {
+type FinancePeriodMode = "all" | "seven" | "thirty" | "month" | "custom";
+function financePeriodRange(mode: FinancePeriodMode, customFrom: string, customTo: string) {
+  if (mode === "all") return { from: "", to: "" };
+  if (mode === "custom") return { from: customFrom, to: customTo };
+  const now=new Date();
+  const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const start=new Date(now);
+  if (mode === "month") start.setDate(1);
+  else start.setDate(now.getDate()-(mode === "seven" ? 6 : 29));
+  return { from: `${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,'0')}-${String(start.getDate()).padStart(2,'0')}`, to: today };
+}
+
+function usePartnerSettlement(from = "", to = "") {
   const [state, setState] = useState<PartnerSettlement | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3312,12 +3406,13 @@ function usePartnerSettlement() {
       const saved = typeof window === "undefined" ? "" : window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "";
       const place = places.find((x) => x.id === saved) || places[0];
       if (!place) throw new Error("Заклад партнера не знайдено");
-      const result = await stage2Fetch<PartnerSettlement>(`/partner/settlement?place_id=${encodeURIComponent(place.id)}`);
+      const periodQuery = `${from ? `&from=${encodeURIComponent(from)}` : ""}${to ? `&to=${encodeURIComponent(to)}` : ""}`;
+      const result = await stage2Fetch<PartnerSettlement>(`/partner/settlement?place_id=${encodeURIComponent(place.id)}${periodQuery}`);
       setState(result);
     } catch(e) { setError(e instanceof Error ? e.message : "Не вдалося отримати взаєморозрахунки"); setState(null); }
     finally { setLoading(false); }
   };
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [from,to]);
   return { state, error, loading, refresh };
 }
 function FinanceHeader({ navigate, title = "Взаєморозрахунки" }: { navigate: Navigate; title?: string }) {
@@ -3330,46 +3425,71 @@ function FinanceTabs({ tab, onChange }: { tab: FinanceTab; onChange: (tab: Finan
     <button type="button" className={tab === "payments" ? "is-active" : ""} onClick={() => onChange("payments")}>Виплати</button>
   </div>;
 }
-function FinanceDateButton({ label = "За весь час" }: { label?: string }) {
-  return <div className="gt-finance-date-row"><div className="gt-finance-date-button" aria-label={label}><CalendarDays size={17}/><span>{label}</span></div></div>;
+function FinanceDateButton({mode,onModeChange,customFrom,onFromChange,customTo,onToChange}:{
+  mode:FinancePeriodMode;onModeChange:(mode:FinancePeriodMode)=>void;
+  customFrom:string;onFromChange:(from:string)=>void;customTo:string;onToChange:(to:string)=>void;
+}) {
+  return <section className="gt-finance-date-row gt-finance-date-selector">
+    <label className="gt-finance-period-select"><CalendarDays size={18}/><span>Період</span>
+      <select aria-label="Оберіть період взаєморозрахунків" value={mode} onChange={e=>onModeChange(e.target.value as FinancePeriodMode)}>
+        <option value="all">За весь час</option><option value="seven">Останні 7 днів</option>
+        <option value="thirty">Останні 30 днів</option><option value="month">Поточний місяць</option>
+        <option value="custom">Власний період</option>
+      </select><ChevronRight size={16}/>
+    </label>
+    {mode==='custom'?<div className="gt-finance-period-dates">
+      <label>Від<input aria-label="Початок періоду" type="date" value={customFrom} max={customTo||undefined} onChange={e=>onFromChange(e.target.value)}/></label>
+      <label>До<input aria-label="Кінець періоду" type="date" value={customTo} min={customFrom||undefined} onChange={e=>onToChange(e.target.value)}/></label>
+    </div>:null}
+  </section>;
 }
 function FinanceMetricCard({ label, value, note }: { label: string; value: string; note?: string }) {
   return <div className="gt-finance-metric-card"><small>{label}</small><strong>{value}</strong>{note ? <span>{note}</span> : null}</div>;
 }
-function FinanceTurnoverChart({ transactions }: { transactions: LiveFinanceTransaction[] }) {
-  const days = Array.from({ length: 7 }, (_,i)=>{
-    const date = new Date(); date.setHours(12,0,0,0); date.setDate(date.getDate()-(6-i)); return date.toISOString().slice(0,10);
+function FinanceTurnoverChart({ transactions, from, to }: { transactions: LiveFinanceTransaction[]; from?: string | null; to?: string | null }) {
+  const end = to ? new Date(`${to}T12:00:00Z`) : new Date();
+  const start = from ? new Date(`${from}T12:00:00Z`) : new Date(end.getTime()-6*86400000);
+  const range = Math.max(1,end.getTime()-start.getTime()+86400000);
+  const bucketCount = 7;
+  const daily = Array.from({length:bucketCount},()=>0);
+  transactions.filter(t=>t.status==='confirmed').forEach(t=>{
+    const stamp=new Date(t.confirmed_at||t.created_at).getTime();
+    if(!Number.isFinite(stamp) || stamp<start.getTime()-43200000 || stamp>end.getTime()+43200000)return;
+    const bucket=Math.min(bucketCount-1,Math.max(0,Math.floor((stamp-start.getTime()+43200000)/range*bucketCount)));
+    daily[bucket]+=Number(t.amount)||0;
   });
-  const daily = days.map(day=>transactions.filter(t=>t.status==='confirmed' && (t.confirmed_at||t.created_at).slice(0,10)===day)
-    .reduce((sum,t)=>sum+Number(t.amount),0));
+  const labels=Array.from({length:bucketCount},(_,i)=>{
+    const date=new Date(start.getTime()+range*i/bucketCount);
+    return date.toLocaleDateString('uk-UA',{day:'2-digit',month:'2-digit'});
+  });
   const max=Math.max(1,...daily);
   const pts=daily.map((v,i)=>`${(28+i*47.5).toFixed(1)},${(132-108*(v/max)).toFixed(1)}`).join(' ');
-  return <section className="gt-finance-chart-card"><h3>Оборот за останні 7 днів</h3>
-    <svg viewBox="0 0 330 150" role="img" aria-label="Реальні підтверджені операції за останні 7 днів">
+  return <section className="gt-finance-chart-card"><h3>Динаміка обороту {from||to?'за вибраний період':'за останні 7 днів'}</h3>
+    <svg viewBox="0 0 330 150" role="img" aria-label="Реальні підтверджені операції за період">
       <g className="grid"><line x1="22" y1="20" x2="322" y2="20"/><line x1="22" y1="60" x2="322" y2="60"/><line x1="22" y1="100" x2="322" y2="100"/><line x1="22" y1="136" x2="322" y2="136"/></g>
-      <polyline className="turnover" points={pts} />
-      {daily.map((v,i)=><circle className="turnover-dot" key={days[i]} cx={28+i*47.5} cy={132-108*v/max} r="4"/>)}
+      <polyline className="turnover" points={pts}/>
+      {daily.map((v,i)=><circle className="turnover-dot" key={i} cx={28+i*47.5} cy={132-108*v/max} r="4"/>)}
     </svg>
-    <div className="gt-finance-chart-days">{days.map(d=><span key={d}>{new Date(`${d}T12:00:00Z`).toLocaleDateString('uk-UA',{day:'2-digit',month:'2-digit'})}</span>)}</div>
+    <div className="gt-finance-chart-days">{labels.map((d,i)=><span key={i}>{d}</span>)}</div>
   </section>;
 }
+
 function FinanceOverview({ data }: { data: PartnerSettlement }) {
   const outstanding=Number(data.balance_due);
   return <>
-    <FinanceDateButton/>
     <section className="gt-finance-turnover-card"><div><small>Оборот підтверджених покупок</small><strong>{financeAmount(data.turnover)}</strong><span>Реальні операції, без скасованих і повернених</span></div><WalletCards size={34}/></section>
     <div className="gt-finance-metrics-grid gt-finance-metrics-grid--three">
       <FinanceMetricCard label="Підтверджених операцій" value={String(data.confirmed_transactions)}/>
       <FinanceMetricCard label="Нарахована комісія" value={financeAmount(data.commission_due)}/>
       <FinanceMetricCard label="Підтверджено оплат" value={financeAmount(data.paid_commission)} />
     </div>
-    <section className="gt-finance-period-card"><h3>Баланс взаєморозрахунків</h3>
+    <section className="gt-finance-period-card"><h3>Взаєморозрахунки за вибраний період</h3>
       <div><span>Комісія платформи</span><b>{financeAmount(data.commission_due)}</b></div>
       <div><span>Компенсація бонусів партнеру</span><b>{financeAmount(data.bonus_compensation_due)}</b></div>
       <div><span>Підтверджені платежі партнера</span><b>{financeAmount(data.paid_commission)}</b></div>
-      <div className="is-due"><span>{outstanding >= 0 ? 'До сплати партнером' : 'Платформа винна партнеру'}</span><b>{financeAmount(Math.abs(outstanding))}</b></div>
+      <div className="is-due"><span>{outstanding >= 0 ? 'Поточний борг партнера (весь час)' : 'Борг платформи партнеру (весь час)'}</span><b>{financeAmount(Math.abs(outstanding))}</b></div>
     </section>
-    <FinanceTurnoverChart transactions={data.transactions}/>
+    <FinanceTurnoverChart transactions={data.transactions} from={data.period_from} to={data.period_to}/>
     <div className="gt-finance-info-note"><Info size={18}/><p>Враховуються лише підтверджені покупки, фактично використані бонуси та платежі, перевірені адміністратором.</p></div>
   </>;
 }
@@ -3377,7 +3497,6 @@ function FinanceOperations({ data }: { data: PartnerSettlement }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? data.transactions : data.transactions.slice(0, 7);
   return <>
-    <FinanceDateButton label="Історія операцій"/>
     <div className="gt-finance-metrics-grid gt-finance-metrics-grid--three gt-finance-operation-metrics">
       <FinanceMetricCard label="Підтверджених" value={String(data.confirmed_transactions)}/>
       <FinanceMetricCard label="Оборот" value={financeAmount(data.turnover)}/>
@@ -3396,9 +3515,8 @@ function FinanceOperations({ data }: { data: PartnerSettlement }) {
 }
 function FinancePayments({ data, onConfirm }: { data: PartnerSettlement; onConfirm: () => void }) {
   const due = Number(data.balance_due);
-  const pending = data.payments.some(p=>p.status==='pending');
+  const pending = data.pending_payment_claim === true || data.payments.some(p=>p.status==='pending');
   return <>
-    <FinanceDateButton label="Заявки й оплати за весь час"/>
     <section className="gt-finance-due-card"><div>
       <small>{due>=0?'Несплачена комісія':'Борг платформи партнеру'}</small>
       <strong>{financeAmount(Math.abs(due))}</strong>
@@ -3418,14 +3536,45 @@ function FinancePayments({ data, onConfirm }: { data: PartnerSettlement; onConfi
 }
 function FinanceConfirmPayment({ data, onBack, onSaved }: {data: PartnerSettlement; onBack:()=>void;onSaved:()=>void}) {
   const [file,setFile]=useState<File|null>(null);
+  const [fileBusy,setFileBusy]=useState(false);
   const [reference,setReference]=useState('');
   const [amountValue,setAmountValue]=useState(String(Math.max(0,Number(data.balance_due))));
   const [error,setError]=useState('');
   const [saving,setSaving]=useState(false);
+  const chooseReceipt=async(selected:File|null)=>{
+    setFile(null);setError('');
+    if(!selected)return;
+    const lowerName=selected.name.toLowerCase();
+    const isPdf=selected.type==='application/pdf'||lowerName.endsWith('.pdf');
+    const imageType=selected.type|| (lowerName.endsWith('.jpg')||lowerName.endsWith('.jpeg')?'image/jpeg':lowerName.endsWith('.png')?'image/png':'');
+    const supportedImage=['image/png','image/jpeg'].includes(imageType);
+    if(!isPdf && !selected.type.startsWith('image/') && !supportedImage){setError('Підтримуються фото та PDF.');return;}
+    if(selected.size<100){setError('Файл квитанції порожній або пошкоджений.');return;}
+    if(isPdf){if(selected.size>6*1024*1024){setError('PDF має бути до 6 МБ.');return;}
+      setFile(selected.type==='application/pdf'?selected:new File([selected],selected.name,{type:'application/pdf'}));return;}
+    if(supportedImage && selected.size<=6*1024*1024){setFile(selected.type===imageType?selected:new File([selected],selected.name,{type:imageType}));return;}
+    setFileBusy(true);
+    try {
+      const source=URL.createObjectURL(selected);
+      try {
+        const img=new Image();
+        await new Promise<void>((resolve,reject)=>{img.onload=()=>resolve();img.onerror=()=>reject(new Error('Не вдалося відкрити фото. Виберіть JPG або PNG.'));img.src=source;});
+        const maxDimension=2200, scale=Math.min(1,maxDimension/Math.max(img.naturalWidth,img.naturalHeight));
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+        const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Недоступна обробка фото');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',0.86));
+        if(!blob || blob.size>6*1024*1024)throw new Error('Фото завелике, зробіть скриншот квитанції або оберіть менший файл.');
+        setFile(new File([blob],selected.name.replace(/\.[^.]+$/, '')+'.jpg',{type:'image/jpeg'}));
+      }finally{URL.revokeObjectURL(source);}
+    }catch(e){setError(e instanceof Error?e.message:'Фото недоступне. Оберіть JPG, PNG або PDF.');}
+    finally{setFileBusy(false);}
+  };
   const submit=async()=>{
     setError('');
     const requested=Number(amountValue);
-    if(!file||!['image/png','image/jpeg','application/pdf'].includes(file.type)||file.size>2*1024*1024||file.size<100){setError('Додайте квитанцію PDF, PNG або JPG розміром до 2 МБ.');return;}
+    if(fileBusy){setError('Дочекайтеся обробки фото.');return;}
+    if(!file||!['image/png','image/jpeg','application/pdf'].includes(file.type)||file.size>6*1024*1024||file.size<100){setError('Додайте квитанцію PDF, PNG або JPG розміром до 6 МБ.');return;}
     if(!Number.isFinite(requested)||requested<=0||requested>Number(data.balance_due)){setError('Вкажіть фактичну суму платежу не більше заборгованості.');return;}
     if(reference.trim().length<5){setError('Вкажіть номер платежу або референс із квитанції.');return;}
     setSaving(true);
@@ -3447,29 +3596,39 @@ function FinanceConfirmPayment({ data, onBack, onSaved }: {data: PartnerSettleme
         <label className="gt-qr-field"><span>Сума фактичного платежу, ₴</span><input type="number" inputMode="decimal" min="0.01" max={Number(data.balance_due)} step="0.01" value={amountValue} onChange={e=>setAmountValue(e.target.value)}/></label>
         <label className="gt-qr-field"><span>Номер платежу / референс у банку</span><input value={reference} maxLength={120} onChange={e=>setReference(e.target.value)} placeholder="Реальний номер транзакції"/></label>
       </section>
-      <section className="gt-finance-confirm-section"><h3>Квитанція про оплату</h3><label className="gt-finance-upload-box">
-        <input type="file" accept="image/png,image/jpeg,application/pdf" onChange={e=>setFile(e.target.files?.[0]||null)}/><ImagePlus size={27}/>
-        <span><b>{file?.name||'Оберіть квитанцію'}</b><small>PDF, JPG або PNG, до 2 МБ</small></span>
-      </label></section>
+      <section className="gt-finance-confirm-section"><h3>Квитанція про оплату</h3>
+        <label className="gt-finance-upload-box" aria-label="Прикріпити фото або PDF квитанції">
+          <input type="file" accept="image/*,.pdf,application/pdf" onChange={e=>void chooseReceipt(e.target.files?.[0]||null)} />
+          <ImagePlus size={27}/><span><b>{fileBusy?'Обробляємо фото…':file?.name||'Вибрати фото або PDF'}</b><small>{file?`${(file.size/1024/1024).toFixed(2)} МБ · прикріплено`:'Фото або PDF до 6 МБ — натисніть тут'}</small></span>
+        </label>
+        {file ? <div className="gt-finance-attachment-success"><Check size={17}/> Квитанцію додано, можна надсилати</div> : null}
+      </section>
       {error?<p role="alert" className="gt-finance-error">{error}</p>:null}
       <div className="gt-finance-confirm-warning"><Info size={18}/><p>Заявка отримає статус «На перевірці». Оплата буде зарахована тільки після рішення фінансового оператора.</p></div>
-      <button type="button" className="gt-finance-confirm-submit" disabled={saving} onClick={()=>void submit()}>{saving?'Надсилаємо…':'Надіслати на перевірку'}</button>
+      <button type="button" className="gt-finance-confirm-submit" disabled={saving||fileBusy||!file} onClick={()=>void submit()}>{saving?'Надсилаємо…':'Надіслати на перевірку'}</button>
     </main>
   </div>;
 }
 function PartnerFinanceScreen({ navigate }: { navigate: Navigate }) {
   const [tab,setTab]=useState<FinanceTab>('overview');
   const [confirming,setConfirming]=useState(false);
-  const {state,error,loading,refresh}=usePartnerSettlement();
-  if(confirming && state) return <FinanceConfirmPayment data={state} onBack={()=>setConfirming(false)} onSaved={()=>{setConfirming(false);setTab('payments');void refresh();}}/>;
+  const [periodMode,setPeriodMode]=useState<FinancePeriodMode>('all');
+  const [customFrom,setCustomFrom]=useState('');
+  const [customTo,setCustomTo]=useState('');
+  const period=financePeriodRange(periodMode,customFrom,customTo);
+  const ready=periodMode!=='custom'||(Boolean(customFrom)&&Boolean(customTo)&&customFrom<=customTo);
+  const {state,error,loading,refresh}=usePartnerSettlement(ready?period.from:'',ready?period.to:'');
+  if(confirming && state) return <FinanceConfirmPayment data={state} onBack={()=>setConfirming(false)} onSaved={()=>{setConfirming(false);setTab('payments');setPeriodMode('all');void refresh();}}/>;
   return <div className="gt-partner-mobile-screen has-bottom-nav gt-finance-screen">
     <FinanceHeader navigate={navigate}/>
     <main className="gt-partner-mobile-content gt-partner-form-page gt-finance-content">
       <FinanceTabs tab={tab} onChange={setTab}/>
+      <FinanceDateButton mode={periodMode} onModeChange={setPeriodMode} customFrom={customFrom} onFromChange={setCustomFrom} customTo={customTo} onToChange={setCustomTo}/>
+      {!ready ? <p className="gt-finance-error" role="status">Оберіть початок та кінець періоду (початок не пізніше завершення).</p> : null}
       <div className="gt-finance-data-header"><span>{state?.place_name||'Заклад партнера'}</span><button type="button" onClick={()=>void refresh()} disabled={loading}><RefreshCcw size={16}/> Оновити</button></div>
       {loading?<p className="gt-stage2-empty">Завантаження взаєморозрахунків із PostgreSQL…</p>:null}
       {error?<p className="gt-stage2-empty" role="alert">{error}</p>:null}
-      {!loading && state && !error ? <>
+      {!loading && state && !error && ready ? <>
         {tab==='overview'?<FinanceOverview data={state}/>:null}
         {tab==='operations'?<FinanceOperations data={state}/>:null}
         {tab==='payments'?<FinancePayments data={state} onConfirm={()=>setConfirming(true)}/>:null}

@@ -1178,11 +1178,12 @@ export class Stage2Service {
     const result = await this.db.query(
       `SELECT o.id,o.region_id,o.place_id,o.category_slug,o.category_label,o.title,o.discount,o.description,o.detail,o.validity,
               o.badge,o.badge_tone,o.image_url,o.valid_from,o.valid_until,o.sort_order,o.active,o.updated_at,
+              o.moderation_status,o.moderation_comment,o.terms,o.submitted_by_user_id,
               p.name AS place_name,p.image_url AS place_image_url,p.rating AS place_rating,p.review_count AS place_review_count
        FROM hot_offers o
        LEFT JOIN places p ON p.id=o.place_id
        WHERE o.region_id=$1
-         ${includeInactive ? "" : "AND o.active=true AND (o.valid_from IS NULL OR o.valid_from<=now()) AND (o.valid_until IS NULL OR o.valid_until>=now()) AND (o.place_id IS NULL OR p.status='approved')"}
+         ${includeInactive ? "" : "AND o.active=true AND o.moderation_status='approved' AND (o.valid_from IS NULL OR o.valid_from<=now()) AND (o.valid_until IS NULL OR o.valid_until>=now()) AND (o.place_id IS NULL OR p.status='approved')"}
        ORDER BY o.sort_order,o.valid_until NULLS LAST,o.updated_at DESC`,
       [regionId],
     );
@@ -1725,6 +1726,7 @@ export class Stage2Service {
        ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,place_id=EXCLUDED.place_id,category_slug=EXCLUDED.category_slug,category_label=EXCLUDED.category_label,title=EXCLUDED.title,discount=EXCLUDED.discount,description=EXCLUDED.description,detail=EXCLUDED.detail,validity=EXCLUDED.validity,badge=EXCLUDED.badge,badge_tone=EXCLUDED.badge_tone,image_url=EXCLUDED.image_url,valid_from=EXCLUDED.valid_from,valid_until=EXCLUDED.valid_until,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,updated_at=now()`,
       [id,regionId,placeId,String(body.category_slug ?? ""),String(body.category_label ?? ""),title,String(body.discount ?? ""),String(body.description ?? ""),String(body.detail ?? ""),String(body.validity ?? ""),String(body.badge ?? ""),String(body.badge_tone ?? "green"),String(body.image_url ?? "").trim() || null,dateValue(body.valid_from),dateValue(body.valid_until),num(body.sort_order,100),active],
     );
+    await this.db.query("UPDATE hot_offers SET moderation_status='approved',moderation_comment='' WHERE id=$1",[id]);
     const saved = (await this.hotOffers(regionId, true)).find((offer: Record<string, unknown>) => String(offer.id) === id);
     return saved ?? { ok: true, id };
   }

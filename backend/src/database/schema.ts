@@ -212,6 +212,12 @@ CREATE TABLE IF NOT EXISTS hot_offers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- Partner hot offers require explicit moderation; old admin offers remain approved.
+ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS moderation_status text NOT NULL DEFAULT 'approved';
+ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS moderation_comment text NOT NULL DEFAULT '';
+ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS terms text NOT NULL DEFAULT '';
+ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS submitted_by_user_id text REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_hot_offers_review_queue ON hot_offers(moderation_status,region_id,updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hot_offers_region ON hot_offers(region_id, active, sort_order, valid_until);
 
 CREATE TABLE IF NOT EXISTS page_content (

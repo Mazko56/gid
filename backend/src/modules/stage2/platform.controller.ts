@@ -16,12 +16,18 @@ export class PlatformController {
   @UseGuards(SessionGuard) @Post('transactions/decline') decline(@Req() r:AuthRequest,@Body() b:{id:string}) { return this.platform.declinePurchase(r.user!,b.id); }
   @UseGuards(SessionGuard) @Post('transactions/:id/refund') refund(@Req() r:AuthRequest,@Param('id') id:string) { return this.platform.refund(r.user!,id); }
   @UseGuards(SessionGuard) @Get('transactions') transactions(@Req() r:AuthRequest,@Query('place_id') p?:string) { return this.platform.purchases(r.user!,p); }
-  @UseGuards(SessionGuard) @Get('partner/settlement') settlement(@Req() r:AuthRequest,@Query('place_id') p:string) { return this.platform.settlement(r.user!,p); }
+  @UseGuards(SessionGuard) @Get('partner/settlement') settlement(@Req() r:AuthRequest,@Query('place_id') p:string,@Query('from') from?:string,@Query('to') to?:string) { return this.platform.settlement(r.user!,p,from,to); }
 
   @UseGuards(SessionGuard) @Post('partner/settlement/payment-claims') paymentClaim(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.submitSettlementPayment(r.user!,b); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/payment-claims') paymentClaims() { return this.platform.adminPaymentClaims(); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/payment-claims/:id/receipt') paymentReceipt(@Param('id') id:string) { return this.platform.adminPaymentReceipt(id); }
   @UseGuards(AdminKeyGuard) @Patch('admin/platform/payment-claims/:id') moderateClaim(@Param('id') id:string,@Body() b:{status:string;comment?:string}) { return this.platform.moderateSettlementPayment(id,b.status,b.comment||''); }
+
+  @UseGuards(SessionGuard) @Get('partner/offers') partnerOffers(@Req() r:AuthRequest) { return this.platform.partnerOffers(r.user!); }
+  @UseGuards(SessionGuard) @Post('partner/offers') saveOffer(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.savePartnerOffer(r.user!,b); }
+  @UseGuards(SessionGuard) @Patch('partner/offers/:id') updateOffer(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:Record<string,unknown>) { return this.platform.savePartnerOffer(r.user!,b,id); }
+  @UseGuards(SessionGuard) @Delete('partner/offers/:id') deleteOffer(@Req() r:AuthRequest,@Param('id') id:string) { return this.platform.deletePartnerOffer(r.user!,id); }
+  @UseGuards(AdminKeyGuard) @Patch('admin/platform/offers/:id/moderate') moderateOffer(@Param('id') id:string,@Body() b:{status:string;comment?:string}) { return this.platform.moderatePartnerOffer(id,b.status,b.comment||''); }
 
   @Get('resources/:placeId') resources(@Param('placeId') id:string) { return this.platform.resources(id); }
   @UseGuards(SessionGuard) @Get('partner/resources/:placeId') partnerResources(@Req() r:AuthRequest,@Param('placeId') id:string) { return this.platform.partnerResources(r.user!,id); }

@@ -107,6 +107,9 @@ export type Stage2HotOffer = {
   valid_until?: string | null;
   sort_order?: number;
   active?: boolean;
+  moderation_status?: "pending" | "approved" | "rejected";
+  moderation_comment?: string | null;
+  submitted_by_user_id?: string | null;
   place_name?: string | null;
   place_rating?: number | null;
   place_review_count?: number;
