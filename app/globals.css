@@ -30207,3 +30207,44 @@ button.gt-amenities-row {
 
 .gt-qr-scanner-screen .gt-qr-scan-line { animation: gt-qr-sweep 2.25s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .gt-qr-scanner-screen .gt-qr-scan-line { animation: none; top: 50%; } }
+
+/* Real reviews queue and partner settlement claims — keep existing admin/partner design. */
+.ad-review-moderation-tabs { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 22px; }
+.ad-review-moderation-tabs button { border:1px solid #d9e9df; border-radius:12px; background:#fff; padding:9px 14px; color:#365444; font-size:13px; font-weight:650; cursor:pointer; }
+.ad-review-moderation-tabs button.is-active { background:#126b48; color:#fff; border-color:#126b48; }
+.ad-review-moderation-list { display:grid; gap:14px; max-width:1020px; }
+.ad-review-moderation-card { display:grid; gap:14px; padding:20px; }
+.ad-review-moderation-card__header { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.ad-review-moderation-card__header > div { display:grid; gap:4px; }
+.ad-review-moderation-card__header h3 { margin:0; color:#193a2b; font-size:19px; }
+.ad-review-moderation-card__header small, .ad-review-moderation-card__header span { color:#607b6b; font-size:12px; }
+.ad-review-stars { color:#ebaa2d; letter-spacing:2px; font-size:22px; white-space:nowrap; }
+.ad-review-moderation-text { margin:0; color:#234133; white-space:pre-wrap; line-height:1.6; overflow-wrap:anywhere; }
+.ad-review-moderation-reply { margin:0; border-radius:12px; background:#f4f8f5; padding:12px; color:#365444; }
+.ad-review-moderation-comment { display:grid; gap:6px; font-size:12px; color:#557060; }
+.ad-review-moderation-comment textarea { width:100%; resize:vertical; border:1px solid #cbdcd1; border-radius:12px; padding:12px; background:#fff; color:#193a2b; font:inherit; font-size:14px; }
+.ad-review-moderation-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.ad-review-moderation-actions button, .ad-finance-claim-actions button { display:inline-flex; justify-content:center; align-items:center; gap:6px; border:1px solid #b8d4c3; border-radius:10px; background:#f1f8f3; color:#17563c; padding:11px 14px; font-weight:700; cursor:pointer; }
+.ad-review-moderation-actions button:last-child, .ad-finance-claim-actions button:last-child { background:#fff5f4; color:#ab3838; border-color:#f0c3bd; }
+.ad-review-moderation-actions button:disabled, .ad-finance-claim-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.ad-finance-claims { margin-top:24px; padding:20px; display:grid; gap:15px; }
+.ad-finance-claims h2 { margin:0; }
+.ad-finance-claims > p { margin:0; font-size:13px; color:#678071; }
+.ad-finance-claim-row { display:flex; gap:20px; justify-content:space-between; flex-wrap:wrap; align-items:center; border-top:1px solid #e7eee9; padding:15px 0; }
+.ad-finance-claim-row > div:first-child { display:grid; gap:4px; min-width:200px; }
+.ad-finance-claim-row small { color:#789085; font-size:12px; }
+.ad-finance-claim-actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+.ad-finance-claim-actions input { border:1px solid #d6e4db; border-radius:10px; padding:12px; min-width:150px; max-width:260px; }
+.gt-finance-data-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0 12px; }
+.gt-finance-data-header span { color:#537267; font-size:12px; font-weight:650; }
+.gt-finance-data-header button { display:flex; align-items:center; gap:5px; border:0; background:transparent; color:#247b50; font-size:12px; font-weight:700; cursor:pointer; }
+.gt-finance-payment-history-row { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:15px 4px; border-bottom:1px solid #e9efeb; }
+.gt-finance-payment-history-row > span, .gt-finance-payment-history-row > strong { display:grid; gap:4px; }
+.gt-finance-payment-history-row small, .gt-finance-payment-history-row em { font-size:12px; font-style:normal; color:#698378; }
+.gt-finance-confirm-section .gt-qr-field { margin:12px 0; }
+.gt-finance-error { color:#b63131; font-size:13px; line-height:1.5; padding:12px; background:#fff4f2; border-radius:12px; }
+.gt-finance-confirm-submit:disabled { opacity:.5; cursor:wait; }
+@media (max-width:720px) { .ad-review-moderation-card { padding:14px; } .ad-finance-claim-actions input { max-width:100%; } }
+
+.ad-settlement-search { display:flex; align-items:center; gap:10px; max-width:500px; margin:14px 0; border:1px solid #d5e6dc; background:#fff; border-radius:12px; padding:0 14px; color:#567963; }
+.ad-settlement-search input { flex:1; min-width:0; padding:13px 4px; border:0; outline:none; background:transparent; color:#1b4230; }

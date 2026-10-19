@@ -325,6 +325,27 @@ CREATE TABLE IF NOT EXISTS bonus_ledger (
   UNIQUE(transaction_id,entry_type)
 );
 CREATE INDEX IF NOT EXISTS idx_bonus_ledger_user ON bonus_ledger(user_id,created_at DESC);
+-- Claims from partner are not recognized as paid until an admin explicitly verifies them.
+CREATE TABLE IF NOT EXISTS partner_settlement_payment_claims (
+  id text PRIMARY KEY,
+  place_id text NOT NULL REFERENCES places(id),
+  region_id text NOT NULL REFERENCES regions(id),
+  created_by_user_id text NOT NULL REFERENCES users(id),
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  reference text NOT NULL,
+  receipt_filename text NOT NULL,
+  receipt_mime text NOT NULL,
+  receipt_bytes bytea NOT NULL,
+  receipt_sha256 text NOT NULL,
+  review_comment text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  reviewed_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_partner_claims_place ON partner_settlement_payment_claims(place_id,status,created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_partner_claim_pending ON partner_settlement_payment_claims(place_id) WHERE status='pending';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_partner_claim_reference ON partner_settlement_payment_claims(place_id,reference);
+
 CREATE TABLE IF NOT EXISTS review_entries (
   id text PRIMARY KEY, place_id text NOT NULL REFERENCES places(id),
   user_id text NOT NULL REFERENCES users(id),

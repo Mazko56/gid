@@ -211,15 +211,105 @@ export class PlatformService {
     return rows.rows;
   }
 
+  private async paymentClaims(placeId: string) {
+    return (await this.db.query(`SELECT c.id,c.place_id,c.amount,c.status,c.reference,c.receipt_filename,c.receipt_mime,
+      c.created_at,c.reviewed_at,c.review_comment FROM partner_settlement_payment_claims c
+      WHERE c.place_id=$1 ORDER BY c.created_at DESC LIMIT 200`,[placeId])).rows;
+  }
+
   async settlement(user: AuthUser, placeId: string) {
     const place = await this.placeWithRole(user,placeId,['owner','manager']);
-    const summary = await this.db.query(`SELECT COUNT(*) FILTER(WHERE status='confirmed')::integer AS transactions,
-      COALESCE(SUM(amount) FILTER(WHERE status='confirmed'),0)::numeric AS turnover,
-      COALESCE(SUM(commission) FILTER(WHERE status='confirmed'),0)::numeric AS commission_due,
-      COALESCE(SUM(spent) FILTER(WHERE status='confirmed'),0)::numeric AS bonus_compensation_due,
-      COALESCE(SUM(commission) FILTER(WHERE status='confirmed'),0)-COALESCE(SUM(spent) FILTER(WHERE status='confirmed'),0) AS net_due
-      FROM purchase_transactions WHERE place_id=$1`,[placeId]);
-    return { place_id:place.id, ...summary.rows[0], transactions:await this.purchases(user,placeId) };
+    const [summary, payments, verifiedPaid] = await Promise.all([
+      this.db.query(`SELECT COUNT(*) FILTER(WHERE status='confirmed')::integer AS transactions,
+        COALESCE(SUM(amount) FILTER(WHERE status='confirmed'),0)::numeric AS turnover,
+        COALESCE(SUM(commission) FILTER(WHERE status='confirmed'),0)::numeric AS commission_due,
+        COALESCE(SUM(spent) FILTER(WHERE status='confirmed'),0)::numeric AS bonus_compensation_due
+        FROM purchase_transactions WHERE place_id=$1`,[placeId]),
+      this.paymentClaims(placeId),
+      this.db.query(`SELECT COALESCE(SUM(amount),0) AS total FROM partner_settlement_payment_claims WHERE place_id=$1 AND status='approved'`,[placeId]),
+    ]);
+    const commission = money(summary.rows[0]?.commission_due ?? 0);
+    const compensation = money(summary.rows[0]?.bonus_compensation_due ?? 0);
+    const paid = money(verifiedPaid.rows[0]?.total ?? 0);
+    const balance = money(commission-compensation-paid);
+    const transactions = (await this.db.query(`SELECT t.id,t.created_at,t.confirmed_at,t.status,t.amount,t.commission,t.commission_rate,t.spent,
+      u.first_name AS customer_name FROM purchase_transactions t JOIN users u ON u.id=t.user_id
+      WHERE t.place_id=$1 ORDER BY t.created_at DESC LIMIT 500`,[placeId])).rows;
+    return {place_id:place.id,place_name:place.name,...summary.rows[0],confirmed_transactions:Number(summary.rows[0]?.transactions||0),net_due:money(commission-compensation),
+      paid_commission:paid,balance_due:balance,transactions,payments,
+      notice:'Сплачено лише за підтвердженими фінансовим оператором заявками; подання заявки не є оплатою.'};
+  }
+
+  async submitSettlementPayment(user: AuthUser, body: Record<string,unknown>) {
+    const place = await this.placeWithRole(user,txt(body.place_id,90),['owner','manager']);
+    const amountValue = amount(body.amount);
+    const reference=txt(body.reference,120);
+    if(reference.length<5) throw new BadRequestException('Вкажіть номер або призначення реального платежу (від 5 символів)');
+    const filename=txt(body.receipt_filename,150);
+    const mime=txt(body.receipt_mime,60);
+    const raw=txt(body.receipt_base64,3_000_000);
+    if(!raw || !['image/jpeg','image/png','application/pdf'].includes(mime) || !filename)
+      throw new BadRequestException('Додайте квитанцію JPG, PNG або PDF');
+    if(!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) throw new BadRequestException('Пошкоджений файл квитанції');
+    const receipt=Buffer.from(raw,'base64');
+    if(receipt.length>2*1024*1024 || receipt.length<100) throw new BadRequestException('Розмір квитанції має бути від 100 байт до 2 МБ');
+    if((mime==='application/pdf' && receipt.subarray(0,4).toString()!=='%PDF') ||
+      (mime==='image/png' && receipt.subarray(0,4).toString('hex')!=='89504e47') ||
+      (mime==='image/jpeg' && receipt.subarray(0,3).toString('hex')!=='ffd8ff'))
+      throw new BadRequestException('Вміст файлу не відповідає формату');
+    const current=await this.settlement(user,place.id);
+    if(amountValue>Math.max(0,current.balance_due)+0.001) throw new BadRequestException('Сума перевищує поточну заборгованість');
+    if(current.payments.some((p:Record<string,unknown>)=>p.status==='pending')) throw new ConflictException('Попередня заявка ще на перевірці');
+    const id=makeId('payment');
+    let added;
+    try { added=await this.db.query(`INSERT INTO partner_settlement_payment_claims
+      (id,place_id,region_id,created_by_user_id,amount,reference,receipt_filename,receipt_mime,receipt_bytes,receipt_sha256)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,place_id,amount,status,reference,receipt_filename,created_at`,
+      [id,place.id,place.region_id,user.id,amountValue,reference,filename,mime,receipt,createHash('sha256').update(receipt).digest('hex')]);
+    } catch (error) {
+      if ((error as {code?:string})?.code==='23505') throw new ConflictException('Цей платіж уже подано або попередня заявка ще перевіряється');
+      throw error;
+    }
+    await this.audit(user.id,place.region_id,'partner_payment',id,'submitted',{amount:amountValue,reference});
+    return added.rows[0];
+  }
+
+  async adminPaymentClaims() {
+    return (await this.db.query(`SELECT c.id,c.place_id,p.name AS place_name,c.amount,c.status,c.reference,c.receipt_filename,
+      c.receipt_mime,c.created_at,c.reviewed_at,c.review_comment
+      FROM partner_settlement_payment_claims c JOIN places p ON p.id=c.place_id
+      ORDER BY CASE WHEN c.status='pending' THEN 0 ELSE 1 END,c.created_at DESC LIMIT 300`)).rows;
+  }
+
+  async adminPaymentReceipt(id:string) {
+    const result=await this.db.query('SELECT receipt_filename,receipt_mime,receipt_bytes FROM partner_settlement_payment_claims WHERE id=$1',[id]);
+    if(!result.rows[0]) throw new NotFoundException('Квитанцію не знайдено');
+    const r=result.rows[0];
+    return {filename:r.receipt_filename,mime:r.receipt_mime,base64:(r.receipt_bytes as Buffer).toString('base64')};
+  }
+
+  async moderateSettlementPayment(id:string,status:string,comment:string) {
+    if(!['approved','rejected'].includes(status)) throw new BadRequestException('Некоректний статус');
+    return this.db.transaction(async(client)=>{
+      const claim=(await client.query('SELECT * FROM partner_settlement_payment_claims WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      if(!claim) throw new NotFoundException('Заявку не знайдено');
+      if(claim.status!=='pending') throw new ConflictException('Заявка вже оброблена');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[claim.place_id]);
+      if(status==='approved') {
+        const due=(await client.query(`SELECT
+          COALESCE(SUM(t.commission-t.spent) FILTER(WHERE t.status='confirmed'),0) AS earned
+          FROM purchase_transactions t WHERE t.place_id=$1`,[claim.place_id])).rows[0];
+        const other=(await client.query(`SELECT COALESCE(SUM(amount),0) AS paid FROM partner_settlement_payment_claims
+          WHERE place_id=$1 AND status='approved'`,[claim.place_id])).rows[0];
+        if(money(claim.amount)>money(money(due?.earned)-money(other?.paid))+0.001)
+          throw new ConflictException('Заявлена сума перевищує фактичний несплачений борг');
+      }
+      const updated=(await client.query(`UPDATE partner_settlement_payment_claims SET status=$2,review_comment=$3,reviewed_at=now()
+        WHERE id=$1 RETURNING id,place_id,status,amount,reference,reviewed_at`,[id,status,txt(comment,500)])).rows[0];
+      await client.query(`INSERT INTO audit_logs(id,actor_type,region_id,entity_type,entity_id,action,details)
+        VALUES($1,'admin',$2,'partner_payment',$3,$4,$5::jsonb)`,[makeId('audit'),claim.region_id,id,status,json({amount:claim.amount,reference:claim.reference,comment:txt(comment,500)})]);
+      return updated;
+    });
   }
 
   async resources(placeId: string) {
@@ -358,7 +448,7 @@ export class PlatformService {
 
   async moderatedReviews(regionId?:string) {
     return (await this.db.query(`SELECT v.*,p.name AS place_name,p.region_id FROM review_entries v JOIN places p ON p.id=v.place_id
-      WHERE ($1::text IS NULL OR p.region_id=$1) ORDER BY v.created_at DESC LIMIT 150`,[regionId||null])).rows;
+      WHERE ($1::text IS NULL OR p.region_id=$1) ORDER BY CASE WHEN v.status='pending' THEN 0 ELSE 1 END,v.created_at DESC LIMIT 500`,[regionId||null])).rows;
   }
 
   async moderateReview(id:string,status:string,comment:string) {
@@ -554,7 +644,10 @@ export class PlatformService {
       COALESCE(SUM(t.amount) FILTER(WHERE t.status='confirmed'),0) AS turnover,
       COALESCE(SUM(t.commission) FILTER(WHERE t.status='confirmed'),0) AS commission_due,
       COALESCE(SUM(t.spent) FILTER(WHERE t.status='confirmed'),0) AS compensation_due,
-      COALESCE(SUM(t.commission-t.spent) FILTER(WHERE t.status='confirmed'),0) AS net_due
+      COALESCE(SUM(t.commission-t.spent) FILTER(WHERE t.status='confirmed'),0) AS net_due,
+      COALESCE((SELECT SUM(c.amount) FROM partner_settlement_payment_claims c WHERE c.place_id=p.id AND c.status='approved'),0) AS paid_commission,
+      COALESCE(SUM(t.commission-t.spent) FILTER(WHERE t.status='confirmed'),0)-
+        COALESCE((SELECT SUM(c.amount) FROM partner_settlement_payment_claims c WHERE c.place_id=p.id AND c.status='approved'),0) AS balance_due
       FROM places p JOIN regions r ON r.id=p.region_id JOIN categories c ON c.slug=p.category_slug
       LEFT JOIN purchase_transactions t ON t.place_id=p.id
       WHERE p.organization_id IS NOT NULL GROUP BY p.id,p.name,p.region_id,r.name,c.name ORDER BY p.name`)).rows;

@@ -66,7 +66,7 @@ const ADMIN_SELECTED_CLIENT_KEY = "gid-tourist-admin-selected-client-id";
 type LiveClient = { id:string; telegram_id?:string|null; telegram_username?:string|null; first_name?:string|null;last_name?:string|null;phone?:string|null;created_at?:string;last_active_at?:string;balance:number|string;earned:number|string;spent:number|string;events:number;bookings:number;purchases:number;reviews:number };
 type LiveClientDetail = LiveClient & { selected_language?:string;ledger:Array<{id:string;amount:number|string;entry_type:string;status:string;created_at:string;place_name?:string|null}>;activity:Array<{id:string;event_type:string;created_at:string;place_name?:string|null}>;bookings:Array<{id:string;starts_at:string;status:string;price:number|string}>;purchases:Array<{id:string;created_at:string;amount:number|string;status:string}>;reviews:Array<{id:string;rating:number;status:string;created_at:string}> };
 type LivePartnerSummary = { purchases:Array<{id:string;created_at:string;status:string;amount:number|string;commission:number|string;spent:number|string;earned:number|string}>; bookings:Array<{id:string;created_at:string;starts_at:string;status:string;party_size:number;price:number|string}>; events:Array<{id:string;created_at:string;event_type:string}>; confirmed_purchases:number;bookings_count:number;turnover:number;commission_due:number;compensation_due:number;net_due:number};
-type LiveSettlement = {place_id:string;name:string;region_name:string;category_name:string;transactions:number;turnover:number|string;commission_due:number|string;compensation_due:number|string;net_due:number|string};
+type LiveSettlement = {place_id:string;name:string;region_name:string;category_name:string;transactions:number;turnover:number|string;commission_due:number|string;compensation_due:number|string;net_due:number|string;paid_commission:number|string;balance_due:number|string};
 type LiveAnalytics = {clients:{total:number;new_clients:number;active_clients:number};bonuses:{earned:number|string;spent:number|string};places:Array<{status:string;count:number}>;transactions:Array<{status:string;count:number;turnover:number|string}>;bookings:Array<{status:string;count:number}>;events:Array<{event_type:string;count:number}>;series:Array<{day:string;amount:number|string}>;categories:Array<{name:string;amount:number|string}>;locations:Array<{name:string;total:number}>;top_partners:Array<{name:string;turnover:number|string}>};
 const moneyUA = (value: number|string|undefined|null) => `${Number(value||0).toLocaleString('uk-UA',{maximumFractionDigits:2})} грн`;
 const countUA = (value:number|string|undefined|null) => Number(value||0).toLocaleString('uk-UA');
@@ -125,7 +125,7 @@ function selectedAdminPartnerId() {
   return window.sessionStorage.getItem(ADMIN_SELECTED_PARTNER_KEY) || "";
 }
 
-type NavKey = "partners" | "content" | "pages" | "clients" | "settlements" | "bonuses" | "statistics" | "settings";
+type NavKey = "partners" | "content" | "pages" | "clients" | "reviews" | "settlements" | "bonuses" | "statistics" | "settings";
 
 type TableColumn = {
   label: string;
@@ -137,6 +137,7 @@ const adminNav: Array<{ key: NavKey; label: string; slug: string; icon: typeof U
   { key: "content", label: "Контент / QR", slug: "admin-stage2", icon: MapPin },
   { key: "pages", label: "Редактор сторінок", slug: "admin-pages", icon: Palette },
   { key: "clients", label: "Клієнти", slug: "admin-clients", icon: UsersRound },
+  { key: "reviews", label: "Модерація відгуків", slug: "admin-review-moderation", icon: Star },
   { key: "settlements", label: "Взаєморозрахунки", slug: "admin-settlements", icon: FileText },
   { key: "bonuses", label: "Бонуси", slug: "admin-bonuses", icon: Gift },
   { key: "statistics", label: "Статистика", slug: "admin-statistics", icon: BarChart3 },
@@ -918,22 +919,101 @@ function PartnerHistoryScreen({ navigate }: AdminProps) {
   );
 }
 
+type ModerationReviewRow = {
+  id:string; place_id:string; place_name:string; rating:number; text:string; verification:string;
+  status:string; moderation_comment?:string|null; partner_reply?:string|null; created_at:string;
+  user_id:string;
+};
+function ReviewModerationScreen({navigate}:AdminProps) {
+  const [rows,setRows]=useState<ModerationReviewRow[]>([]);
+  const [status,setStatus]=useState<'pending'|'approved'|'rejected'|'all'>('pending');
+  const [busy,setBusy]=useState('');
+  const [error,setError]=useState('');
+  const [loading,setLoading]=useState(true);
+  const [comments,setComments]=useState<Record<string,string>>({});
+  const refresh=async()=>{setLoading(true);setError('');try{const data=await adminStage2Fetch<ModerationReviewRow[]>('/admin/platform/reviews');setRows(data);}catch(e){setError(e instanceof Error?e.message:'Не вдалося отримати відгуки');}finally{setLoading(false);}};
+  useEffect(()=>{void refresh();},[]);
+  const update=async(id:string,target:'approved'|'rejected')=>{
+    if(target==='rejected' && !(comments[id]||'').trim()){setError('Для відхилення потрібна причина.');return;}
+    setBusy(id);setError('');try{
+      await adminStage2Fetch(`/admin/platform/reviews/${encodeURIComponent(id)}`,'',{method:'PATCH',body:JSON.stringify({status:target,comment:comments[id]||''})});
+      await refresh();
+    }catch(e){setError(e instanceof Error?e.message:'Не вдалося змінити статус');}finally{setBusy('');}
+  };
+  const visible=rows.filter(r=>status==='all'||r.status===status);
+  const badge=(s:string)=>s==='approved'?'Схвалено':s==='rejected'?'Відхилено':'Очікує модерації';
+  return <AdminShell active="reviews" navigate={navigate} contentClassName="ad-main--review-moderation">
+    <AdminPageHeader title="Модерація відгуків" subtitle="Відгуки реальних клієнтів із PostgreSQL: схвалення або відхилення впливають на публічний рейтинг закладу." action={<OutlineButton onClick={()=>void refresh()}><RefreshCcw size={16}/> Оновити</OutlineButton>}/>
+    <div className="ad-review-moderation-tabs">{(['pending','approved','rejected','all'] as const).map(s=><button key={s} type="button" className={s===status?'is-active':''} onClick={()=>setStatus(s)}>{s==='all'?'Усі':badge(s)} · {s==='all'?rows.length:rows.filter(r=>r.status===s).length}</button>)}</div>
+    {error?<div className="ad-create-message is-error" role="alert">{error}</div>:null}
+    {loading?<div className="ad-stage2-empty-row">Завантаження відгуків…</div>:null}
+    {!loading && !visible.length?<div className="ad-stage2-empty-row">Відгуків із цим статусом поки немає.</div>:null}
+    <div className="ad-review-moderation-list">{!loading && visible.map(r=><article className="ad-detail-card ad-review-moderation-card" key={r.id}>
+      <div className="ad-review-moderation-card__header"><div><small>{dateUA(r.created_at)} · {r.id}</small><h3>{r.place_name}</h3><span>{badge(r.status)} · {r.verification==='verified_purchase'?'Підтверджена покупка':r.verification==='verified_booking'?'Завершене бронювання':r.verification}</span></div><strong className="ad-review-stars">{'★'.repeat(Math.max(0,Math.min(5,r.rating)))}{'☆'.repeat(Math.max(0,5-r.rating))}</strong></div>
+      <p className="ad-review-moderation-text">{r.text||'Відгук без тексту'}</p>
+      {r.partner_reply?<p className="ad-review-moderation-reply"><b>Відповідь партнера:</b> {r.partner_reply}</p>:null}
+      {r.moderation_comment?<p className="ad-review-moderation-reply"><b>Попередній коментар модерації:</b> {r.moderation_comment}</p>:null}
+      <label className="ad-review-moderation-comment"><span>Причина / примітка модератора</span><textarea rows={2} value={comments[r.id]||''} onChange={e=>setComments(c=>({...c,[r.id]:e.target.value}))} placeholder="Причина відхилення обов'язкова"/></label>
+      <div className="ad-review-moderation-actions"><button type="button" disabled={busy===r.id||r.status==='approved'} onClick={()=>void update(r.id,'approved')}><Check size={16}/> Схвалити</button><button type="button" disabled={busy===r.id||r.status==='rejected'} onClick={()=>void update(r.id,'rejected')}><X size={16}/> Відхилити</button></div>
+    </article>)}</div>
+  </AdminShell>;
+}
+
+type AdminPaymentClaim = {id:string;place_id:string;place_name:string;amount:number|string;status:string;reference:string;receipt_filename:string;created_at:string;review_comment?:string|null};
+function AdminPaymentClaims({onChanged}:{onChanged:()=>void}) {
+  const [claims,setClaims]=useState<AdminPaymentClaim[]>([]);
+  const [error,setError]=useState('');
+  const [busy,setBusy]=useState('');
+  const [comments,setComments]=useState<Record<string,string>>({});
+  const refresh=async()=>{try{setError('');setClaims(await adminStage2Fetch<AdminPaymentClaim[]>('/admin/platform/payment-claims'));}catch(e){setError(e instanceof Error?e.message:'Помилка отримання оплат');}};
+  useEffect(()=>{void refresh();},[]);
+  const receipt=async(id:string)=>{
+    try{setError('');const result=await adminStage2Fetch<{filename:string;mime:string;base64:string}>(`/admin/platform/payment-claims/${encodeURIComponent(id)}/receipt`);
+      const bytes=atob(result.base64);const buffer=new Uint8Array(bytes.length);for(let i=0;i<bytes.length;i++)buffer[i]=bytes.charCodeAt(i);
+      const blob=new Blob([buffer.buffer as ArrayBuffer],{type:result.mime});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=result.filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+    }catch(e){setError(e instanceof Error?e.message:'Не вдалося завантажити квитанцію');}
+  };
+  const decide=async(id:string,status:'approved'|'rejected')=>{
+    if(!window.confirm(status==='approved'?'Підтверджуєте, що банківське надходження реально звірене? Сума зменшить заборгованість партнера.':'Відхилити цю заявку на оплату?'))return;
+    if(status==='rejected'&&!(comments[id]||'').trim()){setError('Укажіть причину відхилення');return;}
+    setBusy(id);setError('');try{await adminStage2Fetch(`/admin/platform/payment-claims/${encodeURIComponent(id)}`,'',{method:'PATCH',body:JSON.stringify({status,comment:comments[id]||''})});await refresh();onChanged();}catch(e){setError(e instanceof Error?e.message:'Не вдалося обробити заявку');}finally{setBusy('');}
+  };
+  return <section className="ad-detail-card ad-finance-claims"><h2>Перевірка реальних оплат партнерів</h2><p>Заявка не зараховує гроші автоматично. Перед схваленням фінансовий оператор звіряє квитанцію й банківську виписку.</p>
+    {error?<div className="ad-create-message is-error" role="alert">{error}</div>:null}
+    {!claims.length?<div className="ad-stage2-empty-row">Заявок ще немає</div>:claims.map(c=><div className="ad-finance-claim-row" key={c.id}>
+      <div><strong>{c.place_name}</strong><small>{dateUA(c.created_at)} · {c.reference}</small><span>{moneyUA(c.amount)} · {c.status==='approved'?'Підтверджено':c.status==='rejected'?'Відхилено':'На перевірці'}</span>
+        {c.review_comment?<small>{c.review_comment}</small>:null}</div>
+      <div className="ad-finance-claim-actions"><button type="button" onClick={()=>void receipt(c.id)}><Download size={16}/> Квитанція</button>
+        {c.status==='pending'?<><input value={comments[c.id]||''} onChange={e=>setComments(x=>({...x,[c.id]:e.target.value}))} placeholder="Коментар оператора"/>
+          <button type="button" disabled={busy===c.id} onClick={()=>void decide(c.id,'approved')}><Check size={16}/> Підтвердити після звірки</button>
+          <button type="button" disabled={busy===c.id} onClick={()=>void decide(c.id,'rejected')}><X size={16}/> Відхилити</button></>:null}
+      </div>
+    </div>)}
+  </section>;
+}
+
 function SettlementsScreen({navigate}:AdminProps){
-  const {data:rows,error}=useAdminRemote<LiveSettlement[]>('/admin/platform/settlements');
+  const [revision,setRevision]=useState(0);
+  const [search,setSearch]=useState('');
+  const {data:rows,error}=useAdminRemote<LiveSettlement[]>(`/admin/platform/settlements?revision=${revision}`);
+  const filteredRows=(rows||[]).filter(r=>[r.name,r.region_name,r.category_name].join(' ').toLocaleLowerCase('uk').includes(search.trim().toLocaleLowerCase('uk')));
   const commission=(rows||[]).reduce((s,r)=>s+Number(r.commission_due),0);
   const reimbursement=(rows||[]).reduce((s,r)=>s+Number(r.compensation_due),0);
   const turnover=(rows||[]).reduce((s,r)=>s+Number(r.turnover),0);
+  const paid=(rows||[]).reduce((s,r)=>s+Number(r.paid_commission),0);
+  const remaining=(rows||[]).reduce((s,r)=>s+Number(r.balance_due),0);
   return <AdminShell active="settlements" navigate={navigate} contentClassName="ad-main--settlements">
     <AdminPageHeader title="Взаєморозрахунки з партнерами" subtitle="За підтвердженими операціями із PostgreSQL; рахунки й оплати вручну не вигадуються"/>
     <AdminRemoteInfo error={error} data={rows}/>{rows?<><div className="ad-summary-grid ad-summary-grid--five">
       <SummaryCard label="Оборот" value={moneyUA(turnover)}/><SummaryCard label="Комісія платформи" value={moneyUA(commission)} tone="blue"/>
       <SummaryCard label="Компенсація бонусів" value={moneyUA(reimbursement)} tone="orange"/>
-      <SummaryCard label="Нетто до розрахунку" value={moneyUA(commission-reimbursement)} tone="violet"/>
-      <SummaryCard label="Партнерів" value={countUA(rows.length)}/>
-    </div><FilterStrip type="settlements"/><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".9fr"},{label:"Категорія",className:".9fr"},{label:"Операцій",className:".7fr"},{label:"Оборот",className:".9fr"},{label:"Комісія",className:".9fr"},{label:"Компенсації",className:".9fr"},{label:"Нетто",className:".9fr"}]}>
-      {rows.map(r=><TableRow key={r.place_id} columns={["1.6fr",".9fr",".9fr",".7fr",".9fr",".9fr",".9fr",".9fr"]}><strong>{r.name}</strong><span>{r.region_name}</span><span>{r.category_name}</span><span>{r.transactions}</span><strong>{moneyUA(r.turnover)}</strong><span>{moneyUA(r.commission_due)}</span><span>{moneyUA(r.compensation_due)}</span><strong className={Number(r.net_due)<0?'ad-red-number':'ad-green-number'}>{moneyUA(r.net_due)}</strong></TableRow>)}
-      {!rows.length?<div className="ad-stage2-empty-row">Партнерів немає</div>:null}
-    </AdminTable><Pagination label={`Показано ${rows.length} партнерів · Рахунки/банківські оплати не інтегровані`}/></>:null}
+      <SummaryCard label="Несплачений баланс" value={moneyUA(remaining)} tone="violet"/>
+      <SummaryCard label="Підтверджено оплат" value={moneyUA(paid)}/>
+    </div><label className="ad-settlement-search"><Search size={18}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Пошук партнера, регіону, категорії" /></label><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".9fr"},{label:"Категорія",className:".9fr"},{label:"Операцій",className:".7fr"},{label:"Оборот",className:".9fr"},{label:"Комісія",className:".9fr"},{label:"Оплачено",className:".9fr"},{label:"Залишок",className:".9fr"}]}>
+      {filteredRows.map(r=><TableRow key={r.place_id} columns={["1.6fr",".9fr",".9fr",".7fr",".9fr",".9fr",".9fr",".9fr"]}><strong>{r.name}</strong><span>{r.region_name}</span><span>{r.category_name}</span><span>{r.transactions}</span><strong>{moneyUA(r.turnover)}</strong><span>{moneyUA(r.commission_due)}</span><span>{moneyUA(r.paid_commission)}</span><strong className={Number(r.balance_due)<0?'ad-red-number':'ad-green-number'}>{moneyUA(r.balance_due)}</strong></TableRow>)}
+      {!filteredRows.length?<div className="ad-stage2-empty-row">Немає партнерів за вибраним фільтром</div>:null}
+    </AdminTable><div className="ad-stage2-empty-row">Показано {filteredRows.length} із {rows.length} партнерів · Зараховуються лише перевірені платежі</div></>:null}
+    <AdminPaymentClaims onChanged={()=>setRevision(x=>x+1)}/>
   </AdminShell>;
 }
 
@@ -2572,6 +2652,7 @@ export function AdminDesktopScreen({ slug, navigate }: { slug: string; navigate:
     case "admin-partner-details": return <PartnerDetailsScreen navigate={navigate} />;
     case "admin-partner-history": return <PartnerHistoryScreen navigate={navigate} />;
     case "admin-clients": return <ClientsScreen navigate={navigate} />;
+    case "admin-review-moderation": return <ReviewModerationScreen navigate={navigate} />;
     case "admin-client-details": return <ClientDetailsScreen navigate={navigate} />;
     case "admin-client-history": return <ClientHistoryScreen navigate={navigate} />;
     case "admin-settlements": return <SettlementsScreen navigate={navigate} />;

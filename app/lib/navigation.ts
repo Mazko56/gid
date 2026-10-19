@@ -636,6 +636,14 @@ export const screens: ScreenDefinition[] = [
     role: "admin",
   },
   {
+    id: "AD02R",
+    slug: "admin-review-moderation",
+    title: "Модерація відгуків",
+    shortTitle: "Відгуки",
+    description: "Перевірка відгуків, схвалення та відхилення",
+    role: "admin",
+  },
+  {
     id: "AD03",
     slug: "admin-settlements",
     title: "Взаєморозрахунки",
