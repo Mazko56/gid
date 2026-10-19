@@ -534,7 +534,7 @@ export class Stage2Service {
   }
 
   async places(params: Record<string, unknown>) {
-    const regionId = String(params.region_id ?? "region-tatariv");
+    const regionId = params.region_id === "" ? "" : String(params.region_id ?? "region-tatariv");
     const category = params.category ? String(params.category) : "";
     const subcategory = params.subcategory ? String(params.subcategory) : "";
     const q = params.q ? String(params.q).trim().toLocaleLowerCase("uk") : "";
@@ -557,7 +557,7 @@ export class Stage2Service {
     const externalRequested = false;
     const externalSection = String(params.google_section ?? (category || "all"));
 
-    let rows = await this.rawPlaces(regionId);
+    let rows = await this.rawPlaces(regionId || undefined);
     rows = rows.filter((p) => !category || p.category_slug === category);
     rows = rows.filter((p) => partnerMatchesSubcategory(p, subcategory));
     rows = rows.filter((p) => !q || [p.name,p.description,p.address,p.subcategory ?? "",...p.tags].join(" ").toLocaleLowerCase("uk").includes(q));
@@ -1214,6 +1214,73 @@ export class Stage2Service {
     return result.rows;
   }
 
+  private async assertOwnedPartnerPlace(user: AuthUser, placeId: string) {
+    const owner = await this.db.query(`SELECT p.id FROM places p JOIN organizations o ON o.id=p.organization_id
+      LEFT JOIN organization_telegram_access a ON a.organization_id=o.id AND a.active=true
+      WHERE p.id=$1 AND (o.owner_user_id=$2 OR a.telegram_id::text=$3) LIMIT 1`,
+      [placeId,user.id,user.telegram_id ?? ""]);
+    if (!owner.rows[0]) throw new NotFoundException("Заклад не знайдено або немає доступу");
+  }
+
+  async publicPartnerServices(placeId: string) {
+    const place = await this.db.query(`SELECT details->'services' AS services FROM places
+      WHERE id=$1 AND status='approved' LIMIT 1`,[placeId]);
+    if (!place.rows[0]) throw new NotFoundException("Заклад не знайдено");
+    const services = place.rows[0].services;
+    return Array.isArray(services) ? services.filter((item: Record<string, unknown>) => item && item.active !== false && item.hidden !== true) : [];
+  }
+
+  async savePartnerServices(user: AuthUser, placeId: string, body: Record<string, unknown>) {
+    await this.assertOwnedPartnerPlace(user,placeId);
+    const services = body.services;
+    if (!Array.isArray(services) || services.length > 80) throw new BadRequestException('Надто багато послуг або неправильний формат');
+    const filtered = services.map((item,index) => {
+      if (!item || typeof item !== 'object') throw new BadRequestException('Некоректна послуга');
+      const record = item as Record<string,unknown>;
+      const name = String(record.name || '').trim().slice(0,160);
+      if (!name) throw new BadRequestException('Вкажіть назву послуги');
+      return { ...record, id:String(record.id || `service-${index}`).slice(0,90),name };
+    });
+    const data = JSON.stringify(filtered);
+    if (data.length > 7_000_000) throw new BadRequestException('Завеликий обсяг фото або послуг. Стисніть зображення');
+    const saved = await this.db.query(`UPDATE places SET details=jsonb_set(COALESCE(details,'{}'::jsonb),'{services}',$2::jsonb,true),updated_at=now()
+      WHERE id=$1 RETURNING details->'services' AS services`,[placeId,data]);
+    return saved.rows[0]?.services || [];
+  }
+
+  async savePartnerMedia(user: AuthUser, placeId: string, body: Record<string,unknown>) {
+    await this.assertOwnedPartnerPlace(user,placeId);
+    const kind = String(body.kind||'');
+    const url = String(body.image_url||'');
+    if (!['logo','cover'].includes(kind)) throw new BadRequestException('Невідомий тип фото');
+    if (url.length > 3_000_000 || (url && !/^data:image\/(jpeg|png|webp);base64,/.test(url)))
+      throw new BadRequestException('Фото має бути JPEG, PNG або WebP розміром не більше 2 МБ');
+    if (kind==='logo') {
+      await this.db.query(`UPDATE places SET details=jsonb_set(COALESCE(details,'{}'::jsonb),'{logo_url}',$2::jsonb,true),updated_at=now() WHERE id=$1`,[placeId,JSON.stringify(url)]);
+    } else {
+      await this.db.query('UPDATE places SET image_url=$2,updated_at=now() WHERE id=$1',[placeId,url||null]);
+    }
+    return {ok:true};
+  }
+
+  async savePartnerRules(user: AuthUser, placeId: string, body: Record<string,unknown>) {
+    await this.assertOwnedPartnerPlace(user,placeId);
+    const rawRules = body.rule_items;
+    if (!Array.isArray(rawRules) || rawRules.length > 60) throw new BadRequestException('Некоректний список правил');
+    const rules = rawRules.map((item) => ({
+      id:String(item?.id || '').slice(0,90),icon:String(item?.icon || 'info').slice(0,40),
+      text:String(item?.text || '').slice(0,600),
+    }));
+    const checkIn=String(body.check_in||'').slice(0,40),checkOut=String(body.check_out||'').slice(0,40);
+    const cancellation=String(body.cancellation||'').slice(0,2500),other=String(body.other_rules||'').slice(0,2500);
+    const payment=Array.isArray(body.payment_methods) ? body.payment_methods.map(String).slice(0,8) : [];
+    const details = { rule_items:rules,rules:[...rules.map(x=>x.text),cancellation,other].filter(Boolean),
+      check_in:checkIn,check_out:checkOut,cancellation,other_rules:other,payment_methods:payment };
+    await this.db.query(`UPDATE places SET details=COALESCE(details,'{}'::jsonb)||$2::jsonb,updated_at=now() WHERE id=$1`,
+      [placeId,JSON.stringify(details)]);
+    return {ok:true};
+  }
+
   async partnerAccessDiagnostic(user: AuthUser, startParam: string) {
     const telegramId = String(user.telegram_id ?? "").trim();
     const result = await this.db.query(
@@ -1350,7 +1417,7 @@ export class Stage2Service {
     await this.db.query(
       `UPDATE places SET region_id=$2,category_slug=$3,subcategory=$4,name=$5,description=$6,address=$7,lat=$8,lng=$9,phone=$10,telegram=$11,website=$12,image_url=$13,
        price_level=$14,work_hours=$15::jsonb,attributes=$16::jsonb,details=$17::jsonb,status=CASE WHEN status='approved' THEN 'approved' ELSE 'pending' END,updated_at=now() WHERE id=$1`,
-      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(body.attributes ?? current.attributes ?? {}), JSON.stringify(body.details ?? current.details ?? {})],
+      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(body.attributes ?? current.attributes ?? {}), JSON.stringify({ ...(current.details ?? {}), ...((body.details && typeof body.details === "object") ? body.details as Record<string, unknown> : {}) })],
     );
     return this.place(placeId, false);
   }

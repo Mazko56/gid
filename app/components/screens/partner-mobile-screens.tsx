@@ -53,6 +53,7 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import type { RoleKey } from "../../lib/navigation";
+import { kyivBookingIso } from "../../lib/kyiv-time";
 import { ensureTelegramSession, setSessionToken, stage2Fetch, telegramAuthLastError, telegramLaunchDiagnostic, telegramLaunchKey, telegramStartParam, type Stage2Category, type Stage2GeoDetails, type Stage2GeoSuggestion, type Stage2Offer, type Stage2PlaceTypeTemplate, type Stage2User } from "../../lib/stage2-api";
 
 type Navigate = (role: RoleKey, slug: string) => void;
@@ -202,9 +203,32 @@ function readPartnerServices(): PartnerService[] {
   }
 }
 
-function savePartnerServices(services: PartnerService[]) {
+let serviceSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function savePartnerServices(services: PartnerService[], syncToServer = true) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(services));
+  try { window.localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(services)); }
+  catch { window.localStorage.setItem("gid-partner-services-warning", "Фото завелике для збереження на пристрої"); }
+  if (!syncToServer) return;
+  if (serviceSaveTimer) clearTimeout(serviceSaveTimer);
+  serviceSaveTimer = setTimeout(() => {
+    const placeId = window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "";
+    if (!placeId) return;
+    void stage2Fetch(`/partner/services/${encodeURIComponent(placeId)}`, {
+      method: "POST", body: JSON.stringify({ services: readPartnerServices() }),
+    }).then(() => window.localStorage.removeItem("gid-partner-services-warning"))
+      .catch((error) => { window.localStorage.setItem("gid-partner-services-warning", error instanceof Error ? error.message : String(error)); });
+  }, 500);
+}
+
+async function persistPartnerServicesNow(services: PartnerService[]) {
+  if (serviceSaveTimer) { clearTimeout(serviceSaveTimer); serviceSaveTimer = null; }
+  savePartnerServices(services,false);
+  const placeId = typeof window !== 'undefined' ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || '' : '';
+  if (!placeId) throw new Error('Заклад ще не зареєстрований на сервері. Завершіть заповнення контактів.');
+  await stage2Fetch(`/partner/services/${encodeURIComponent(placeId)}`, {
+    method: 'POST',body:JSON.stringify({services}),
+  });
+  window.localStorage.removeItem('gid-partner-services-warning');
 }
 
 function readServiceDraft(): PartnerService {
@@ -456,7 +480,8 @@ async function submitPartnerProfile(profile: PartnerProfile) {
 
   if (existingId) {
     try {
-      return await stage2Fetch<{ id: string; status?: string }>(`/partner/places/${encodeURIComponent(existingId)}`, { method: "PATCH", body: JSON.stringify(payload) });
+      const { services: _localServices, ...safeDetails } = payload.details;
+      return await stage2Fetch<{ id: string; status?: string }>(`/partner/places/${encodeURIComponent(existingId)}`, { method: "PATCH", body: JSON.stringify({ ...payload, details: safeDetails }) });
     } catch (error) {
       if (typeof window !== "undefined" && window.localStorage.getItem(PARTNER_INVITE_KEY)) throw error;
       window.localStorage.removeItem(PARTNER_STAGE2_PLACE_KEY);
@@ -902,6 +927,7 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
   const [stage2Categories, setStage2Categories] = useState<Stage2Category[]>(FALLBACK_STAGE2_CATEGORIES);
   const [placeTemplates, setPlaceTemplates] = useState<Stage2PlaceTypeTemplate[]>(FALLBACK_PLACE_TEMPLATES);
   const [addressError, setAddressError] = useState("");
+  const [mediaError,setMediaError] = useState("");
   const [showAmenityEditor, setShowAmenityEditor] = useState(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
@@ -957,7 +983,12 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
           <input ref={photoInputRef} className="gt-visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
-            void resizePartnerImage(file).then((imageUrl) => setProfile((prev) => ({ ...prev, imageUrl })));
+            void resizePartnerImage(file).then((imageUrl) => {
+              setProfile((prev) => ({ ...prev, imageUrl }));
+              const placeId=window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'';
+              if(placeId)void stage2Fetch(`/partner/media/${encodeURIComponent(placeId)}`,{method:'PATCH',body:JSON.stringify({kind:'cover',image_url:imageUrl})})
+                .then(()=>setMediaError('')).catch(e=>setMediaError(e instanceof Error?e.message:'Не вдалося зберегти фото закладу'));
+            }).catch(e=>setMediaError(String(e)));
             event.currentTarget.value = "";
           }} />
           <button type="button" onClick={() => photoInputRef.current?.click()}>
@@ -973,12 +1004,18 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
           <input ref={logoInputRef} className="gt-visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
-            void resizePartnerImage(file).then((logoUrl) => setProfile((prev) => ({ ...prev, logoUrl })));
+            void resizePartnerImage(file).then((logoUrl) => {
+              setProfile((prev) => ({ ...prev, logoUrl }));
+              const placeId=window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'';
+              if(placeId)void stage2Fetch(`/partner/media/${encodeURIComponent(placeId)}`,{method:'PATCH',body:JSON.stringify({kind:'logo',image_url:logoUrl})})
+                .then(()=>setMediaError('')).catch(e=>setMediaError(e instanceof Error?e.message:'Не вдалося зберегти логотип'));
+            }).catch(e=>setMediaError(String(e)));
             event.currentTarget.value = "";
           }} />
           <button type="button" onClick={() => logoInputRef.current?.click()}><ImageIcon size={15}/> Змінити</button>
         </section>
 
+        {mediaError ? <p className="gt-booking-message" role="alert">{mediaError}</p> : null}
         <FormCard>
           <InputRow
             label="Назва закладу"
@@ -1256,6 +1293,43 @@ function PaymentLogos({ value }: { value: string }) {
 function RulesScreen({ navigate, activated }: PartnerProps) {
   const { profile, setProfile } = usePartnerProfile();
   const goBack = activated ? "partner-info" : "partner-info";
+  const [rulesError,setRulesError]=useState('');
+  const persistRules = async () => {
+    const placeId=window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'';
+    if(!placeId)return;
+    await stage2Fetch(`/partner/rules/${encodeURIComponent(placeId)}`,{
+      method:'PATCH',body:JSON.stringify({
+        rule_items:profile.generalRules,
+        check_in:profile.checkIn.match(/\d{2}:\d{2}/)?.[0]||'',
+        check_out:profile.checkOut.match(/\d{2}:\d{2}/)?.[0]||'',
+        cancellation:profile.cancellation,other_rules:profile.otherRules,
+        payment_methods:paymentMethodsFromText(profile.payment),
+      }),
+    });
+  };
+  const nextAfterSaving=async()=>{
+    setRulesError('');
+    try{await persistRules();navigate('partner',profile.hasWifi?'partner-wifi':'partner-contacts');}
+    catch(e){setRulesError(e instanceof Error?e.message:'Не вдалося зберегти правила');}
+  };
+  const rulesLoaded = useRef(false);
+  useEffect(() => {
+    if (!rulesLoaded.current) { rulesLoaded.current = true; return; }
+    const placeId = typeof window !== 'undefined' ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || '' : '';
+    if (!placeId) return;
+    const timer = setTimeout(() => {
+      void stage2Fetch(`/partner/rules/${encodeURIComponent(placeId)}`, {
+        method: 'PATCH', body: JSON.stringify({
+          rule_items: profile.generalRules,
+          check_in: profile.checkIn.match(/\d{2}:\d{2}/)?.[0] || '',
+          check_out: profile.checkOut.match(/\d{2}:\d{2}/)?.[0] || '',
+          cancellation: profile.cancellation, other_rules: profile.otherRules,
+          payment_methods: paymentMethodsFromText(profile.payment),
+        }),
+      }).catch((error) => console.warn('Правила закладу не збережено:', error));
+    }, 750);
+    return () => clearTimeout(timer);
+  }, [profile.generalRules,profile.checkIn,profile.checkOut,profile.cancellation,profile.otherRules,profile.payment]);
 
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav">
@@ -1264,9 +1338,10 @@ function RulesScreen({ navigate, activated }: PartnerProps) {
         navigate={navigate}
         back={goBack}
         nextLabel="Далі"
-        onNext={() => navigate("partner", profile.hasWifi ? "partner-wifi" : "partner-contacts")}
+        onNext={() => void nextAfterSaving()}
       />
       <main className="gt-partner-mobile-content gt-partner-form-page">
+        {rulesError ? <p role="alert" className="gt-booking-message">{rulesError}</p> : null}
         <h3 className="gt-partner-section-title">Загальні правила</h3>
         <FormCard>
           <RuleLine
@@ -1582,17 +1657,6 @@ type PartnerStatisticsData = {
   services: PartnerStatisticsServiceRow[];
 };
 
-const PARTNER_SERVICE_IMAGES: Record<string, string> = {
-  чан: "/images/service-tub.webp",
-  сауна: "/images/service-sauna.webp",
-  ресторан: "/images/rest-excursion.webp",
-  ресторану: "/images/rest-excursion.webp",
-  масаж: "/images/rest-massage.webp",
-  велосипед: "/images/service-bikes.webp",
-  басейн: "/images/service-pool.webp",
-  бронювання: "/images/travel-thumbnails.webp",
-  qr: "/images/travel-thumbnails.webp",
-};
 
 const EMPTY_PARTNER_STATS: PartnerStatisticsData = {
   loading: true,
@@ -1644,11 +1708,6 @@ function partnerStatsChange(current: number, previous: number, withContext = fal
   return `${diff >= 0 ? "↑" : "↓"} ${rounded}%${withContext ? " до попереднього періоду" : ""}`;
 }
 
-function partnerStatsServiceImage(name: string) {
-  const lower = name.toLocaleLowerCase("uk");
-  const match = Object.entries(PARTNER_SERVICE_IMAGES).find(([key]) => lower.includes(key));
-  return match?.[1] || "/images/travel-thumbnails.webp";
-}
 
 function partnerStatsDayKey(dateLike: string | null | undefined) {
   if (!dateLike) return "";
@@ -1753,6 +1812,11 @@ function buildPartnerStatistics(
   const resourceNames = new Map<string, string>();
   resources.forEach((item) => { resourceNames.set(String(item.id), String(item.name || "Послуга")); });
   const servicesMap = new Map<string, PartnerStatisticsServiceRow>();
+  const configuredServices = Array.isArray(place?.details?.services) ? place.details.services as Array<Record<string,unknown>> : [];
+  const realServicePhoto = (name:string) => {
+    const existing=configuredServices.find(s=>String(s.name||'').trim().toLowerCase()===name.trim().toLowerCase());
+    return typeof existing?.image==='string' ? existing.image : '';
+  };
   const touchService = (key: string, name: string, total = 0, commissionAmount = 0) => {
     const safeKey = key || name;
     const existing = servicesMap.get(safeKey);
@@ -1768,7 +1832,7 @@ function buildPartnerStatistics(
       operations: 1,
       total,
       commission: commissionAmount,
-      image: partnerStatsServiceImage(name),
+      image: safeKey === 'qr-purchases' ? '' : realServicePhoto(name),
     });
   };
 
@@ -1778,7 +1842,7 @@ function buildPartnerStatistics(
     touchService(resourceId || name, name, partnerStatsNumber(item.price), 0);
   });
   if (confirmedTransactions.length) {
-    touchService("qr-purchases", "QR-покупки", turnover, commission);
+    touchService("qr-purchases", "Покупка за QR (без послуги)", turnover, commission);
     const qrService = servicesMap.get("qr-purchases");
     if (qrService) qrService.operations = confirmedTransactions.length;
   }
@@ -2014,7 +2078,7 @@ function StatisticsServicesTab({ stats }: { stats: PartnerStatisticsData }) {
     <>
       <article className="gt-stat-top-service">
         <div><small>Найпопулярніша послуга</small><strong>{topService?.name || "Ще немає даних"}</strong><span>{topService ? `${partnerStatsCount(topService.operations)} операцій` : "Очікуємо на перші операції"}</span></div>
-        <img src={topService?.image || "/images/travel-thumbnails.webp"} alt={topService?.name || "Статистика послуг"} />
+        {topService?.image ? <img src={topService.image} alt={topService.name} /> : <QrCode size={40} />}
       </article>
 
       <section className="gt-stat-table-section gt-stat-services-section">
@@ -2025,7 +2089,7 @@ function StatisticsServicesTab({ stats }: { stats: PartnerStatisticsData }) {
           </div>
           {visibleServices.map((service) => (
             <div className="gt-stat-services-table__row" key={service.key}>
-              <span className="gt-stat-service-name"><img src={service.image} alt="" /><b>{service.name}</b></span>
+              <span className="gt-stat-service-name">{service.image ? <img src={service.image} alt="" /> : <QrCode size={24} />}<b>{service.name}</b></span>
               <span>{partnerStatsCount(service.operations)}</span>
               <span>{partnerStatsMoney(service.total)}</span>
               <span>{partnerStatsMoney(service.commission)}</span>
@@ -2411,6 +2475,8 @@ function ServiceThumbnail({ service }: { service: PartnerService }) {
 
 function ServicesScreen({ navigate }: { navigate: Navigate }) {
   const { services, setServices } = usePartnerServices();
+  const [syncWarning,setSyncWarning] = useState('');
+  useEffect(()=>{setSyncWarning(window.localStorage.getItem('gid-partner-services-warning')||'');},[]);
   const activated = readPartnerActivated();
   const [audience, setAudience] = useState<PartnerServiceAudience>("hotel");
   const visibleServices = services.filter((service) => !service.hidden && service.audience === audience);
@@ -2443,6 +2509,7 @@ function ServicesScreen({ navigate }: { navigate: Navigate }) {
           </button>
         </div>
 
+        {syncWarning ? <div className="gt-booking-message" role="alert">Не вдалося синхронізувати послуги: {syncWarning}<button type="button" onClick={()=>void persistPartnerServicesNow(services).then(()=>setSyncWarning('')).catch(e=>setSyncWarning(String(e)))}>Повторити збереження</button></div> : null}
         <section className="gt-services-list">
           {visibleServices.map((service) => (
             <div
@@ -2583,7 +2650,10 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
     saveServiceDraft(draft);
   }, [draft]);
 
-  const save = () => {
+  const [saveError, setSaveError] = useState('');
+  const save = async () => {
+    if (!draft.name.trim()) { setSaveError('Укажіть назву послуги'); return; }
+    if (['fixed','from','range'].includes(draft.priceType) && !draft.price.trim() ) { setSaveError('Укажіть ціну послуги'); return; }
     const services = readPartnerServices();
     const id = `service-${Date.now()}`;
     const next: PartnerService = {
@@ -2594,10 +2664,13 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
       scheduleLabel: draft.scheduleLabel || "Щодня",
       image: preview || draft.image,
     };
-    savePartnerServices([...services, next]);
-    window.localStorage.removeItem(SERVICE_DRAFT_STORAGE_KEY);
-    window.localStorage.setItem(SERVICE_SELECTED_STORAGE_KEY, id);
-    navigate("partner", "partner-services");
+    setSaveError('');
+    try {
+      await persistPartnerServicesNow([...services,next]);
+      window.localStorage.removeItem(SERVICE_DRAFT_STORAGE_KEY);
+      window.localStorage.setItem(SERVICE_SELECTED_STORAGE_KEY,id);
+      navigate('partner','partner-services');
+    } catch(error) { setSaveError(error instanceof Error ? error.message : 'Не вдалося зберегти послугу на сервері'); }
   };
 
   return (
@@ -2613,12 +2686,13 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              const reader = new FileReader();
-              reader.onload = () => setPreview(typeof reader.result === "string" ? reader.result : "");
-              reader.readAsDataURL(file);
+              void resizePartnerImage(file).then((image) => {
+                setPreview(image);
+                setDraft((current) => ({ ...current, image }));
+              }).catch((error) => setSaveError(error instanceof Error ? error.message : 'Фото не вдалося завантажити'));
             }}
           />
-          {preview ? <img src={preview} alt="Фото послуги" /> : <Camera size={24} />}
+          {preview || draft.image ? <img src={preview || draft.image} alt="Фото послуги" /> : <Camera size={24} />}
           <span>
             <strong>Додайте фото</strong>
             <small>Додайте одне або більше фото послуги</small>
@@ -2652,6 +2726,23 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
           placeholder="Оберіть тип ціни"
           onClick={() => navigate("partner", "partner-service-price-type")}
         />
+        {['fixed','from','range'].includes(draft.priceType) ? <div className="gt-service-inline-fields">
+          <ServiceField label={draft.priceType === 'range' ? 'Діапазон цін, ₴' : 'Ціна, ₴'} value={draft.price} placeholder={draft.priceType === 'range' ? 'Наприклад, 500–900' : 'Наприклад, 500'} onChange={(price) => setDraft((current) => ({...current, price}))} />
+          <ServiceField label="Валюта" value={draft.currency} onChange={(currency) => setDraft((current) => ({...current, currency}))} />
+        </div> : null}
+        <h3 className="gt-service-section-title">Графік роботи</h3>
+        <ServiceSelectRow label="Тип графіку" value={draft.scheduleLabel} placeholder="Оберіть графік" onClick={() => navigate('partner','partner-service-schedule-type')} />
+        <div className="gt-service-inline-fields">
+          <ServiceField label="Від" value={draft.timeFrom} onChange={(timeFrom) => setDraft((current)=>({...current,timeFrom}))} />
+          <ServiceField label="До" value={draft.timeTo} onChange={(timeTo) => setDraft((current)=>({...current,timeTo}))} />
+        </div>
+        <h3 className="gt-service-section-title">Контакти й умови</h3>
+        <ServiceField label="Телефон" value={draft.phone} onChange={(phone) => setDraft((current)=>({...current,phone}))} />
+        <ServiceField label="Як забронювати" value={draft.bookingNote} multiline onChange={(bookingNote) => setDraft((current)=>({...current,bookingNote}))} />
+        <ServiceField label="Додаткова інформація" value={draft.additionalInfo} multiline onChange={(additionalInfo) => setDraft((current)=>({...current,additionalInfo}))} />
+        <div className="gt-service-status-list"><div><strong>Послуга активна</strong><ServiceSwitch checked={draft.active} onChange={(active)=>setDraft((current)=>({...current,active}))}/></div></div>
+        {saveError ? <p role="alert" className="gt-booking-message">{saveError}</p> : null}
+        <button type="button" className="gt-partner-primary-button" onClick={save}>Зберегти послугу</button>
       </main>
       <PartnerBottomNav active="home" activated navigate={navigate} />
     </div>
@@ -2745,6 +2836,7 @@ function readSelectedService() {
 
 function EditServiceScreen({ navigate }: { navigate: Navigate }) {
   const [service, setService] = useState<PartnerService>(() => ({ ...emptyServiceDraft }));
+  const [saveError,setSaveError] = useState('');
 
   useEffect(() => {
     setService(readSelectedService());
@@ -2755,17 +2847,24 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
     savePartnerServices(readPartnerServices().map((item) => item.id === next.id ? next : item));
   };
 
-  const save = () => {
-    persist(service);
-    navigate("partner", "partner-services");
+  const save = async () => {
+    setSaveError('');
+    try {
+      await persistPartnerServicesNow(readPartnerServices().map((item)=>item.id===service.id?service:item));
+      navigate('partner','partner-services');
+    } catch(error) {setSaveError(error instanceof Error?error.message:'Не вдалося зберегти');}
   };
 
-  const remove = () => {
-    savePartnerServices(readPartnerServices().filter((item) => item.id !== service.id));
-    navigate("partner", "partner-services");
+  const remove = async () => {
+    if (!window.confirm(`Видалити послугу «${service.name}»?`)) return;
+    setSaveError('');
+    try {
+      await persistPartnerServicesNow(readPartnerServices().filter((item) => item.id !== service.id));
+      navigate('partner','partner-services');
+    } catch(error) {setSaveError(error instanceof Error?error.message:'Не вдалося видалити');}
   };
 
-  const images = [service.image || "/images/service-sauna.webp", "/images/service-pool.webp", "/images/service-tub.webp"];
+  const images = service.image ? [service.image] : [];
 
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav is-service-editor-page">
@@ -2774,9 +2873,9 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
         <h3 className="gt-service-section-title">Фото послуги</h3>
         <div className="gt-service-photo-grid">
           {images.map((image, index) => <img src={image} key={`${image}-${index}`} alt="" />)}
-          <button type="button"><ImagePlus size={22} /><small>Додати<br />фото</small></button>
+          <label className="gt-service-photo-add"><input type="file" accept="image/*" onChange={(event)=>{const file=event.target.files?.[0];if(file)void resizePartnerImage(file).then(image=>setService(current=>({...current,image}))).catch(error=>window.alert(String(error)));}}/><ImagePlus size={22}/><small>Додати фото</small></label>
         </div>
-        <p className="gt-service-photo-hint">Перетягніть фото, щоб змінити порядок</p>
+        <p className="gt-service-photo-hint">Фото відображатиметься у картці послуги після збереження.</p>
 
         <ServiceField label="Назва послуги" value={service.name} onChange={(name) => setService((current) => ({ ...current, name }))} />
         <ServiceSelectRow label="Категорія" value={service.category} placeholder="Оберіть категорію" onClick={() => {
@@ -2852,7 +2951,8 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
           <div><span><strong>Приховати послугу</strong><small>Послуга не буде відображатися гостям</small></span><ServiceSwitch checked={service.hidden} onChange={(hidden) => setService((current) => ({ ...current, hidden }))} /></div>
         </div>
 
-        <button type="button" className="gt-service-delete" onClick={remove}><Trash2 size={16} /> Видалити послугу</button>
+        {saveError ? <p role="alert" className="gt-booking-message">{saveError}</p> : null}
+        <button type="button" className="gt-service-delete" onClick={()=>void remove()}><Trash2 size={16} /> Видалити послугу</button>
       </main>
       <PartnerBottomNav active="home" activated navigate={navigate} />
     </div>
@@ -3005,6 +3105,7 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const [resources,setResources]=useState<PartnerResource[]>([]);
   const [bookings,setBookings]=useState<PartnerBooking[]>([]);
   const [name,setName]=useState('');
+  const [editingResource,setEditingResource]=useState('');
   const [capacity,setCapacity]=useState('4');
   const [duration,setDuration]=useState('60');
   const [price,setPrice]=useState('0');
@@ -3023,16 +3124,24 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
         stage2Fetch<PartnerBooking[]>(`/bookings?place_id=${encodeURIComponent(placeId)}`),
       ]);
       setResources(r);setBookings(b);
-      if(!r.some(item=>item.id===selectedResource))setSelectedResource(r[0]?.id||'');
+      if(!r.some(item=>item.id===selectedResource && item.active))setSelectedResource(r.find(item=>item.active)?.id||'');
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося завантажити бронювання');}
   };
   useEffect(()=>{void reload();},[placeId]);
   const createResource=async()=>{
     setBusy(true);setMessage('');
     try {
-      await stage2Fetch('/partner/resources',{method:'POST',body:JSON.stringify({place_id:placeId,name:name.trim(),capacity:Number(capacity),duration_minutes:Number(duration),price:Number(price)})});
-      setName('');await reload();setMessage('Ресурс збережено');
+      await stage2Fetch('/partner/resources',{method:'POST',body:JSON.stringify({id:editingResource || undefined,place_id:placeId,name:name.trim(),capacity:Number(capacity),duration_minutes:Number(duration),price:Number(price)})});
+      setName('');setEditingResource('');await reload();setMessage('Ресурс збережено');
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося зберегти ресурс');}
+    finally{setBusy(false);}
+  };
+  const editResource=(resource:PartnerResource)=>{setEditingResource(resource.id);setName(resource.name);setCapacity(String(resource.capacity));setDuration(String(resource.duration_minutes));setPrice(String(resource.price));};
+  const removeResource=async(resource:PartnerResource)=>{
+    if(!window.confirm(`Видалити ресурс «${resource.name}»? Історія його бронювань залишиться.`))return;
+    setBusy(true);setMessage('');
+    try{const result=await stage2Fetch<{message?:string}>(`/partner/resources/${encodeURIComponent(resource.id)}`,{method:'DELETE'});await reload();setMessage(result.message||'Ресурс видалено');}
+    catch(e){setMessage(e instanceof Error?e.message:'Не вдалося видалити ресурс');}
     finally{setBusy(false);}
   };
   const updateStatus=async(id:string,status:string)=>{
@@ -3045,7 +3154,7 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
     if(!selectedResource||!date||!time){setMessage('Оберіть ресурс, дату та час.');return;}
     setBusy(true);setMessage('');
     try{
-      await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName.trim(),phone:phone.trim(),party_size:1,starts_at:new Date(`${date}T${time}:00+03:00`).toISOString()})});
+      await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName.trim(),phone:phone.trim(),party_size:1,starts_at:kyivBookingIso(date,time)})});
       setMessage('Ручне бронювання успішно додано');setClientName('');await reload();
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося створити бронювання');}
     finally{setBusy(false);}
@@ -3058,17 +3167,18 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
       <section className="gt-booking-panel">
         <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ресурси для бронювання</h2><p>Керуйте доступними місцями та послугами</p></div></div>
         <div className="gt-booking-resource-list">
-          {resources.map(r=><div key={r.id} className="gt-booking-resource-row"><div><strong>{r.name}</strong><small>Місткість: {r.capacity} · {r.duration_minutes} хв</small></div><b>{financeAmount(r.price)}</b></div>)}
+          {resources.map(r=><div key={r.id} className="gt-booking-resource-row"><div><strong>{r.name}</strong><small>Місткість: {r.capacity} · {r.duration_minutes} хв{!r.active?' · Вимкнено':''}</small></div><b>{financeAmount(r.price)}</b><div className="gt-booking-resource-actions"><button type="button" onClick={()=>editResource(r)}><Edit3 size={15}/> Змінити</button><button type="button" disabled={busy} onClick={()=>void removeResource(r)}><Trash2 size={15}/> Видалити</button></div></div>)}
           {!resources.length?<p className="gt-booking-empty">Ресурсів поки немає. Додайте перший ресурс нижче.</p>:null}
         </div>
-        <div className="gt-booking-panel__subheading">Додати ресурс</div>
+        <div className="gt-booking-panel__subheading">{editingResource ? "Редагувати ресурс" : "Додати ресурс"}</div>
         <div className="gt-booking-field-grid">
           {inputField('Назва ресурсу',name,setName,{placeholder:'Наприклад, чан №1'})}
           {inputField('Місткість (осіб)',capacity,setCapacity,{type:'number',min:'1',step:'1'})}
           {inputField('Тривалість (хв)',duration,setDuration,{type:'number',min:'15',step:'15'})}
           {inputField('Ціна (₴)',price,setPrice,{type:'number',min:'0',step:'0.01'})}
         </div>
-        <button className="gt-booking-action" type="button" disabled={busy||!name.trim()} onClick={()=>void createResource()}><Plus size={18}/> Додати ресурс</button>
+        <button className="gt-booking-action" type="button" disabled={busy||!name.trim()} onClick={()=>void createResource()}><Plus size={18}/> {editingResource ? 'Зберегти зміни' : 'Додати ресурс'}</button>
+        {editingResource ? <button type="button" className="gt-booking-resource-cancel" onClick={()=>{setEditingResource('');setName('');}}>Скасувати редагування</button> : null}
       </section>
 
       <section className="gt-booking-panel">
@@ -3085,7 +3195,7 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
 
       <section className="gt-booking-panel">
         <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ручне бронювання</h2><p>Зайняті слоти перевіряються автоматично</p></div></div>
-        <label className="gt-booking-field"><span>Ресурс</span><select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{!resources.length?<option value="">Спочатку створіть ресурс</option>:null}{resources.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
+        <label className="gt-booking-field"><span>Ресурс</span><select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{!resources.length?<option value="">Спочатку створіть ресурс</option>:null}{resources.filter(r=>r.active).map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
         {inputField('Імʼя клієнта',clientName,setClientName,{placeholder:'Імʼя гостя'})}
         {inputField('Контакт',phone,setPhone,{placeholder:'+380 …'})}
         <div className="gt-booking-date-grid">
@@ -3719,8 +3829,14 @@ function hydratePartnerProfileFromDb(place: Record<string, any>) {
     cabinetModules: modules,
     templateFields: details.template_fields && typeof details.template_fields === "object" ? details.template_fields : {},
   };
+  const locallySavedServices=readPartnerServices();
+  const localProfile=readPartnerProfile();
   savePartnerProfile(profile);
-  savePartnerServices(Array.isArray(services) ? services as PartnerService[] : []);
+  if (Array.isArray(services) && services.length) savePartnerServices(services as PartnerService[], false);
+  else if (locallySavedServices.length && localProfile.placeName === profile.placeName) {
+    // Migrate legacy on-device services when the currently owned place has no server copy yet.
+    savePartnerServices(locallySavedServices);
+  } else savePartnerServices([],false);
 }
 
 export function PartnerMobileScreen({ slug, navigate }: { slug: string; navigate: Navigate }) {

@@ -30342,3 +30342,81 @@ button.gt-amenities-row {
 .gt-partner-offer-card__actions { display: grid; gap: 6px; }
 .gt-partner-offer-card__actions button { display: grid; place-items: center; width: 32px; height: 32px; background: #f1f7f3; border: 1px solid #e0e9e2; border-radius: 9px; color: #278253; }
 @media (max-width: 360px) { .gt-partner-offer-card { grid-template-columns: 44px minmax(0,1fr) auto; gap: 7px; } .gt-partner-offer-card > img,.gt-partner-offer-card__image { width: 44px; height: 51px; } }
+
+
+/* 2026-10-19 Partner rules, live services, customer booking and offer moderation */
+.gt-partner-rule-line--editable { position: relative; flex-wrap: wrap; }
+.gt-partner-rule-icon-picker {
+  position: relative !important;
+  inset: auto !important;
+  top: auto !important;
+  left: auto !important;
+  width: 100%;
+  max-width: 100%;
+  grid-template-columns: repeat(5,minmax(0,1fr)) !important;
+  gap: 8px;
+  box-sizing: border-box;
+  z-index: 2;
+  margin-top: 8px;
+  overflow: visible;
+  grid-column: 1 / -1 !important;
+  grid-row: auto;
+}
+.gt-partner-rule-icon-picker button { width: 100%; min-width: 0; }
+.gt-partner-text-section textarea {
+  display: block;
+  width: 100%;
+  min-height: 98px;
+  padding: 12px 13px;
+  box-sizing: border-box;
+  border: 1px solid #d3ded7 !important;
+  border-radius: 13px;
+  background: #fff;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #203e32;
+  outline-color: #28b17b;
+}
+.gt-about-brand-logo { width: 62px; height: 62px; object-fit: contain; border-radius: 14px; background: rgba(255,255,255,.9); padding: 5px; }
+.gt-place-brand-logo { height: 54px; width: 54px; object-fit: contain; background: #fff; padding: 4px; border-radius: 12px; }
+.gt-place-book-button { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; margin: 12px 0 16px; }
+.gt-place-book-button span { margin-left: auto; font-size: 12px; font-weight: 600; opacity: .9; }
+.gt-place-services-link { width: 100%; margin: 0 0 14px; cursor: pointer; }
+.gt-live-services { padding: 0 15px 38px; }
+.gt-live-services__place { padding: 2px 3px 10px; margin: 0; font-size: 13px; color: #647b6e; }
+.gt-live-services-grid { display:grid; gap: 12px; margin: 8px 0 30px; }
+.gt-live-service-card { display:grid; grid-template-columns: 78px minmax(0,1fr) 18px; width:100%; min-height:90px; gap:12px; align-items:center; padding:8px; border:1px solid #e1e9e4; border-radius:15px; background:#fff; color:#21372c; text-align:left; box-shadow: 0 5px 16px rgba(18,55,35,.04); }
+.gt-live-service-card img,.gt-live-service-card__icon { width:78px; height:78px; border-radius:11px; object-fit:cover; }
+.gt-live-service-card__icon { display:grid; place-items:center; background:#edf8f2; color:#1a8660; }
+.gt-live-service-card > span:nth-child(2){display:grid; gap:5px; min-width:0; }
+.gt-live-service-card small {font-size:11px; color:#789084;}
+.gt-live-service-card strong {font-size:16px; line-height:1.3; overflow-wrap:anywhere;}
+.gt-live-service-card em {font-size:13px; font-style:normal; font-weight:700; color:#118956;}
+.gt-live-service-detail{ display:grid;gap:14px; padding:15px; border:1px solid #e1e9e4; border-radius:18px; background:white; }
+.gt-live-service-detail > img{ width:100%; max-height:250px; object-fit:contain; border-radius:12px; background:#f6f9f7; }
+.gt-live-service-detail h2 {font-size:23px; line-height:1.25; margin:5px 0; overflow-wrap:anywhere;}
+.gt-live-service-detail small {color:#718a7b;}
+.gt-live-service-detail strong {color:#087f4c;}
+.gt-live-service-detail p {margin:0; line-height:1.55; color:#364d40; white-space:pre-line;}
+.gt-booking-resource-actions {grid-column:1/-1; display:flex; gap:7px; flex-wrap:wrap; }
+.gt-booking-resource-actions button, .gt-booking-resource-cancel{display:inline-flex; align-items:center; gap:5px; min-height:34px; padding:6px 10px; border:1px solid #dce6e1; border-radius:9px; background:#fff; font-weight:600; color:#246b4b; font-size:12px; }
+.gt-booking-resource-actions button:last-child{color:#b74848;}
+.gt-my-bookings .gt-booking-summary {margin-bottom:12px;}
+.ad-offer-refresh{display:flex; align-items:center; gap:7px; padding:9px 13px; border:1px solid #dce6e1; border-radius:10px; background:#fff; margin:12px 0; color:#236546;}
+.ad-offer-moderation-list{display:grid;gap:12px;}
+.ad-offer-moderation-card{display:grid;grid-template-columns:minmax(80px,160px) minmax(0,1fr);gap:15px;padding:16px;border:1px solid #e0e9e2;border-radius:14px;background:#fff;}
+.ad-offer-moderation-card > img {width:100%; max-height:200px; object-fit:contain; border-radius:9px;}
+.ad-offer-moderation-card > div {display:grid; gap:7px; min-width:0;}
+.ad-offer-moderation-card h2{font-size:19px; margin:0; overflow-wrap:anywhere;}
+.ad-offer-moderation-card p{margin:0;line-height:1.4;overflow-wrap:anywhere;}
+.ad-offer-moderation-card small{color:#708176;}
+.ad-offer-moderation-card input{width:100%; min-height:40px; padding:8px 11px; border-radius:9px; border:1px solid #d8e2dc;}
+.ad-offer-actions{display:flex; flex-wrap:wrap; gap:8px;}
+.ad-offer-actions button{display:flex;align-items:center;gap:6px;min-height:36px;padding:7px 12px;border:0;border-radius:8px;background:#e1f5e8;color:#137049;font-weight:700;}
+.ad-offer-actions button:last-child{background:#f9e9e7;color:#a23b3b;}
+@media (max-width:640px) { .ad-offer-moderation-card{grid-template-columns:1fr;} .ad-offer-moderation-card > img {max-width:180px;} }
+
+/* Allow Kryvyi Rih-sized radii without overflowing the nearby map toolbar. */
+.gt-nearby-design__radius { overflow-x: auto !important; overflow-y:hidden; display:flex; flex-wrap:nowrap !important; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.gt-nearby-design__radius::-webkit-scrollbar { display: none; }
+.gt-nearby-design__radius button { flex: 0 0 auto !important; }

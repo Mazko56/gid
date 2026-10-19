@@ -122,6 +122,21 @@ export class Stage2Controller {
   @Get("partner/places")
   partnerPlaces(@Req() request: AuthRequest) { return this.service.partnerPlaces(request.user!); }
 
+  @Get("partner/services/public/:placeId")
+  publicServices(@Param("placeId") placeId:string) { return this.service.publicPartnerServices(placeId); }
+
+  @UseGuards(SessionGuard)
+  @Post("partner/services/:placeId")
+  saveServices(@Req() request:AuthRequest,@Param("placeId") id:string,@Body() body:Record<string,unknown>) { return this.service.savePartnerServices(request.user!,id,body); }
+
+  @UseGuards(SessionGuard)
+  @Patch("partner/media/:placeId")
+  saveMedia(@Req() request:AuthRequest,@Param("placeId") id:string,@Body() body:Record<string,unknown>) { return this.service.savePartnerMedia(request.user!,id,body); }
+
+  @UseGuards(SessionGuard)
+  @Patch("partner/rules/:placeId")
+  saveRules(@Req() request:AuthRequest,@Param("placeId") id:string,@Body() body:Record<string,unknown>) { return this.service.savePartnerRules(request.user!,id,body); }
+
   @UseGuards(SessionGuard)
   @Post("partner/onboarding")
   partnerOnboarding(@Req() request: AuthRequest, @Body() body: Record<string, unknown>) { return this.service.createPartnerPlace(request.user!, body); }

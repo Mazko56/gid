@@ -336,6 +336,16 @@ export class PlatformService {
     });
   }
 
+  async adminPartnerOffersForModeration() {
+    return (await this.db.query(`SELECT o.id,o.title,o.discount,o.description,o.detail,o.terms,o.image_url,
+      o.valid_until,o.moderation_status,o.moderation_comment,o.created_at,
+      p.id AS place_id,p.name AS place_name,r.name AS region_name
+      FROM hot_offers o JOIN places p ON p.id=o.place_id JOIN regions r ON r.id=o.region_id
+      WHERE o.submitted_by_user_id IS NOT NULL AND o.active=true
+      ORDER BY CASE WHEN o.moderation_status='pending' THEN 0 ELSE 1 END,o.updated_at DESC
+      LIMIT 500`)).rows;
+  }
+
   async partnerOffers(user: AuthUser) {
     const result = await this.db.query(`SELECT o.id,o.place_id,o.title,o.discount AS discount_label,
       o.description AS short_description,o.detail AS description,o.terms,o.image_url,o.valid_until,
@@ -432,6 +442,19 @@ export class PlatformService {
     if(!result.rows[0]) throw new ForbiddenException('Чужий ресурс');
     await this.audit(user.id,place.region_id,'resource',resourceId,'saved');
     return result.rows[0];
+  }
+
+  async removeResource(user: AuthUser, resourceId:string) {
+    const existing = await this.db.query('SELECT id,place_id FROM booking_resources WHERE id=$1',[resourceId]);
+    if (!existing.rows[0]) throw new NotFoundException('Ресурс не знайдено');
+    await this.placeWithRole(user,String(existing.rows[0].place_id),['owner','manager']);
+    const hasBookings = await this.db.query('SELECT EXISTS(SELECT 1 FROM bookings WHERE resource_id=$1) AS used',[resourceId]);
+    if (hasBookings.rows[0]?.used) {
+      await this.db.query('UPDATE booking_resources SET active=false WHERE id=$1',[resourceId]);
+      return {ok:true,archived:true,message:'Ресурс вимкнено. Історію бронювань збережено'};
+    }
+    await this.db.query('DELETE FROM booking_resources WHERE id=$1',[resourceId]);
+    return {ok:true,archived:false};
   }
 
   async availability(placeId: string,date: string) {

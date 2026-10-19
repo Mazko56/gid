@@ -27,11 +27,13 @@ export class PlatformController {
   @UseGuards(SessionGuard) @Post('partner/offers') saveOffer(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.savePartnerOffer(r.user!,b); }
   @UseGuards(SessionGuard) @Patch('partner/offers/:id') updateOffer(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:Record<string,unknown>) { return this.platform.savePartnerOffer(r.user!,b,id); }
   @UseGuards(SessionGuard) @Delete('partner/offers/:id') deleteOffer(@Req() r:AuthRequest,@Param('id') id:string) { return this.platform.deletePartnerOffer(r.user!,id); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/offers/moderation') offerModeration() { return this.platform.adminPartnerOffersForModeration(); }
   @UseGuards(AdminKeyGuard) @Patch('admin/platform/offers/:id/moderate') moderateOffer(@Param('id') id:string,@Body() b:{status:string;comment?:string}) { return this.platform.moderatePartnerOffer(id,b.status,b.comment||''); }
 
   @Get('resources/:placeId') resources(@Param('placeId') id:string) { return this.platform.resources(id); }
   @UseGuards(SessionGuard) @Get('partner/resources/:placeId') partnerResources(@Req() r:AuthRequest,@Param('placeId') id:string) { return this.platform.partnerResources(r.user!,id); }
   @UseGuards(SessionGuard) @Post('partner/resources') saveResource(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.saveResource(r.user!,b); }
+  @UseGuards(SessionGuard) @Delete('partner/resources/:id') removeResource(@Req() r:AuthRequest,@Param('id') id:string) { return this.platform.removeResource(r.user!,id); }
   @Get('bookings/availability') availability(@Query('place_id') id:string,@Query('date') date:string) { return this.platform.availability(id,date); }
   @UseGuards(SessionGuard) @Post('bookings') book(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.newBooking(r.user!,b); }
   @UseGuards(SessionGuard) @Post('partner/bookings/manual') manual(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.newBooking(r.user!,b,true); }

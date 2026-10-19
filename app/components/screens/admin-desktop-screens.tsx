@@ -125,7 +125,7 @@ function selectedAdminPartnerId() {
   return window.sessionStorage.getItem(ADMIN_SELECTED_PARTNER_KEY) || "";
 }
 
-type NavKey = "partners" | "content" | "pages" | "clients" | "reviews" | "settlements" | "bonuses" | "statistics" | "settings";
+type NavKey = "partners" | "content" | "pages" | "clients" | "reviews" | "offers" | "settlements" | "bonuses" | "statistics" | "settings";
 
 type TableColumn = {
   label: string;
@@ -138,6 +138,7 @@ const adminNav: Array<{ key: NavKey; label: string; slug: string; icon: typeof U
   { key: "pages", label: "Редактор сторінок", slug: "admin-pages", icon: Palette },
   { key: "clients", label: "Клієнти", slug: "admin-clients", icon: UsersRound },
   { key: "reviews", label: "Модерація відгуків", slug: "admin-review-moderation", icon: Star },
+  { key: "offers", label: "Модерація акцій", slug: "admin-offer-moderation", icon: Gift },
   { key: "settlements", label: "Взаєморозрахунки", slug: "admin-settlements", icon: FileText },
   { key: "bonuses", label: "Бонуси", slug: "admin-bonuses", icon: Gift },
   { key: "statistics", label: "Статистика", slug: "admin-statistics", icon: BarChart3 },
@@ -924,6 +925,50 @@ type ModerationReviewRow = {
   status:string; moderation_comment?:string|null; partner_reply?:string|null; created_at:string;
   user_id:string;
 };
+type PendingPartnerOffer = {
+  id:string;title:string;discount:string;description?:string|null;detail?:string|null;terms?:string|null;
+  image_url?:string|null;valid_until?:string|null;moderation_status:string;moderation_comment?:string|null;
+  created_at:string;place_name:string;region_name:string;
+};
+function OfferModerationScreen({navigate}:AdminProps) {
+  const [offers,setOffers]=useState<PendingPartnerOffer[]>([]);
+  const [filter,setFilter]=useState('pending');
+  const [error,setError]=useState('');
+  const [busy,setBusy]=useState('');
+  const [comments,setComments]=useState<Record<string,string>>({});
+  const [loading,setLoading]=useState(true);
+  const load=async()=>{setLoading(true);setError('');try{setOffers(await adminStage2Fetch<PendingPartnerOffer[]>('/admin/platform/offers/moderation'));}
+    catch(e){setError(e instanceof Error?e.message:'Не вдалося завантажити модерацію');}finally{setLoading(false);}};
+  useEffect(()=>{void load();},[]);
+  const decide=async(id:string,status:'approved'|'rejected')=>{
+    const comment=comments[id]?.trim()||'';
+    if(status==='rejected'&&!comment){setError('Для відхилення вкажіть причину');return;}
+    setBusy(id);setError('');
+    try{await adminStage2Fetch(`/admin/platform/offers/${encodeURIComponent(id)}/moderate`,'',{method:'PATCH',body:JSON.stringify({status,comment})});await load();}
+    catch(e){setError(e instanceof Error?e.message:'Не вдалося змінити статус');}finally{setBusy('');}
+  };
+  const visible=offers.filter(item=>filter==='all'||item.moderation_status===filter);
+  return <AdminShell active="offers" navigate={navigate} contentClassName="ad-main--review-moderation">
+    <div className="ad-create-page-heading"><h1>Модерація гарячих пропозицій</h1><p>Усі регіони. Запропоновані партнером акції публікуються тільки після схвалення.</p></div>
+    <div className="ad-review-moderation-tabs">{['pending','approved','rejected','all'].map(item=><button key={item} type="button" className={filter===item?'is-active':''} onClick={()=>setFilter(item)}>{item==='pending'?'Очікують':item==='approved'?'Схвалені':item==='rejected'?'Відхилені':'Усі'} · {item==='all'?offers.length:offers.filter(o=>o.moderation_status===item).length}</button>)}</div>
+    <button type="button" className="ad-offer-refresh" onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</button>
+    {error?<p role="alert" className="ad-create-message is-error">{error}</p>:null}
+    {loading?<p>Завантаження з PostgreSQL…</p>:null}
+    {!loading&&!visible.length?<div className="ad-stage2-empty-row">Пропозицій у цьому статусі немає.</div>:null}
+    <div className="ad-offer-moderation-list">{visible.map(o=><article key={o.id} className="ad-offer-moderation-card">
+      {o.image_url?<img src={o.image_url} alt={o.title}/>:null}
+      <div><small>{o.place_name} · {o.region_name}</small><h2>{o.title}</h2><strong>{o.discount}</strong><p>{o.description||o.detail||'Опис не додано'}</p>
+        {o.terms?<small>Умови: {o.terms}</small>:null}
+        {o.valid_until?<small>Діє до: {new Date(o.valid_until).toLocaleDateString('uk-UA')}</small>:null}
+        <small>Статус: {o.moderation_status==='pending'?'Очікує':o.moderation_status==='approved'?'Схвалено':'Відхилено'}{o.moderation_comment?` · ${o.moderation_comment}`:''}</small>
+        {o.moderation_status==='pending'?<><input placeholder="Коментар / причина відхилення" value={comments[o.id]||''} onChange={e=>setComments(prev=>({...prev,[o.id]:e.target.value}))}/>
+          <div className="ad-offer-actions"><button type="button" disabled={busy===o.id} onClick={()=>void decide(o.id,'approved')}><Check size={16}/> Схвалити</button><button type="button" disabled={busy===o.id} onClick={()=>void decide(o.id,'rejected')}><X size={16}/> Відхилити</button></div>
+        </>:null}
+      </div>
+    </article>)}</div>
+  </AdminShell>;
+}
+
 function ReviewModerationScreen({navigate}:AdminProps) {
   const [rows,setRows]=useState<ModerationReviewRow[]>([]);
   const [status,setStatus]=useState<'pending'|'approved'|'rejected'|'all'>('pending');
@@ -2669,6 +2714,7 @@ export function AdminDesktopScreen({ slug, navigate }: { slug: string; navigate:
     case "admin-partner-history": return <PartnerHistoryScreen navigate={navigate} />;
     case "admin-clients": return <ClientsScreen navigate={navigate} />;
     case "admin-review-moderation": return <ReviewModerationScreen navigate={navigate} />;
+    case "admin-offer-moderation": return <OfferModerationScreen navigate={navigate} />;
     case "admin-client-details": return <ClientDetailsScreen navigate={navigate} />;
     case "admin-client-history": return <ClientHistoryScreen navigate={navigate} />;
     case "admin-settlements": return <SettlementsScreen navigate={navigate} />;
