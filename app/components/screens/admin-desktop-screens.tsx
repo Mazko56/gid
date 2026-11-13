@@ -241,7 +241,25 @@ function OutlineButton({ children, onClick }: { children: ReactNode; onClick?: (
 }
 
 type FilterChoice = {value:string;label:string};
-type FilterDefinition = {key:string;label:string;options:FilterChoice[]};
+type FilterDefinition = {key:string;label:string;options:FilterChoice[];allLabel?:string};
+const timePeriods:FilterChoice[] = [
+  {value:'today',label:'Сьогодні'}, {value:'7d',label:'Останні 7 днів'},
+  {value:'30d',label:'Останні 30 днів'}, {value:'90d',label:'Останні 90 днів'},
+];
+function matchesPeriod(value:string|undefined|null,period:string):boolean {
+  if(!period)return true;
+  if(!value)return false;
+  const date=Date.parse(value);
+  if(!Number.isFinite(date))return false;
+  const delta=Date.now()-date;
+  if(period==='today')return new Date(date).toDateString()===new Date().toDateString();
+  const days=period==='7d'?7:period==='30d'?30:period==='90d'?90:0;
+  return days>0&&delta>=0&&delta<=days*86400000;
+}
+function statusOptions(values:(string|null|undefined)[]):FilterChoice[] {
+  const labels:Record<string,string>={approved:'Схвалено',pending:'На модерації',rejected:'Відхилено',inactive:'Неактивний',active:'Активний',confirmed:'Підтверджено',cancelled:'Скасовано',canceled:'Скасовано',completed:'Завершено',draft:'Чернетка'};
+  return filterChoices(values).map(item=>({...item,label:labels[item.value]||item.label}));
+}
 const normalizeFilterText = (value:unknown) => String(value??'').normalize('NFKC').toLocaleLowerCase('uk-UA').trim();
 function filterChoices(values:(string|null|undefined)[]):FilterChoice[] {
   return Array.from(new Set(values.map(v=>String(v??'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'uk-UA')).map(v=>({value:v,label:v}));
@@ -255,7 +273,7 @@ function FilterStrip({search='',onSearch,fields=[],values={},onChange,onReset,pl
    {onSearch?<label className="ad-search-box"><Search size={19}/><input aria-label="Пошук у списку" placeholder={placeholder} value={search} onChange={e=>onSearch(e.target.value)}/></label>:null}
    {fields.map(field=><label key={field.key} className="ad-select-box ad-filter-field"><span><small>{field.label}</small>
      <select aria-label={field.label} value={values[field.key]||''} onChange={e=>onChange?.(field.key,e.target.value)}>
-       <option value="">Усі</option>{field.options.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
+       <option value="">{field.allLabel||'Усі'}</option>{field.options.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
      </select></span><ChevronDown size={16}/></label>)}
    <OutlineButton onClick={onReset}><RefreshCcw size={17}/> Скинути фільтри</OutlineButton>
  </div>;
@@ -273,6 +291,7 @@ function TableRow({ columns, children }: { columns: string[]; children: ReactNod
 }
 function Pagination({page,pageSize,total,onPage,onPageSize}:{page:number;pageSize:number;total:number;onPage:(p:number)=>void;onPageSize:(n:number)=>void}) {
  const pages=Math.max(1,Math.ceil(total/pageSize));
+ useEffect(()=>{if(page>=pages)onPage(pages-1);},[page,pages,onPage]);
  return <div className="ad-pagination"><span>{total?`Показано ${page*pageSize+1}–${Math.min((page+1)*pageSize,total)} із ${total}`:'Записів за вибраними фільтрами немає'}</span>
    <div><button type="button" disabled={page===0} aria-label="Попередня сторінка" onClick={()=>onPage(Math.max(0,page-1))}><ChevronLeft size={16}/></button>
     {Array.from({length:Math.min(5,pages)},(_,i)=>Math.max(0,Math.min(page-2,pages-5))+i).map(i=><button type="button" key={i} className={i===page?'is-active':''} onClick={()=>onPage(i)} aria-label={`Сторінка ${i+1}`}>{i+1}</button>)}
@@ -330,15 +349,17 @@ function PartnersScreen({ navigate }: AdminProps) {
   const categoryName = (slug: string) => categories.find((item) => item.slug === slug)?.name || slug;
   const placement=(r:PartnerListRow)=>String(r.attributes?.placement_type||'');
   const fields:FilterDefinition[]=[
-    {key:'region',label:'Локація',options:filterChoices(rows.map(r=>r.region_name))},
-    {key:'category',label:'Категорія',options:Array.from(new Set(rows.map(r=>r.category_slug))).map(slug=>({value:slug,label:categoryName(slug)}))},
-    {key:'placement',label:'Тип розміщення',options:filterChoices(rows.map(placement))},
-    {key:'status',label:'Статус',options:filterChoices(rows.map(r=>r.status))},
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices(rows.map(r=>r.region_name))},
+    {key:'category',label:'Категорія',allLabel:'Усі категорії',options:Array.from(new Set(rows.map(r=>r.category_slug).filter(Boolean))).map(slug=>({value:slug,label:categoryName(slug)}))},
+    {key:'subcategory',label:'Підкатегорія',allLabel:'Усі підкатегорії',options:filterChoices(rows.map(r=>r.subcategory))},
+    {key:'placement',label:'Тип розміщення',allLabel:'Усі типи',options:filterChoices(rows.map(placement))},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:statusOptions(rows.map(r=>r.status))},
   ];
   const filteredRows=rows.filter(r=>{
     const v=filters.values;
     return (!filters.search||normalizeFilterText([r.name,r.address,r.organization_name,r.subcategory,r.id].join(' ')).includes(normalizeFilterText(filters.search)))
       &&(!v.region||r.region_name===v.region)&&(!v.category||r.category_slug===v.category)
+      &&(!v.subcategory||r.subcategory===v.subcategory)
       &&(!v.placement||placement(r)===v.placement)&&(!v.status||r.status===v.status);
   });
   const visibleRows=filteredRows.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize);
@@ -376,12 +397,18 @@ function ClientsScreen({ navigate }: AdminProps) {
   const {data:clients,error}=useAdminRemote<LiveClient[]>('/admin/platform/clients');
   const filters=useTableFilters();
   const fields:FilterDefinition[]=[
-    {key:'status',label:'Активність',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
-    {key:'region',label:'Останній регіон активності',options:filterChoices((clients||[]).map(c=>c.region_name))},
+    {key:'status',label:'Активність',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((clients||[]).map(c=>c.region_name))},
+    {key:'balance',label:'Бонусний баланс',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Без бонусів'}]},
+    {key:'purchases',label:'Покупки',allLabel:'Усі клієнти',options:[{value:'yes',label:'Є покупки'},{value:'no',label:'Без покупок'}]},
+    {key:'registered',label:'Дата реєстрації',allLabel:'Весь період',options:timePeriods},
   ];
   const filtered=(clients||[]).filter(c=>(!filters.search||normalizeFilterText([clientFullName(c),c.telegram_id,c.telegram_username,c.phone,c.id].join(' ')).includes(normalizeFilterText(filters.search)))
     &&(!filters.values.status||(filters.values.status==='active')===clientIsActive(c))
-    &&(!filters.values.region||c.region_name===filters.values.region));
+    &&(!filters.values.region||c.region_name===filters.values.region)
+    &&(!filters.values.balance||(filters.values.balance==='positive'?Number(c.balance)>0:Number(c.balance)<=0))
+    &&(!filters.values.purchases||(filters.values.purchases==='yes'?Number(c.purchases)>0:Number(c.purchases)<=0))
+    &&matchesPeriod(c.created_at,filters.values.registered||''));
   return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients">
     <AdminPageHeader title="Клієнти"/><FilterStrip placeholder="Ім’я, Telegram, телефон, ID" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
     <AdminRemoteInfo error={error} data={clients}/>
@@ -412,22 +439,26 @@ function BonusesScreen({navigate}: AdminProps) {
   const {data:stats,error:statsError}=useAdminRemote<LiveAnalytics>('/admin/platform/analytics');
   const filters=useTableFilters();
   const fields:FilterDefinition[]=[
-    {key:'status',label:'Активність',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
-    {key:'region',label:'Останній регіон активності',options:filterChoices((clients||[]).map(c=>c.region_name))},
-    {key:'balance',label:'Бонусний баланс',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Немає бонусів'}]},
+    {key:'status',label:'Активність',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((clients||[]).map(c=>c.region_name))},
+    {key:'balance',label:'Бонусний баланс',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Немає бонусів'}]},
+    {key:'earned',label:'Нарахування',allLabel:'Усі клієнти',options:[{value:'yes',label:'Були нарахування'},{value:'no',label:'Без нарахувань'}]},
+    {key:'spent',label:'Використання',allLabel:'Усі клієнти',options:[{value:'yes',label:'Були списання'},{value:'no',label:'Без списань'}]},
   ];
   const filtered=(clients||[]).filter(c=>(!filters.search||normalizeFilterText([clientFullName(c),c.phone,c.telegram_id,c.telegram_username].join(' ')).includes(normalizeFilterText(filters.search)))
     &&(!filters.values.status||(filters.values.status==='active')===clientIsActive(c))
     &&(!filters.values.region||c.region_name===filters.values.region)
-    &&(!filters.values.balance||(filters.values.balance==='positive'?Number(c.balance)>0:Number(c.balance)<=0)));
+    &&(!filters.values.balance||(filters.values.balance==='positive'?Number(c.balance)>0:Number(c.balance)<=0))
+    &&(!filters.values.earned||(filters.values.earned==='yes'?Number(c.earned)>0:Number(c.earned)<=0))
+    &&(!filters.values.spent||(filters.values.spent==='yes'?Number(c.spent)>0:Number(c.spent)<=0)));
   return <AdminShell active="bonuses" navigate={navigate}>
     <AdminPageHeader title="Бонуси"/><AdminRemoteInfo error={error||statsError} data={clients&&stats}/>
     {clients&&stats?<><div className="ad-summary-grid ad-summary-grid--five">
-      <SummaryCard label="Оборот підтверджених покупок" value={moneyUA(stats.transactions.find(t=>t.status==='confirmed')?.turnover)}/>
-      <SummaryCard label="Нараховано бонусів" value={moneyUA(stats.bonuses.earned)} tone="violet"/>
-      <SummaryCard label="Використано бонусів" value={moneyUA(stats.bonuses.spent)} tone="blue"/>
-      <SummaryCard label="Баланс клієнтів" value={moneyUA(clients.reduce((sum,c)=>sum+Number(c.balance),0))} tone="orange"/>
-      <SummaryCard label="Клієнтів" value={countUA(stats.clients.total)}/>
+      <SummaryCard label="Загальний оборот підтверджених покупок" value={moneyUA(stats.transactions.find(t=>t.status==='confirmed')?.turnover)}/>
+      <SummaryCard label="Нараховано бонусів" value={moneyUA(filtered.reduce((sum,c)=>sum+Number(c.earned),0))} tone="violet"/>
+      <SummaryCard label="Використано бонусів" value={moneyUA(filtered.reduce((sum,c)=>sum+Number(c.spent),0))} tone="blue"/>
+      <SummaryCard label="Баланс клієнтів" value={moneyUA(filtered.reduce((sum,c)=>sum+Number(c.balance),0))} tone="orange"/>
+      <SummaryCard label="Клієнтів" value={countUA(filtered.length)}/>
     </div><FilterStrip placeholder="Ім’я, телефон, Telegram" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
     <AdminTable columns={[{label:"Клієнт",className:"1.35fr"},{label:"Телефон",className:"1fr"},{label:"Telegram ID",className:".8fr"},{label:"Нараховано",className:".9fr"},{label:"Баланс",className:".9fr"},{label:"Списано",className:".9fr"},{label:"Остання активність",className:"1fr"}]}>
       {filtered.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize).map(c=><TableRow key={c.id} columns={["1.35fr","1fr",".8fr",".9fr",".9fr","1fr","1fr"]}><strong>{clientFullName(c)}</strong><span>{c.phone||'Не надано'}</span><span>{c.telegram_id||'—'}</span><strong>{moneyUA(c.earned)}</strong><strong className="ad-green-number">{moneyUA(c.balance)}</strong><strong>{moneyUA(c.spent)}</strong><span>{dateUA(c.last_active_at)}</span></TableRow>)}
@@ -746,16 +777,38 @@ function ClientDetailsScreen({navigate}:AdminProps){
 }
 function ClientHistoryScreen({navigate}:AdminProps){
   const {data:client,error}=useSelectedClient();
+  const ledgerFilters=useTableFilters();
+  const eventFilters=useTableFilters();
+  const ledger=client?.ledger||[];
+  const activities=client?.activity||[];
+  const ledgerFields:FilterDefinition[]=[
+    {key:'type',label:'Тип операції',allLabel:'Усі типи',options:filterChoices(ledger.map(r=>r.entry_type))},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:statusOptions(ledger.map(r=>r.status))},
+    {key:'period',label:'Період',allLabel:'Весь період',options:timePeriods},
+  ];
+  const filteredLedger=ledger.filter(r=>(!ledgerFilters.search||normalizeFilterText([r.place_name,r.entry_type,r.id].join(' ')).includes(normalizeFilterText(ledgerFilters.search)))
+    &&(!ledgerFilters.values.type||r.entry_type===ledgerFilters.values.type)
+    &&(!ledgerFilters.values.status||r.status===ledgerFilters.values.status)
+    &&matchesPeriod(r.created_at,ledgerFilters.values.period||''));
+  const activityFields:FilterDefinition[]=[
+    {key:'event',label:'Тип події',allLabel:'Усі події',options:filterChoices(activities.map(r=>r.event_type))},
+    {key:'period',label:'Період',allLabel:'Весь період',options:timePeriods},
+  ];
+  const filteredActivities=activities.filter(r=>(!eventFilters.search||normalizeFilterText([r.place_name,r.event_type,r.id].join(' ')).includes(normalizeFilterText(eventFilters.search)))
+    &&(!eventFilters.values.event||r.event_type===eventFilters.values.event)
+    &&matchesPeriod(r.created_at,eventFilters.values.period||''));
   return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients ad-main--client-history">
     <AdminRemoteInfo error={error} data={client}/>{client?<><ClientHeader client={client} navigate={navigate}/>
-      <section className="ad-detail-card"><h2>Історія бонусів</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Тип",className:"1fr"},{label:"Партнер",className:"1.5fr"},{label:"Сума",className:".7fr"},{label:"Статус",className:".8fr"}]}>
-        {client.ledger.map(x=><TableRow key={x.id} columns={["1fr","1fr","1.5fr",".7fr",".8fr"]}><span>{dateUA(x.created_at)}</span><span>{x.entry_type}</span><span>{x.place_name||'—'}</span><strong>{countUA(x.amount)}</strong><Status>{x.status}</Status></TableRow>)}
-        {!client.ledger.length?<div className="ad-stage2-empty-row">Операцій ще немає</div>:null}
-      </AdminTable></section>
-      <section className="ad-detail-card"><h2>Історія дій</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"1.3fr"},{label:"Заклад",className:"1.5fr"}]}>
-        {client.activity.map(x=><TableRow key={x.id} columns={["1fr","1.3fr","1.5fr"]}><span>{dateUA(x.created_at)}</span><strong>{x.event_type}</strong><span>{x.place_name||'—'}</span></TableRow>)}
-        {!client.activity.length?<div className="ad-stage2-empty-row">Подій ще немає</div>:null}
-      </AdminTable></section></>:null}
+      <section className="ad-detail-card"><h2>Історія бонусів</h2>
+      <FilterStrip placeholder="Партнер або тип операції" search={ledgerFilters.search} onSearch={ledgerFilters.onSearch} fields={ledgerFields} values={ledgerFilters.values} onChange={ledgerFilters.onChange} onReset={ledgerFilters.reset}/><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Тип",className:"1fr"},{label:"Партнер",className:"1.5fr"},{label:"Сума",className:".7fr"},{label:"Статус",className:".8fr"}]}>
+        {filteredLedger.slice(ledgerFilters.page*ledgerFilters.pageSize,(ledgerFilters.page+1)*ledgerFilters.pageSize).map(x=><TableRow key={x.id} columns={["1fr","1fr","1.5fr",".7fr",".8fr"]}><span>{dateUA(x.created_at)}</span><span>{x.entry_type}</span><span>{x.place_name||'—'}</span><strong>{countUA(x.amount)}</strong><Status>{x.status}</Status></TableRow>)}
+        {!filteredLedger.length?<div className="ad-stage2-empty-row">Операцій за вибраними фільтрами немає</div>:null}
+      </AdminTable><Pagination page={ledgerFilters.page} pageSize={ledgerFilters.pageSize} total={filteredLedger.length} onPage={ledgerFilters.setPage} onPageSize={ledgerFilters.changeSize}/></section>
+      <section className="ad-detail-card"><h2>Історія дій</h2>
+      <FilterStrip placeholder="Подія або заклад" search={eventFilters.search} onSearch={eventFilters.onSearch} fields={activityFields} values={eventFilters.values} onChange={eventFilters.onChange} onReset={eventFilters.reset}/><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"1.3fr"},{label:"Заклад",className:"1.5fr"}]}>
+        {filteredActivities.slice(eventFilters.page*eventFilters.pageSize,(eventFilters.page+1)*eventFilters.pageSize).map(x=><TableRow key={x.id} columns={["1fr","1.3fr","1.5fr"]}><span>{dateUA(x.created_at)}</span><strong>{x.event_type}</strong><span>{x.place_name||'—'}</span></TableRow>)}
+        {!filteredActivities.length?<div className="ad-stage2-empty-row">Подій за вибраними фільтрами немає</div>:null}
+      </AdminTable><Pagination page={eventFilters.page} pageSize={eventFilters.pageSize} total={filteredActivities.length} onPage={eventFilters.setPage} onPageSize={eventFilters.changeSize}/></section></>:null}
   </AdminShell>;
 }
 
@@ -878,6 +931,24 @@ function PartnerDetailsScreen({ navigate }: AdminProps) {
 function PartnerHistoryScreen({ navigate }: AdminProps) {
   const [partner, setPartner] = useState<AdminPartnerDetail | null>(null);
   const {data:history,error:historyError}=useAdminRemote<LivePartnerSummary>(`/admin/platform/partners/${encodeURIComponent(partner?.id||"none")}/summary`);
+  const paymentFilters=useTableFilters();
+  const activityFilters=useTableFilters();
+  const purchases=history?.purchases||[];
+  const events=history?.events||[];
+  const paymentFields:FilterDefinition[]=[
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:statusOptions(purchases.map(r=>r.status))},
+    {key:'period',label:'Період',allLabel:'Весь період',options:timePeriods},
+  ];
+  const filteredPayments=purchases.filter(r=>(!paymentFilters.search||normalizeFilterText([r.id,r.status].join(' ')).includes(normalizeFilterText(paymentFilters.search)))
+    &&(!paymentFilters.values.status||r.status===paymentFilters.values.status)
+    &&matchesPeriod(r.created_at,paymentFilters.values.period||''));
+  const eventFields:FilterDefinition[]=[
+    {key:'event',label:'Тип події',allLabel:'Усі події',options:filterChoices(events.map(r=>r.event_type))},
+    {key:'period',label:'Період',allLabel:'Весь період',options:timePeriods},
+  ];
+  const filteredEvents=events.filter(r=>(!activityFilters.search||normalizeFilterText([r.id,r.event_type].join(' ')).includes(normalizeFilterText(activityFilters.search)))
+    &&(!activityFilters.values.event||r.event_type===activityFilters.values.event)
+    &&matchesPeriod(r.created_at,activityFilters.values.period||''));
   useEffect(() => {
     const id = selectedAdminPartnerId();
     if (id) void adminStage2Fetch<AdminPartnerDetail>(`/admin/stage2/partners/${encodeURIComponent(id)}`).then(setPartner).catch(() => undefined);
@@ -886,14 +957,16 @@ function PartnerHistoryScreen({ navigate }: AdminProps) {
     <AdminShell active="partners" navigate={navigate} contentClassName="ad-main--partner-history">
       <AdminPageHeader title={partner ? `Історія — ${partner.name}` : "Історія партнера"} action={<OutlineButton onClick={() => navigate("admin", "admin-partner-details")}><ArrowLeft size={16}/> До партнера</OutlineButton>} />
       {historyError?<div className="ad-create-message is-error">{historyError}</div>:null}
-      <section className="ad-detail-card"><h2>Історія операцій</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Статус",className:"1fr"},{label:"Сума",className:"1fr"},{label:"Комісія",className:"1fr"}]}>
-        {(history?.purchases||[]).map(row=><TableRow key={row.id} columns={["1fr","1fr","1fr","1fr"]}><span>{dateUA(row.created_at)}</span><Status>{row.status}</Status><strong>{moneyUA(row.amount)}</strong><span>{moneyUA(row.commission)}</span></TableRow>)}
-        {history&&!history.purchases.length?<div className="ad-stage2-empty-row">Операцій ще немає</div>:null}
-      </AdminTable></section>
-      <section className="ad-detail-card"><h2>Активність</h2><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"2fr"}]}>
-        {(history?.events||[]).map(row=><TableRow key={row.id} columns={["1fr","2fr"]}><span>{dateUA(row.created_at)}</span><strong>{row.event_type}</strong></TableRow>)}
-        {history&&!history.events.length?<div className="ad-stage2-empty-row">Подій ще немає</div>:null}
-      </AdminTable></section>
+      <section className="ad-detail-card"><h2>Історія операцій</h2>
+      <FilterStrip placeholder="ID або статус операції" search={paymentFilters.search} onSearch={paymentFilters.onSearch} fields={paymentFields} values={paymentFilters.values} onChange={paymentFilters.onChange} onReset={paymentFilters.reset}/><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Статус",className:"1fr"},{label:"Сума",className:"1fr"},{label:"Комісія",className:"1fr"}]}>
+        {filteredPayments.slice(paymentFilters.page*paymentFilters.pageSize,(paymentFilters.page+1)*paymentFilters.pageSize).map(row=><TableRow key={row.id} columns={["1fr","1fr","1fr","1fr"]}><span>{dateUA(row.created_at)}</span><Status>{row.status}</Status><strong>{moneyUA(row.amount)}</strong><span>{moneyUA(row.commission)}</span></TableRow>)}
+        {history&&!filteredPayments.length?<div className="ad-stage2-empty-row">Операцій за вибраними фільтрами немає</div>:null}
+      </AdminTable><Pagination page={paymentFilters.page} pageSize={paymentFilters.pageSize} total={filteredPayments.length} onPage={paymentFilters.setPage} onPageSize={paymentFilters.changeSize}/></section>
+      <section className="ad-detail-card"><h2>Активність</h2>
+      <FilterStrip placeholder="ID або назва події" search={activityFilters.search} onSearch={activityFilters.onSearch} fields={eventFields} values={activityFilters.values} onChange={activityFilters.onChange} onReset={activityFilters.reset}/><AdminTable columns={[{label:"Дата",className:"1fr"},{label:"Подія",className:"2fr"}]}>
+        {filteredEvents.slice(activityFilters.page*activityFilters.pageSize,(activityFilters.page+1)*activityFilters.pageSize).map(row=><TableRow key={row.id} columns={["1fr","2fr"]}><span>{dateUA(row.created_at)}</span><strong>{row.event_type}</strong></TableRow>)}
+        {history&&!filteredEvents.length?<div className="ad-stage2-empty-row">Подій за вибраними фільтрами немає</div>:null}
+      </AdminTable><Pagination page={activityFilters.page} pageSize={activityFilters.pageSize} total={filteredEvents.length} onPage={activityFilters.setPage} onPageSize={activityFilters.changeSize}/></section>
     </AdminShell>
   );
 }
@@ -911,6 +984,7 @@ type PendingPartnerOffer = {
 function OfferModerationScreen({navigate}:AdminProps) {
   const [offers,setOffers]=useState<PendingPartnerOffer[]>([]);
   const [filter,setFilter]=useState('pending');
+  const filters=useTableFilters();
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [comments,setComments]=useState<Record<string,string>>({});
@@ -925,10 +999,20 @@ function OfferModerationScreen({navigate}:AdminProps) {
     try{await adminStage2Fetch(`/admin/platform/offers/${encodeURIComponent(id)}/moderate`,'',{method:'PATCH',body:JSON.stringify({status,comment})});await load();}
     catch(e){setError(e instanceof Error?e.message:'Не вдалося змінити статус');}finally{setBusy('');}
   };
-  const visible=offers.filter(item=>filter==='all'||item.moderation_status===filter);
+  const fields:FilterDefinition[]=[
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices(offers.map(o=>o.region_name))},
+    {key:'validity',label:'Термін дії',allLabel:'Усі пропозиції',options:[{value:'current',label:'Ще діє'},{value:'expired',label:'Термін минув'},{value:'unset',label:'Без кінцевої дати'}]},
+    {key:'period',label:'Додано',allLabel:'Весь період',options:timePeriods},
+  ];
+  const visible=offers.filter(item=>(filter==='all'||item.moderation_status===filter)
+    &&(!filters.search||normalizeFilterText([item.title,item.place_name,item.region_name,item.discount,item.description,item.id].join(' ')).includes(normalizeFilterText(filters.search)))
+    &&(!filters.values.region||item.region_name===filters.values.region)
+    &&(!filters.values.validity||(filters.values.validity==='unset'?!item.valid_until:filters.values.validity==='current'?Boolean(item.valid_until&&Date.parse(item.valid_until)>=Date.now()):Boolean(item.valid_until&&Date.parse(item.valid_until)<Date.now())))
+    &&matchesPeriod(item.created_at,filters.values.period||''));
   return <AdminShell active="offers" navigate={navigate} contentClassName="ad-main--review-moderation">
     <AdminPageHeader title="Модерація гарячих пропозицій" action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>}/>
     <div className="ad-review-moderation-tabs">{['pending','approved','rejected','all'].map(item=><button key={item} type="button" className={filter===item?'is-active':''} onClick={()=>setFilter(item)}>{item==='pending'?'Очікують':item==='approved'?'Схвалені':item==='rejected'?'Відхилені':'Усі'} · {item==='all'?offers.length:offers.filter(o=>o.moderation_status===item).length}</button>)}</div>
+    <FilterStrip placeholder="Назва акції, заклад, знижка" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={()=>{filters.reset();setFilter('pending');}}/>
     {error?<p role="alert" className="ad-create-message is-error">{error}</p>:null}
     {loading?<p>Завантаження з PostgreSQL…</p>:null}
     {!loading&&!visible.length?<div className="ad-stage2-empty-row">Пропозицій у цьому статусі немає.</div>:null}
@@ -949,6 +1033,7 @@ function OfferModerationScreen({navigate}:AdminProps) {
 function ReviewModerationScreen({navigate}:AdminProps) {
   const [rows,setRows]=useState<ModerationReviewRow[]>([]);
   const [status,setStatus]=useState<'pending'|'approved'|'rejected'|'all'>('pending');
+  const filters=useTableFilters();
   const [busy,setBusy]=useState('');
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(true);
@@ -962,11 +1047,21 @@ function ReviewModerationScreen({navigate}:AdminProps) {
       await refresh();
     }catch(e){setError(e instanceof Error?e.message:'Не вдалося змінити статус');}finally{setBusy('');}
   };
-  const visible=rows.filter(r=>status==='all'||r.status===status);
+  const fields:FilterDefinition[]=[
+    {key:'verification',label:'Підтвердження',allLabel:'Усі відгуки',options:filterChoices(rows.map(r=>r.verification))},
+    {key:'rating',label:'Оцінка',allLabel:'Усі оцінки',options:[1,2,3,4,5].map(n=>({value:String(n),label:`${n} з 5`}))},
+    {key:'period',label:'Дата відгуку',allLabel:'Весь період',options:timePeriods},
+  ];
+  const visible=rows.filter(r=>(status==='all'||r.status===status)
+    &&(!filters.search||normalizeFilterText([r.place_name,r.text,r.user_id,r.id].join(' ')).includes(normalizeFilterText(filters.search)))
+    &&(!filters.values.verification||r.verification===filters.values.verification)
+    &&(!filters.values.rating||r.rating===Number(filters.values.rating))
+    &&matchesPeriod(r.created_at,filters.values.period||''));
   const badge=(s:string)=>s==='approved'?'Схвалено':s==='rejected'?'Відхилено':'Очікує модерації';
   return <AdminShell active="reviews" navigate={navigate} contentClassName="ad-main--review-moderation">
     <AdminPageHeader title="Модерація відгуків" action={<OutlineButton onClick={()=>void refresh()}><RefreshCcw size={16}/> Оновити</OutlineButton>}/>
     <div className="ad-review-moderation-tabs">{(['pending','approved','rejected','all'] as const).map(s=><button key={s} type="button" className={s===status?'is-active':''} onClick={()=>setStatus(s)}>{s==='all'?'Усі':badge(s)} · {s==='all'?rows.length:rows.filter(r=>r.status===s).length}</button>)}</div>
+    <FilterStrip placeholder="Заклад, текст відгуку, клієнт" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={()=>{filters.reset();setStatus('pending');}}/>
     {error?<div className="ad-create-message is-error" role="alert">{error}</div>:null}
     {loading?<div className="ad-stage2-empty-row">Завантаження відгуків…</div>:null}
     {!loading && !visible.length?<div className="ad-stage2-empty-row">Відгуків із цим статусом поки немає.</div>:null}
@@ -984,6 +1079,7 @@ function ReviewModerationScreen({navigate}:AdminProps) {
 type AdminPaymentClaim = {id:string;place_id:string;place_name:string;amount:number|string;status:string;reference:string;receipt_filename:string;created_at:string;review_comment?:string|null};
 function AdminPaymentClaims({onChanged}:{onChanged:()=>void}) {
   const [claims,setClaims]=useState<AdminPaymentClaim[]>([]);
+  const filters=useTableFilters();
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [comments,setComments]=useState<Record<string,string>>({});
@@ -1000,9 +1096,17 @@ function AdminPaymentClaims({onChanged}:{onChanged:()=>void}) {
     if(status==='rejected'&&!(comments[id]||'').trim()){setError('Укажіть причину відхилення');return;}
     setBusy(id);setError('');try{await adminStage2Fetch(`/admin/platform/payment-claims/${encodeURIComponent(id)}`,'',{method:'PATCH',body:JSON.stringify({status,comment:comments[id]||''})});await refresh();onChanged();}catch(e){setError(e instanceof Error?e.message:'Не вдалося обробити заявку');}finally{setBusy('');}
   };
+  const fields:FilterDefinition[]=[
+    {key:'status',label:'Статус заявки',allLabel:'Усі статуси',options:statusOptions(claims.map(c=>c.status))},
+    {key:'period',label:'Дата заявки',allLabel:'Весь період',options:timePeriods},
+  ];
+  const visible=claims.filter(c=>(!filters.search||normalizeFilterText([c.place_name,c.reference,c.receipt_filename,c.id].join(' ')).includes(normalizeFilterText(filters.search)))
+    &&(!filters.values.status||c.status===filters.values.status)
+    &&matchesPeriod(c.created_at,filters.values.period||''));
   return <section className="ad-detail-card ad-finance-claims"><h2>Перевірка реальних оплат партнерів</h2><p>Заявка не зараховує гроші автоматично. Перед схваленням фінансовий оператор звіряє квитанцію й банківську виписку.</p>
+    <FilterStrip placeholder="Партнер, призначення, квитанція" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
     {error?<div className="ad-create-message is-error" role="alert">{error}</div>:null}
-    {!claims.length?<div className="ad-stage2-empty-row">Заявок ще немає</div>:claims.map(c=><div className="ad-finance-claim-row" key={c.id}>
+    {!visible.length?<div className="ad-stage2-empty-row">Заявок за вибраними фільтрами немає</div>:visible.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize).map(c=><div className="ad-finance-claim-row" key={c.id}>
       <div><strong>{c.place_name}</strong><small>{dateUA(c.created_at)} · {c.reference}</small><span>{moneyUA(c.amount)} · {c.status==='approved'?'Підтверджено':c.status==='rejected'?'Відхилено':'На перевірці'}</span>
         {c.review_comment?<small>{c.review_comment}</small>:null}</div>
       <div className="ad-finance-claim-actions"><button type="button" onClick={()=>void receipt(c.id)}><Download size={16}/> Квитанція</button>
@@ -1011,6 +1115,7 @@ function AdminPaymentClaims({onChanged}:{onChanged:()=>void}) {
           <button type="button" disabled={busy===c.id} onClick={()=>void decide(c.id,'rejected')}><X size={16}/> Відхилити</button></>:null}
       </div>
     </div>)}
+    <Pagination page={filters.page} pageSize={filters.pageSize} total={visible.length} onPage={filters.setPage} onPageSize={filters.changeSize}/>
   </section>;
 }
 
@@ -1019,22 +1124,24 @@ function SettlementsScreen({navigate}:AdminProps){
   const filters=useTableFilters();
   const {data:rows,error}=useAdminRemote<LiveSettlement[]>(`/admin/platform/settlements?revision=${revision}`);
   const fields:FilterDefinition[]=[
-   {key:'region',label:'Локація',options:filterChoices((rows||[]).map(r=>r.region_name))},
-   {key:'category',label:'Категорія',options:filterChoices((rows||[]).map(r=>r.category_name))},
-   {key:'balance',label:'Стан розрахунків',options:[{value:'debt',label:'Є заборгованість'},{value:'credit',label:'Переплата'},{value:'settled',label:'Баланс нульовий'}]},
-   {key:'payments',label:'Підтверджена оплата',options:[{value:'yes',label:'Є оплати'},{value:'no',label:'Оплат немає'}]},
+   {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((rows||[]).map(r=>r.region_name))},
+   {key:'category',label:'Категорія',allLabel:'Усі категорії',options:filterChoices((rows||[]).map(r=>r.category_name))},
+   {key:'balance',label:'Стан розрахунків',allLabel:'Усі баланси',options:[{value:'debt',label:'Є заборгованість'},{value:'credit',label:'Переплата'},{value:'settled',label:'Баланс нульовий'}]},
+   {key:'payments',label:'Підтверджена оплата',allLabel:'Усі оплати',options:[{value:'yes',label:'Є оплати'},{value:'no',label:'Оплат немає'}]},
+   {key:'transactions',label:'Операції',allLabel:'Усі партнери',options:[{value:'yes',label:'Є операції'},{value:'no',label:'Без операцій'}]},
   ];
   const filteredRows=(rows||[]).filter(r=>(!filters.search||normalizeFilterText([r.name,r.region_name,r.category_name,r.place_id].join(' ')).includes(normalizeFilterText(filters.search)))
    &&(!filters.values.region||r.region_name===filters.values.region)
    &&(!filters.values.category||r.category_name===filters.values.category)
    &&(!filters.values.balance||(filters.values.balance==='debt'?Number(r.balance_due)>0:filters.values.balance==='credit'?Number(r.balance_due)<0:Number(r.balance_due)===0))
-   &&(!filters.values.payments||(filters.values.payments==='yes'?Number(r.paid_commission)>0:Number(r.paid_commission)<=0)));
+   &&(!filters.values.payments||(filters.values.payments==='yes'?Number(r.paid_commission)>0:Number(r.paid_commission)<=0))
+   &&(!filters.values.transactions||(filters.values.transactions==='yes'?Number(r.transactions)>0:Number(r.transactions)<=0)));
 
-  const commission=(rows||[]).reduce((s,r)=>s+Number(r.commission_due),0);
-  const reimbursement=(rows||[]).reduce((s,r)=>s+Number(r.compensation_due),0);
-  const turnover=(rows||[]).reduce((s,r)=>s+Number(r.turnover),0);
-  const paid=(rows||[]).reduce((s,r)=>s+Number(r.paid_commission),0);
-  const remaining=(rows||[]).reduce((s,r)=>s+Number(r.balance_due),0);
+  const commission=filteredRows.reduce((s,r)=>s+Number(r.commission_due),0);
+  const reimbursement=filteredRows.reduce((s,r)=>s+Number(r.compensation_due),0);
+  const turnover=filteredRows.reduce((s,r)=>s+Number(r.turnover),0);
+  const paid=filteredRows.reduce((s,r)=>s+Number(r.paid_commission),0);
+  const remaining=filteredRows.reduce((s,r)=>s+Number(r.balance_due),0);
   return <AdminShell active="settlements" navigate={navigate} contentClassName="ad-main--settlements">
     <AdminPageHeader title="Взаєморозрахунки з партнерами" subtitle="За підтвердженими операціями із PostgreSQL; рахунки й оплати вручну не вигадуються"/>
     <AdminRemoteInfo error={error} data={rows}/>{rows?<><div className="ad-summary-grid ad-summary-grid--five">
@@ -1077,10 +1184,10 @@ function useStatisticsFilters(){
   const {data:partners,error:partnersError}=useAdminRemote<StatisticsPartnerOption[]>('/admin/stage2/partners');
   const {data:categories,error:categoryError}=useAdminRemote<Stage2Category[]>('/categories');
   const fields:FilterDefinition[]=[
-    {key:'region_id',label:'Локація',options:(regions||[]).map(r=>({value:r.id,label:r.name}))},
-    {key:'category_slug',label:'Категорія',options:Array.from(new Set((partners||[]).map(p=>p.category_slug))).filter(Boolean).map(slug=>({value:slug,label:categories?.find(c=>c.slug===slug)?.name||slug}))},
-    {key:'placement_type',label:'Тип розміщення',options:filterChoices((partners||[]).map(p=>String(p.attributes?.placement_type||'')))},
-    {key:'partner_status',label:'Статус партнера',options:filterChoices((partners||[]).map(p=>p.status))},
+    {key:'region_id',label:'Локація',allLabel:'Усі локації',options:(regions||[]).map(r=>({value:r.id,label:r.name}))},
+    {key:'category_slug',label:'Категорія',allLabel:'Усі категорії',options:Array.from(new Set((partners||[]).map(p=>p.category_slug))).filter(Boolean).map(slug=>({value:slug,label:categories?.find(c=>c.slug===slug)?.name||slug}))},
+    {key:'placement_type',label:'Тип розміщення',allLabel:'Усі типи',options:filterChoices((partners||[]).map(p=>String(p.attributes?.placement_type||'')))},
+    {key:'partner_status',label:'Статус партнера',allLabel:'Усі статуси',options:statusOptions((partners||[]).map(p=>p.status))},
   ];
   const params=new URLSearchParams();
   for(const key of ['region_id','category_slug','placement_type','partner_status'])if(values[key])params.set(key,values[key]);
@@ -1397,21 +1504,32 @@ function SecuritySettingsScreen({navigate}:AdminProps) {
   }}/>;
 }
 function AuditSettingsScreen({navigate}:AdminProps) {
-  const [rows,setRows]=useState<SettingsAudit[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [search,setSearch]=useState('');const [page,setPage]=useState(0);
+  const [rows,setRows]=useState<SettingsAudit[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');
+  const filters=useTableFilters();
   const load=async()=>{setLoading(true);setError('');try{setRows(await adminStage2Fetch<SettingsAudit[]>('/admin/platform/audit'));}catch(e){setError(e instanceof Error?e.message:'Не вдалося отримати журнал');}finally{setLoading(false);}};
   useEffect(()=>{void load();},[]);
-  const matching=rows.filter(r=>`${r.created_at} ${r.actor_type} ${r.actor_user_id||''} ${r.action} ${r.entity_type} ${r.entity_id}`.toLowerCase().includes(search.toLowerCase()));
-  const pageRows=matching.slice(page*25,page*25+25);
+  const fields:FilterDefinition[]=[
+    {key:'actor',label:'Тип користувача',allLabel:'Усі користувачі',options:filterChoices(rows.map(r=>r.actor_type))},
+    {key:'entity',label:'Розділ',allLabel:'Усі розділи',options:filterChoices(rows.map(r=>r.entity_type))},
+    {key:'action',label:'Дія',allLabel:'Усі дії',options:filterChoices(rows.map(r=>r.action))},
+    {key:'period',label:'Період',allLabel:'Весь період',options:timePeriods},
+  ];
+  const matching=rows.filter(r=>(!filters.search||normalizeFilterText([r.actor_type,r.actor_user_id,r.action,r.entity_type,r.entity_id].join(' ')).includes(normalizeFilterText(filters.search)))
+    &&(!filters.values.actor||r.actor_type===filters.values.actor)
+    &&(!filters.values.entity||r.entity_type===filters.values.entity)
+    &&(!filters.values.action||r.action===filters.values.action)
+    &&matchesPeriod(r.created_at,filters.values.period||''));
+  const pageRows=matching.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize);
   return <AdminShell active="settings" navigate={navigate} contentClassName="ad-main--settings">
     <AdminPageHeader title="Налаштування — Журнал дій" action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={15}/> Оновити</OutlineButton>}/>
     <SettingsTabs active="admin-settings-audit" navigate={navigate}/>
     
     <SettingsPanel title="Журнал дій" className="ad-settings-panel--full">
-      <label className="ad-live-field"><span>Пошук за подією, користувачем, розділом</span><input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}}/></label>
+      <FilterStrip placeholder="Подія, користувач або ID об’єкта" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
       {error?<div className="ad-create-message is-error">{error}</div>:null}
       {loading?<div className="ad-stage2-empty-row">Завантаження реального журналу…</div>:null}
       {!loading&&matching.length===0?<p className="ad-live-empty">Записів за запитом немає.</p>:null}
-      {!loading&&matching.length>0?<><div className="ad-live-audit-table"><div className="ad-live-table-head"><span>Дата і час</span><span>Хто</span><span>Дія</span><span>Тип</span><span>ID об’єкта</span></div>{pageRows.map(r=><div key={r.id}><span>{dateUA(r.created_at)}</span><span>{r.actor_user_id||r.actor_type}</span><strong>{r.action}</strong><span>{r.entity_type}</span><span>{r.entity_id}</span></div>)}</div><div className="ad-live-audit-footer"><span>{page*25+1}–{Math.min((page+1)*25,matching.length)} із {matching.length} записів</span><div><button type="button" disabled={page===0} onClick={()=>setPage(p=>Math.max(0,p-1))}>Назад</button><button type="button" disabled={(page+1)*25>=matching.length} onClick={()=>setPage(p=>p+1)}>Далі</button></div></div></>:null}
+      {!loading&&matching.length>0?<><div className="ad-live-audit-table"><div className="ad-live-table-head"><span>Дата і час</span><span>Хто</span><span>Дія</span><span>Тип</span><span>ID об’єкта</span></div>{pageRows.map(r=><div key={r.id}><span>{dateUA(r.created_at)}</span><span>{r.actor_user_id||r.actor_type}</span><strong>{r.action}</strong><span>{r.entity_type}</span><span>{r.entity_id}</span></div>)}</div><Pagination page={filters.page} pageSize={filters.pageSize} total={matching.length} onPage={filters.setPage} onPageSize={filters.changeSize}/></>:null}
     </SettingsPanel>
   </AdminShell>;
 }
@@ -1622,6 +1740,8 @@ type ModerationPlace = {
 function Stage2ContentScreen({ navigate }: AdminProps) {
   const adminKey = "";
   const [pending, setPending] = useState<ModerationPlace[]>([]);
+  const moderationFilters=useTableFilters();
+  const qrFilters=useTableFilters();
   const [selectedModeration, setSelectedModeration] = useState<ModerationPlace | null>(null);
   const [moderationCategories, setModerationCategories] = useState<Record<string, string>>({});
   const [qrRows, setQrRows] = useState<Array<{ id: string; start_param: string; type: string; source: string; active: boolean; region_name: string; place_name?: string | null; place_id?: string | null }>>([]);
@@ -1868,6 +1988,26 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const qrAudience = (row: { type: string; start_param?: string }) => row.type === "partner_access" || row.start_param?.startsWith("partner-")
     ? { label: "Для партнера", tone: "partner" }
     : { label: "Точка входу туриста", tone: "client" };
+  const moderationFields:FilterDefinition[]=[
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices(pending.map(r=>r.region_name))},
+    {key:'category',label:'Категорія',allLabel:'Усі категорії',options:filterChoices(pending.map(r=>r.category_slug)).map(o=>({...o,label:stage2Categories.find(c=>c.slug===o.value)?.name||o.value}))},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:statusOptions(pending.map(r=>r.status))},
+    {key:'period',label:'Дата заявки',allLabel:'Весь період',options:timePeriods},
+  ];
+  const filteredPending=pending.filter(r=>(!moderationFilters.search||normalizeFilterText([r.name,r.address,r.subcategory,r.organization_name,r.id].join(' ')).includes(normalizeFilterText(moderationFilters.search)))
+    &&(!moderationFilters.values.region||r.region_name===moderationFilters.values.region)
+    &&(!moderationFilters.values.category||r.category_slug===moderationFilters.values.category)
+    &&(!moderationFilters.values.status||r.status===moderationFilters.values.status)
+    &&matchesPeriod(r.created_at,moderationFilters.values.period||''));
+  const qrFields:FilterDefinition[]=[
+    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices(qrRows.map(r=>r.region_name))},
+    {key:'type',label:'Призначення',allLabel:'Усі QR',options:[{value:'partner',label:'Для партнера'},{value:'client',label:'Для туриста'}]},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:[{value:'active',label:'Активний'},{value:'inactive',label:'Вимкнений'}]},
+  ];
+  const filteredQr=qrRows.filter(r=>(!qrFilters.search||normalizeFilterText([r.place_name,r.region_name,r.start_param,r.id].join(' ')).includes(normalizeFilterText(qrFilters.search)))
+    &&(!qrFilters.values.region||r.region_name===qrFilters.values.region)
+    &&(!qrFilters.values.type||(qrFilters.values.type==='partner'?qrAudience(r).tone==='partner':qrAudience(r).tone==='client'))
+    &&(!qrFilters.values.status||(qrFilters.values.status==='active')===r.active));
 
   return (
     <AdminShell active="content" navigate={navigate} contentClassName="ad-main--stage2">
@@ -1883,8 +2023,9 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
 
       <section className="ad-stage2-section">
         <AdminPageHeader title="Модерація нових закладів" subtitle="Розділ визначається автоматично за типом закладу; перед Approve адміністратор може змінити його вручну" />
+        <FilterStrip placeholder="Назва закладу, адреса, ID" search={moderationFilters.search} onSearch={moderationFilters.onSearch} fields={moderationFields} values={moderationFilters.values} onChange={moderationFilters.onChange} onReset={moderationFilters.reset}/>
         <AdminTable columns={[{label:"Заклад",className:"1.4fr"},{label:"Розділ у гіді",className:"1fr"},{label:"Адреса",className:"1.3fr"},{label:"Статус",className:".7fr"},{label:"Дії",className:"1fr"}]}>
-          {pending.map((row) => <TableRow key={row.id} columns={["1.4fr","1fr","1.3fr",".7fr","1fr"]}>
+          {filteredPending.slice(moderationFilters.page*moderationFilters.pageSize,(moderationFilters.page+1)*moderationFilters.pageSize).map((row) => <TableRow key={row.id} columns={["1.4fr","1fr","1.3fr",".7fr","1fr"]}>
             <div><strong>{row.name}</strong><small>{row.subcategory || row.organization_name || row.region_name}</small></div>
             <div className="ad-stage2-moderation-category">
               <select value={moderationCategories[row.id] || row.category_slug} onChange={(event) => setModerationCategories((current) => ({ ...current, [row.id]: event.target.value }))}>
@@ -1900,8 +2041,8 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
               <button className="ad-text-btn is-danger" onClick={() => void moderate(row.id,"rejected")}>Reject</button>
             </div>
           </TableRow>)}
-          {!pending.length ? <div className="ad-stage2-empty-row">Черга модерації порожня</div> : null}
-        </AdminTable>
+          {!filteredPending.length ? <div className="ad-stage2-empty-row">Закладів за вибраними фільтрами немає</div> : null}
+        </AdminTable><Pagination page={moderationFilters.page} pageSize={moderationFilters.pageSize} total={filteredPending.length} onPage={moderationFilters.setPage} onPageSize={moderationFilters.changeSize}/>
       </section>
 
       {selectedModeration ? (() => {
@@ -2088,9 +2229,11 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
 
       <section className="ad-stage2-section">
         <AdminPageHeader title="QR точки" subtitle="Посилання можна перетворити на друкований QR будь-яким QR-генератором; start_param зберігається у БД" />
+        <FilterStrip placeholder="Заклад, QR-параметр або ID" search={qrFilters.search} onSearch={qrFilters.onSearch} fields={qrFields} values={qrFilters.values} onChange={qrFilters.onChange} onReset={qrFilters.reset}/>
         <AdminTable columns={[{label:"Точка",className:"1.1fr"},{label:"Тип",className:".75fr"},{label:"start_param",className:"1.2fr"},{label:"Статус",className:".55fr"},{label:"Deep link",className:"2fr"}]}>
-          {qrRows.map((row)=>{ const audience = qrAudience(row); return <TableRow key={row.id} columns={["1.1fr",".75fr","1.2fr",".55fr","2fr"]}><div className="ad-stage2-qr-place"><strong>{row.place_name || "Публічна точка"}</strong><small>{row.region_name}</small></div><span className={`ad-stage2-qr-audience is-${audience.tone}`}>{audience.label}</span><code>{row.start_param}</code><Status tone={row.active?"green":"gray"}>{row.active?"Активний":"Вимкнено"}</Status><div className="ad-stage2-link"><input readOnly value={deepLink(row.start_param)}/><button onClick={() => void navigator.clipboard.writeText(deepLink(row.start_param))}>Копіювати</button><button onClick={() => setQrPreviewParam(row.start_param)}>QR</button><button onClick={() => void toggleQr(row.id,!row.active)}>{row.active?"Вимк.":"Увімк."}</button><button className="ad-stage2-delete-button" onClick={() => void deleteQr(row.id,row.start_param)}><Trash2 size={14}/> Видалити</button></div></TableRow>;})}
-        </AdminTable>
+          {filteredQr.slice(qrFilters.page*qrFilters.pageSize,(qrFilters.page+1)*qrFilters.pageSize).map((row)=>{ const audience = qrAudience(row); return <TableRow key={row.id} columns={["1.1fr",".75fr","1.2fr",".55fr","2fr"]}><div className="ad-stage2-qr-place"><strong>{row.place_name || "Публічна точка"}</strong><small>{row.region_name}</small></div><span className={`ad-stage2-qr-audience is-${audience.tone}`}>{audience.label}</span><code>{row.start_param}</code><Status tone={row.active?"green":"gray"}>{row.active?"Активний":"Вимкнено"}</Status><div className="ad-stage2-link"><input readOnly value={deepLink(row.start_param)}/><button onClick={() => void navigator.clipboard.writeText(deepLink(row.start_param))}>Копіювати</button><button onClick={() => setQrPreviewParam(row.start_param)}>QR</button><button onClick={() => void toggleQr(row.id,!row.active)}>{row.active?"Вимк.":"Увімк."}</button><button className="ad-stage2-delete-button" onClick={() => void deleteQr(row.id,row.start_param)}><Trash2 size={14}/> Видалити</button></div></TableRow>;})}
+          {!filteredQr.length?<div className="ad-stage2-empty-row">QR-точок за вибраними фільтрами немає</div>:null}
+        </AdminTable><Pagination page={qrFilters.page} pageSize={qrFilters.pageSize} total={filteredQr.length} onPage={qrFilters.setPage} onPageSize={qrFilters.changeSize}/>
       </section>
       {qrPreviewParam ? <div className="ad-stage2-qr-modal" role="dialog" aria-modal="true" aria-label="QR точки входу" onMouseDown={(event)=>{if(event.currentTarget===event.target)setQrPreviewParam("");}}>
         <div className="ad-stage2-qr-modal__card">
@@ -2200,6 +2343,8 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   const [regionId, setRegionId] = useState("region-tatariv");
   const [contacts, setContacts] = useState<EmergencyAdminContact[]>([]);
   const [services, setServices] = useState<Stage2EmergencyService[]>([]);
+  const contactFilters=useTableFilters();
+  const serviceFilters=useTableFilters();
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
   const [pageContent, setPageContent] = useState<Record<string, string>>(DEFAULT_EMERGENCY_PAGE_CONTENT);
   const [message, setMessage] = useState("");
@@ -2374,6 +2519,18 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     }
   };
 
+  const contactFields:FilterDefinition[]=[
+    {key:'type',label:'Тип контакту',allLabel:'Усі типи',options:filterChoices(contacts.map(c=>c.type))},
+  ];
+  const filteredContacts=contacts.filter(c=>(!contactFilters.search||normalizeFilterText([c.title,c.phone,c.note,c.id].join(' ')).includes(normalizeFilterText(contactFilters.search)))
+    &&(!contactFilters.values.type||c.type===contactFilters.values.type));
+  const serviceFields:FilterDefinition[]=[
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:[{value:'active',label:'Увімкнені'},{value:'inactive',label:'Вимкнені'}]},
+    {key:'icon',label:'Тип сервісу',allLabel:'Усі типи',options:filterChoices(services.map(x=>x.icon))},
+  ];
+  const filteredServices=services.filter(x=>(!serviceFilters.search||normalizeFilterText([x.title,x.note,x.id].join(' ')).includes(normalizeFilterText(serviceFilters.search)))
+    &&(!serviceFilters.values.status||(serviceFilters.values.status==='active')===x.active)
+    &&(!serviceFilters.values.icon||x.icon===serviceFilters.values.icon));
   return (
     <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors ad-main--emergency-editor">
       <AdminPageHeader
@@ -2384,7 +2541,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
       />
       <section className="ad-page-editor-region-select">
         <span>Редагується регіон</span>
-        <select value={regionId} onChange={(e) => { setRegionId(e.target.value); resetContactForm(); resetServiceForm(); setMessage(""); }}>
+        <select value={regionId} onChange={(e) => { setRegionId(e.target.value); resetContactForm(); resetServiceForm(); contactFilters.reset(); serviceFilters.reset(); setMessage(""); }}>
           {regions.length ? regions.map((region) => <option key={region.id} value={region.id}>{region.name}</option>) : <option value="region-tatariv">Татарів</option>}
         </select>
       </section>
@@ -2415,9 +2572,11 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         </div>
         {contactId ? <p className="ad-page-editor-editing-note"><Edit3 size={14}/> Ви редагуєте існуючий контакт. Зміни збережуться без створення дубля.</p> : null}
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveContact()}>{contactId ? <Check size={14}/> : <Plus size={14}/>} {contactId ? "Зберегти зміни контакту" : "Додати контакт"}</PrimaryButton>{contactId ? <OutlineButton onClick={resetContactForm}>Скасувати</OutlineButton> : null}</div>
+        <FilterStrip placeholder="Назва, телефон або опис" search={contactFilters.search} onSearch={contactFilters.onSearch} fields={contactFields} values={contactFilters.values} onChange={contactFilters.onChange} onReset={contactFilters.reset}/>
         <div className="ad-page-editor-list">
-          {contacts.map((contact)=><article key={contact.id}><span><strong>{contact.title}</strong><small>{contact.note || "Без опису"} · {contact.phone || "без номера"}</small></span><div><button type="button" onClick={()=>editContact(contact)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteContact(contact)}><Trash2 size={13}/> Видалити</button></div></article>)}
-        </div>
+          {filteredContacts.slice(contactFilters.page*contactFilters.pageSize,(contactFilters.page+1)*contactFilters.pageSize).map((contact)=><article key={contact.id}><span><strong>{contact.title}</strong><small>{contact.note || "Без опису"} · {contact.phone || "без номера"}</small></span><div><button type="button" onClick={()=>editContact(contact)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteContact(contact)}><Trash2 size={13}/> Видалити</button></div></article>)}
+          {!filteredContacts.length?<p className="ad-stage2-empty-row">Контактів за вибраними фільтрами немає</p>:null}
+        </div><Pagination page={contactFilters.page} pageSize={contactFilters.pageSize} total={filteredContacts.length} onPage={contactFilters.setPage} onPageSize={contactFilters.changeSize}/>
       </section>
 
       <section className="ad-page-editor-panel">
@@ -2430,9 +2589,11 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         </div>
         <label className="ad-stage2-check"><input type="checkbox" checked={serviceActive} onChange={(e)=>setServiceActive(e.target.checked)} /><span>Сервіс увімкнений</span></label>
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveService()}>{serviceId ? <Check size={14}/> : <Plus size={14}/>} {serviceId ? "Зберегти сервіс" : "Додати сервіс"}</PrimaryButton>{serviceId ? <OutlineButton onClick={resetServiceForm}>Скасувати</OutlineButton> : null}</div>
+        <FilterStrip placeholder="Назва або опис сервісу" search={serviceFilters.search} onSearch={serviceFilters.onSearch} fields={serviceFields} values={serviceFilters.values} onChange={serviceFilters.onChange} onReset={serviceFilters.reset}/>
         <div className="ad-page-editor-list">
-          {services.map((service)=><article key={service.id} className={service.active ? "" : "is-disabled"}><span><strong>{service.title}</strong><small>{service.note || "Без опису"} · {service.active ? "увімкнено" : "вимкнено"}</small></span><div><button type="button" onClick={()=>editService(service)}><Edit3 size={13}/> Редагувати</button><button type="button" onClick={()=>void toggleService(service)}>{service.active ? "Вимкнути" : "Увімкнути"}</button><button type="button" className="is-delete" onClick={()=>void deleteService(service)}><Trash2 size={13}/> Видалити</button></div></article>)}
-        </div>
+          {filteredServices.slice(serviceFilters.page*serviceFilters.pageSize,(serviceFilters.page+1)*serviceFilters.pageSize).map((service)=><article key={service.id} className={service.active ? "" : "is-disabled"}><span><strong>{service.title}</strong><small>{service.note || "Без опису"} · {service.active ? "увімкнено" : "вимкнено"}</small></span><div><button type="button" onClick={()=>editService(service)}><Edit3 size={13}/> Редагувати</button><button type="button" onClick={()=>void toggleService(service)}>{service.active ? "Вимкнути" : "Увімкнути"}</button><button type="button" className="is-delete" onClick={()=>void deleteService(service)}><Trash2 size={13}/> Видалити</button></div></article>)}
+          {!filteredServices.length?<p className="ad-stage2-empty-row">Сервісів за вибраними фільтрами немає</p>:null}
+        </div><Pagination page={serviceFilters.page} pageSize={serviceFilters.pageSize} total={filteredServices.length} onPage={serviceFilters.setPage} onPageSize={serviceFilters.changeSize}/>
       </section>
     </AdminShell>
   );
@@ -2454,6 +2615,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   const [regionId, setRegionId] = useState("region-tatariv");
   const [pageContent, setPageContent] = useState<Record<string,string>>(DEFAULT_HOT_OFFERS_PAGE_CONTENT);
   const [offers, setOffers] = useState<Stage2HotOffer[]>([]);
+  const offerFilters=useTableFilters();
   const [places, setPlaces] = useState<Array<{ id: string; name: string; category_slug: string; region_id: string; region_name: string }>>([]);
   const [categories, setCategories] = useState<Stage2Category[]>([]);
   const [message, setMessage] = useState("");
@@ -2562,12 +2724,23 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
     }
   };
 
+  const offerFields:FilterDefinition[]=[
+    {key:'status',label:'Публікація',allLabel:'Усі пропозиції',options:[{value:'active',label:'Активні'},{value:'inactive',label:'Вимкнені'}]},
+    {key:'category',label:'Категорія',allLabel:'Усі категорії',options:filterChoices(offers.map(o=>o.category_slug)).map(o=>({...o,label:categories.find(c=>c.slug===o.value)?.name||o.value}))},
+    {key:'moderation',label:'Модерація',allLabel:'Усі статуси',options:statusOptions(offers.map(o=>o.moderation_status))},
+    {key:'validity',label:'Термін дії',allLabel:'Усі терміни',options:[{value:'active',label:'Ще діють'},{value:'expired',label:'Завершені'},{value:'unset',label:'Без дати'}]},
+  ];
+  const filteredOffers=offers.filter(o=>(!offerFilters.search||normalizeFilterText([o.title,o.place_name,o.discount,o.description,o.id].join(' ')).includes(normalizeFilterText(offerFilters.search)))
+    &&(!offerFilters.values.status||(offerFilters.values.status==='active')===(o.active!==false))
+    &&(!offerFilters.values.category||o.category_slug===offerFilters.values.category)
+    &&(!offerFilters.values.moderation||o.moderation_status===offerFilters.values.moderation)
+    &&(!offerFilters.values.validity||(offerFilters.values.validity==='unset'?!o.valid_until:offerFilters.values.validity==='active'?Boolean(o.valid_until&&Date.parse(o.valid_until)>=Date.now()):Boolean(o.valid_until&&Date.parse(o.valid_until)<Date.now()))));
   return (
     <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors ad-main--emergency-editor">
       <AdminPageHeader title="Редактор «Гарячі пропозиції»" subtitle="Шапка, банер та самі пропозиції." back={()=>navigate("admin","admin-pages")} action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>} />
       <section className="ad-page-editor-region-select">
         <span>Редагується регіон</span>
-        <select value={regionId} onChange={(e) => { setRegionId(e.target.value); resetOffer(); }}>
+        <select value={regionId} onChange={(e) => { setRegionId(e.target.value); resetOffer(); offerFilters.reset(); }}>
           {regions.length ? regions.map((region) => <option key={region.id} value={region.id}>{region.name}</option>) : <option value="region-tatariv">Татарів</option>}
         </select>
       </section>
@@ -2611,13 +2784,15 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
         </div>
         <label className="ad-stage2-check"><input type="checkbox" checked={offerActive} onChange={(e)=>setOfferActive(e.target.checked)} /><span>Пропозиція активна</span></label>
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={()=>void saveOffer()} disabled={savingOffer || offerPhotoUploading}>{offerId?<Check size={14}/>:<Plus size={14}/>} {savingOffer?"Збереження...":offerId?"Зберегти пропозицію":"Додати пропозицію"}</PrimaryButton>{offerId?<OutlineButton onClick={resetOffer}>Скасувати</OutlineButton>:null}</div>
+        <FilterStrip placeholder="Назва акції, партнер, знижка" search={offerFilters.search} onSearch={offerFilters.onSearch} fields={offerFields} values={offerFilters.values} onChange={offerFilters.onChange} onReset={offerFilters.reset}/>
         <div className="ad-page-editor-list">
-          {offers.map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span>{offer.image_url ? <img className="ad-page-editor-list-photo" src={offer.image_url} alt={offer.title}/> : null}<strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small>
+          {filteredOffers.slice(offerFilters.page*offerFilters.pageSize,(offerFilters.page+1)*offerFilters.pageSize).map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span>{offer.image_url ? <img className="ad-page-editor-list-photo" src={offer.image_url} alt={offer.title}/> : null}<strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small>
               {offer.submitted_by_user_id ? <small>Від партнера · {offer.moderation_status==='pending'?'На модерації':offer.moderation_status==='rejected'?'Відхилено':'Схвалено'} {offer.moderation_comment?`· ${offer.moderation_comment}`:''}</small> : null}
               </span><div>{offer.submitted_by_user_id && offer.moderation_status!=='approved' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"approved")}><Check size={13}/> Схвалити</button>:null}
               {offer.submitted_by_user_id && offer.moderation_status==='pending' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"rejected")}><X size={13}/> Відхилити</button>:null}
               <button type="button" onClick={()=>editOffer(offer)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteOffer(offer)}><Trash2 size={13}/> Видалити</button></div></article>)}
-        </div>
+          {!filteredOffers.length?<p className="ad-stage2-empty-row">Акцій за вибраними фільтрами немає</p>:null}
+        </div><Pagination page={offerFilters.page} pageSize={offerFilters.pageSize} total={filteredOffers.length} onPage={offerFilters.setPage} onPageSize={offerFilters.changeSize}/>
       </section>
     </AdminShell>
   );
@@ -2626,6 +2801,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
 function CategoriesPageEditorScreen({ navigate }: AdminProps) {
   const adminKey="";
   const [categories,setCategories]=useState<Stage2Category[]>([]);
+  const filters=useTableFilters();
   const [slug,setSlug]=useState("");
   const [name,setName]=useState("");
   const [nameEn,setNameEn]=useState("");
@@ -2678,6 +2854,12 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
     }catch(error){setMessage(error instanceof Error?`Помилка збереження: ${error.message}`:"Не вдалося зберегти розділ");}
     finally{setSaving(false);}
   };
+  const fields:FilterDefinition[]=[
+    {key:'subcategories',label:'Підкатегорії',allLabel:'Усі розділи',options:[{value:'yes',label:'Є підкатегорії'},{value:'no',label:'Без підкатегорій'}]},
+  ];
+  const filteredCategories=categories.filter(c=>c.slug!=='emergency'
+    &&(!filters.search||normalizeFilterText([c.slug,c.name,c.name_en,c.name_pl,...(c.subcategories||[])].join(' ')).includes(normalizeFilterText(filters.search)))
+    &&(!filters.values.subcategories||(filters.values.subcategories==='yes'?(c.subcategories||[]).length>0:(c.subcategories||[]).length===0)));
   return (
     <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors ad-main--emergency-editor">
       <AdminPageHeader title="Категорії / розділи" subtitle="Назви розділів і підрозділи спільні для всіх регіонів. Редагування винесено з «Контент / QR»." back={()=>navigate("admin","admin-pages")} action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>} />
@@ -2685,7 +2867,8 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
       <section className="ad-page-editor-split">
         <div className="ad-page-editor-panel">
           <header><div><strong>Розділи</strong><small>Оберіть існуючий або створіть новий.</small></div><button type="button" className="ad-page-editor-new" onClick={reset}><Plus size={14}/> Новий</button></header>
-          <div className="ad-page-editor-category-list">{categories.filter((item)=>item.slug!=="emergency").map((item)=><button type="button" key={item.slug} className={slug===item.slug?"is-active":""} onClick={()=>select(item)}><strong>{item.name}</strong><small>{item.slug} · {(item.subcategories||[]).length} підрозділів</small><ChevronRight size={16}/></button>)}</div>
+          <FilterStrip placeholder="Назва, slug або підкатегорія" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
+          <div className="ad-page-editor-category-list">{filteredCategories.map((item)=><button type="button" key={item.slug} className={slug===item.slug?"is-active":""} onClick={()=>select(item)}><strong>{item.name}</strong><small>{item.slug} · {(item.subcategories||[]).length} підрозділів</small><ChevronRight size={16}/></button>)}</div>
         </div>
         <div className="ad-page-editor-panel">
           <header><div><strong>{categories.some((item)=>item.slug===slug)?"Редагування розділу":"Новий розділ"}</strong><small>Назви та кожен підрозділ зберігаються окремим елементом у БД.</small></div></header>
