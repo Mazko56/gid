@@ -1193,7 +1193,16 @@ function useSettingsStore(section:SettingsSection|null) {
     try {
       const response=await adminStage2Fetch<SettingsSnapshot>('/admin/platform/settings');
       setData(response);setForm(section?{...response.values[section]}:{});
-    } catch(e) {setData(null);setError(e instanceof Error?e.message:'Не вдалося отримати налаштування');}
+    } catch(e) {
+      setData(null);
+      const detail=e instanceof Error?e.message:'Не вдалося отримати налаштування';
+      // The route exists in this project's backend. A NestJS 404 here means
+      // the deployed API is an older release or the frontend targets another backend.
+      const missingSettingsRoute=/Cannot GET \/api\/v1\/admin\/platform\/settings(?:\s|$)|\bAPI 404\b/i.test(detail);
+      setError(missingSettingsRoute
+        ? 'API налаштувань недоступний (404): на Railway запущено стару версію бекенду або BACKEND_API_URL вказує на інший сервіс. Розгорніть папку backend із цього архіву та перевірте маршрут /api/v1/admin/platform/settings.'
+        : detail);
+    }
     finally {setLoading(false);}
   };
   useEffect(()=>{void refresh();},[section]);

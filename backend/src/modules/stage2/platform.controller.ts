@@ -65,6 +65,8 @@ export class PlatformController {
   @UseGuards(AdminKeyGuard) @Get('admin/platform/settlements') settlements() { return this.platform.adminSettlements(); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/analytics') analytics(@Query('region_id') p?:string) { return this.platform.adminAnalytics(p); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/audit') audit(@Query('region_id') p?:string) { return this.platform.auditLog(p); }
+  // Keep settings on the backend API (not in the Next.js UI). Updating this
+  // controller also triggers the separate Railway backend-service deployment.
   @UseGuards(AdminKeyGuard) @Get('admin/platform/settings') settingsSnapshot() { return this.settings.snapshot(); }
   @UseGuards(AdminKeyGuard) @Patch('admin/platform/settings/bonus-rules/:id') updateBonusRule(@Param('id') id:string,@Body() body:Record<string,unknown>) { return this.settings.updateBonusRule(id,body); }
   @UseGuards(AdminKeyGuard) @Delete('admin/platform/settings/sessions/:id') revokeAdminSession(@Param('id') id:string) { return this.settings.revokeSession(id); }
