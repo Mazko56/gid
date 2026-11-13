@@ -1,10 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AdminKeyGuard, type AuthRequest, SessionGuard } from '../../common/auth.guard.js';
 import { PlatformService } from './platform.service.js';
+import { PlatformSettingsService } from './platform-settings.service.js';
 
 @Controller()
 export class PlatformController {
-  constructor(private readonly platform:PlatformService) {}
+  constructor(private readonly platform:PlatformService, private readonly settings:PlatformSettingsService) {}
 
   @UseGuards(SessionGuard) @Get('wallet') wallet(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
   @UseGuards(SessionGuard) @Get('wallet/ledger') ledger(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
@@ -64,4 +65,9 @@ export class PlatformController {
   @UseGuards(AdminKeyGuard) @Get('admin/platform/settlements') settlements() { return this.platform.adminSettlements(); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/analytics') analytics(@Query('region_id') p?:string) { return this.platform.adminAnalytics(p); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/audit') audit(@Query('region_id') p?:string) { return this.platform.auditLog(p); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/settings') settingsSnapshot() { return this.settings.snapshot(); }
+  @UseGuards(AdminKeyGuard) @Patch('admin/platform/settings/bonus-rules/:id') updateBonusRule(@Param('id') id:string,@Body() body:Record<string,unknown>) { return this.settings.updateBonusRule(id,body); }
+  @UseGuards(AdminKeyGuard) @Delete('admin/platform/settings/sessions/:id') revokeAdminSession(@Param('id') id:string) { return this.settings.revokeSession(id); }
+  @UseGuards(AdminKeyGuard) @Patch('admin/platform/settings/:section') updateSettings(@Param('section') section:string,@Body() body:{values?:unknown}) { return this.settings.update(section,body); }
+
 }

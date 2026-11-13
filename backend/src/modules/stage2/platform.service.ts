@@ -128,7 +128,17 @@ export class PlatformService {
     const spend = Math.min(amount(body.spend ?? 0,true),balance,money(total*Number(options.max_spend_percent)/100));
     const cash = money(total-spend);
     const earn = money(cash*Number(options.earn_percent)/100);
-    const rate = 4;
+    // A saved administrator rate is applied to future quotes; existing transactions stay immutable.
+    const currentSettings = await this.db.query<{config:Record<string,unknown>}>(
+      "SELECT config FROM admin_settings WHERE section='partners' LIMIT 1",
+    );
+    const commissionSettings = currentSettings.rows[0]?.config || {};
+    const categoryRates = commissionSettings.category_commissions;
+    const categoryRate = categoryRates && typeof categoryRates === 'object' && !Array.isArray(categoryRates)
+      ? (categoryRates as Record<string,unknown>)[place.category_slug] : undefined;
+    const configuredRate = categoryRate === undefined ? commissionSettings.commission_rate : categoryRate;
+    const rate = configuredRate === undefined || configuredRate === '' || !Number.isFinite(Number(configuredRate))
+      ? 4 : Math.max(0,Math.min(100,Number(configuredRate)));
     const id = makeId('txn');
     const result = await this.db.query(`INSERT INTO purchase_transactions
        (id,user_id,cashier_user_id,place_id,region_id,qr_token_hash,amount,spent,earned,cash_due,commission,commission_rate,expires_at,idempotency_key)

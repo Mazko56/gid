@@ -390,6 +390,11 @@ CREATE TABLE IF NOT EXISTS ambassador_attributions (
   status text NOT NULL DEFAULT 'pending',
   eligible_after timestamptz, created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS admin_settings (
+  section text PRIMARY KEY,
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id text PRIMARY KEY, actor_user_id text REFERENCES users(id),
   actor_type text NOT NULL DEFAULT 'user', region_id text REFERENCES regions(id),
@@ -462,6 +467,9 @@ INSERT INTO emergency_services (id,region_id,title,note,tone,icon,sort_order) VA
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE regions SET emergency_verified_at=COALESCE(emergency_verified_at, now()) WHERE id='region-tatariv';
+
+-- Ensure rules exist for newly seeded regions, without changing existing values.
+INSERT INTO bonus_rules(region_id) SELECT id FROM regions ON CONFLICT DO NOTHING;
 
 INSERT INTO page_content(region_id,page_key,content) VALUES
 ('region-tatariv','emergency','{"badge":"SOS","title":"Халепа?","subtitle":"Швидка допомога та корисні контакти","hero_kicker":"Не хвилюйтеся","hero_title":"Знайдемо допомогу","hero_text":"Екстрені та перевірені контакти для вашої безпеки."}'::jsonb),
