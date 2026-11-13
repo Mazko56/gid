@@ -30,8 +30,8 @@ export class PlatformService {
 
   private async placeWithRole(user: AuthUser, placeId: string, accepted: string[] = ['owner', 'manager', 'cashier']) {
     const result = await this.db.query<{
-      id: string; region_id: string; organization_id: string; name: string; status: string; role: string;
-    }>(`SELECT p.id,p.region_id,p.organization_id,p.name,p.status,
+      id: string; region_id: string; organization_id: string; category_slug: string; name: string; status: string; role: string;
+    }>(`SELECT p.id,p.region_id,p.organization_id,p.category_slug,p.name,p.status,
          CASE WHEN o.owner_user_id=$2 THEN 'owner' ELSE a.role END AS role
        FROM places p JOIN organizations o ON o.id=p.organization_id
        LEFT JOIN organization_telegram_access a ON a.organization_id=o.id
