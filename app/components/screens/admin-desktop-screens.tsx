@@ -1141,9 +1141,8 @@ type SettingsSlug =
   | "admin-settings-bonuses"
   | "admin-settings-notifications"
   | "admin-settings-security"
-  | "admin-settings-integrations"
   | "admin-settings-audit";
-type SettingsSection = 'general' | 'company' | 'partners' | 'notifications' | 'security' | 'integrations';
+type SettingsSection = 'general' | 'company' | 'partners' | 'notifications';
 
 type SettingsSnapshot = {
   values: Record<string, Record<string, unknown>>;
@@ -1153,8 +1152,6 @@ type SettingsSnapshot = {
   bonus_rules: Array<{region_id:string;region_name:string;earn_percent:number|string;max_spend_percent:number|string;expiration_days:number;min_purchase:number|string;updated_at:string}>;
   admin_users: Array<{id:string;first_name:string|null;last_name:string|null;telegram_username:string|null;role:string}>;
   admin_sessions: Array<{user_id:string;created_at:string;expires_at:string}>;
-  event_types:string[];
-  integration_runtime:{database:boolean;telegram_bot_configured:boolean;google_places_key_configured:boolean;geoapify_key_configured:boolean};
   security_runtime:{admin_key_configured:boolean;auth_mode:string};
 };
 type SettingsAudit = {id:string;actor_type:string;actor_user_id?:string|null;region_id?:string|null;entity_type:string;entity_id:string;action:string;details:Record<string,unknown>;created_at:string};
@@ -1165,7 +1162,6 @@ const settingsTabs: Array<{label:string;slug:SettingsSlug}> = [
   {label:'Бонусна система',slug:'admin-settings-bonuses'},
   {label:'Сповіщення',slug:'admin-settings-notifications'},
   {label:'Безпека',slug:'admin-settings-security'},
-  {label:'Інтеграції',slug:'admin-settings-integrations'},
   {label:'Журнал дій',slug:'admin-settings-audit'},
 ];
 function SettingsTabs({active,navigate}:{active:SettingsSlug;navigate:Navigate}) {
@@ -1177,8 +1173,20 @@ function SettingsPanel({title,children,className=''}:{title:string;children:Reac
 }
 function settingsText(value:unknown):string { return value===undefined||value===null?'':String(value); }
 function asSettingsObject(value:unknown):Record<string,unknown> {return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};}
+const SETTINGS_VISIBLE_FIELDS:Record<SettingsSection,readonly string[]> = {
+  general:['show_archived_partners','show_inactive_clients','auto_refresh','allow_partner_registration','require_partner_approval','allow_partner_edits','display_partner_rating','show_hints','maintenance_mode','log_retention_months','archive_retention_months','logo_url','primary_color','secondary_color'],
+  company:['legal_name','tax_id','address','iban','bank','vat_payer','vat_rate'],
+  partners:['commission_rate','category_commissions','auto_assign_commission','show_partner_commission','show_partner_debt','minimum_order','commission_duration_days'],
+  notifications:['email','phone','telegram','push_endpoint','email_enabled','sms_enabled','telegram_enabled','push_enabled','daily_summary','daily_time','weekly_summary','weekly_day','quiet_hours','quiet_start','quiet_end'],
+};
+function visibleSettings(section:SettingsSection, values:Record<string,unknown>|undefined):Record<string,unknown> {
+  const source=values||{};
+  return Object.fromEntries(SETTINGS_VISIBLE_FIELDS[section].filter(key=>Object.hasOwn(source,key)).map(key=>[key,source[key]]));
+}
+
 function exportSettingsToJson(data:SettingsSnapshot) {
-  const blob=new Blob([JSON.stringify(data.values,null,2)],{type:'application/json;charset=utf-8'});
+  const exported=Object.fromEntries((Object.keys(SETTINGS_VISIBLE_FIELDS) as SettingsSection[]).map(section=>[section,visibleSettings(section,data.values[section])]));
+  const blob=new Blob([JSON.stringify(exported,null,2)],{type:'application/json;charset=utf-8'});
   const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='gid-tourist-settings.json';link.click();URL.revokeObjectURL(url);
 }
 function useSettingsStore(section:SettingsSection|null) {
@@ -1192,15 +1200,13 @@ function useSettingsStore(section:SettingsSection|null) {
     setLoading(true);setError('');setMessage('');
     try {
       const response=await adminStage2Fetch<SettingsSnapshot>('/admin/platform/settings');
-      setData(response);setForm(section?{...response.values[section]}:{});
+      setData(response);setForm(section?visibleSettings(section,response.values[section]):{});
     } catch(e) {
       setData(null);
       const detail=e instanceof Error?e.message:'Не вдалося отримати налаштування';
-      // The route exists in this project's backend. A NestJS 404 here means
-      // the deployed API is an older release or the frontend targets another backend.
       const missingSettingsRoute=/Cannot GET \/api\/v1\/admin\/platform\/settings(?:\s|$)|\bAPI 404\b/i.test(detail);
       setError(missingSettingsRoute
-        ? 'API налаштувань недоступний (404): на Railway запущено стару версію бекенду або BACKEND_API_URL вказує на інший сервіс. Розгорніть папку backend із цього архіву та перевірте маршрут /api/v1/admin/platform/settings.'
+        ? 'Не вдалося завантажити налаштування (404). Перевірте доступність сервера.'
         : detail);
     }
     finally {setLoading(false);}
@@ -1211,9 +1217,9 @@ function useSettingsStore(section:SettingsSection|null) {
     if(!section)return;
     setBusy(true);setError('');setMessage('');
     try {
-      const response=await adminStage2Fetch<{values:Record<string,unknown>}>(`/admin/platform/settings/${section}`,'',{method:'PATCH',body:JSON.stringify({values:form})});
-      setForm({...response.values});setData(previous=>previous?{...previous,values:{...previous.values,[section]:response.values}}:previous);
-      setMessage('Зміни збережено в PostgreSQL.');
+      const response=await adminStage2Fetch<{values:Record<string,unknown>}>(`/admin/platform/settings/${section}`,'',{method:'PATCH',body:JSON.stringify({values:visibleSettings(section,form)})});
+      setForm(visibleSettings(section,response.values));setData(previous=>previous?{...previous,values:{...previous.values,[section]:response.values}}:previous);
+      setMessage('Зміни збережено.');
     }catch(e){setError(e instanceof Error?e.message:'Не вдалося зберегти налаштування');}
     finally{setBusy(false);}
   };
@@ -1230,6 +1236,54 @@ function SettingCheck({label,id,form,change,note}:{label:string;id:string;form:R
 function SettingTextarea({label,id,form,change}:{label:string;id:string;form:Record<string,unknown>;change:(key:string,value:unknown)=>void}) {
   return <label className="ad-live-field is-wide"><span>{label}</span><textarea rows={3} value={settingsText(form[id])} onChange={e=>change(id,e.target.value)}/></label>;
 }
+
+async function logoFileToDataUrl(file:File):Promise<string> {
+  if (!['image/png','image/jpeg','image/webp'].includes(file.type)) throw new Error('Оберіть PNG, JPG або WebP');
+  if (file.size>4*1024*1024) throw new Error('Максимальний розмір файлу — 4 МБ');
+  const url=URL.createObjectURL(file);
+  try {
+    const image=new Image();
+    await new Promise<void>((resolve,reject)=>{
+      image.onload=()=>resolve(); image.onerror=()=>reject(new Error('Не вдалося відкрити зображення'));image.src=url;
+    });
+    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth>12000 || image.naturalHeight>12000) throw new Error('Некоректні розміри логотипа');
+    for (const maxSide of [560,450,350,260,180]) {
+      const ratio=Math.min(1,maxSide/Math.max(image.naturalWidth,image.naturalHeight));
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(image.naturalWidth*ratio));
+      canvas.height=Math.max(1,Math.round(image.naturalHeight*ratio));
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('Браузер не може обробити логотип');
+      ctx.drawImage(image,0,0,canvas.width,canvas.height);
+      for(const quality of [.86,.73,.6]) {
+        const result=canvas.toDataURL('image/webp',quality);
+        if (result.length<180000 && /^data:image\/(webp|png);base64,/.test(result)) return result;
+      }
+    }
+    throw new Error('Не вдалося зменшити логотип до допустимого розміру');
+  } finally {URL.revokeObjectURL(url);}
+}
+function SettingLogoUpload({value,change}:{value:unknown;change:(key:string,value:unknown)=>void}) {
+  const ref=useRef<HTMLInputElement>(null);
+  const [error,setError]=useState('');const [loading,setLoading]=useState(false);
+  const src=typeof value==='string'&&(/^(https:\/\/|data:image\/(webp|png|jpeg);base64,)/i.test(value))?value:'';
+  const handle=async(files:FileList|null)=>{
+    const file=files?.[0];if(!file)return;
+    setError('');setLoading(true);
+    try {change('logo_url',await logoFileToDataUrl(file));}
+    catch(e){setError(e instanceof Error?e.message:'Помилка завантаження логотипа');}
+    finally {setLoading(false);if(ref.current)ref.current.value='';}
+  };
+  return <div className="ad-logo-upload">
+    <input ref={ref} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>void handle(e.target.files)}/>
+    {src?<img className="ad-logo-upload__preview" src={src} alt="Логотип компанії"/>:<div className="ad-logo-upload__empty"><ImagePlus size={28}/><span>Логотип не завантажено</span></div>}
+    <div className="ad-logo-upload__actions">
+      <button type="button" className="ad-btn ad-btn--outline" onClick={()=>ref.current?.click()} disabled={loading}><Upload size={16}/>{loading?'Обробка…':src?'Замінити логотип':'Завантажити логотип'}</button>
+      {src?<button type="button" className="ad-danger-outline" onClick={()=>{setError('');change('logo_url','');}}>Прибрати логотип</button>:null}
+    </div>
+    {error?<p className="ad-create-message is-error" role="alert">{error}</p>:null}
+  </div>;
+}
 function SettingsFrame({navigate,title,slug,section,render}:{navigate:Navigate;title:string;slug:SettingsSlug;section:SettingsSection|null;render:(s:SettingsStore)=>ReactNode}) {
   const state=useSettingsStore(section);
   return <AdminShell active="settings" navigate={navigate} contentClassName="ad-main--settings">
@@ -1241,56 +1295,43 @@ function SettingsFrame({navigate,title,slug,section,render}:{navigate:Navigate;t
     <SettingsTabs active={slug} navigate={navigate}/>
     {state.error?<div className="ad-create-message is-error" role="alert">{state.error}</div>:null}
     {state.message?<div className="ad-create-message" role="status">{state.message}</div>:null}
-    {state.loading?<div className="ad-stage2-empty-row">Завантаження актуальних даних із PostgreSQL…</div>:null}
+    {state.loading?<div className="ad-stage2-empty-row">Завантаження налаштувань…</div>:null}
     {!state.loading&&state.data?render(state):null}
   </AdminShell>;
 }
 function GeneralSettingsScreen({navigate}:AdminProps) {
   return <SettingsFrame navigate={navigate} title="Загальні" slug="admin-settings-general" section="general" render={({data,form,change})=><>
-    <p className="ad-live-note">Налаштування завантажуються з бази даних; незаповнені поля означають, що значення ще не задано. Параметри, які не підключені до логіки застосунку, лише зберігаються як конфігурація.</p>
     <div className="ad-settings-layout ad-settings-layout--two">
-      <SettingsPanel title="Параметри інтерфейсу"><div className="ad-setting-fields-grid">
-        {([['Мова інтерфейсу','language'],['Часовий пояс','timezone'],['Формат дати','date_format'],['Формат часу','time_format'],['Валюта','currency'],['Перший день тижня','week_start']] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}
-      </div></SettingsPanel>
+      <SettingsPanel title="Брендування">
+        <SettingLogoUpload value={form.logo_url} change={change}/>
+        <div className="ad-setting-fields-grid"><SettingInput label="Основний колір (HEX)" id="primary_color" form={form} change={change}/><SettingInput label="Додатковий колір (HEX)" id="secondary_color" form={form} change={change}/></div>
+      </SettingsPanel>
       <SettingsPanel title="Відображення та робота"><div className="ad-settings-toggle-stack">{([
         ['Показувати архівних партнерів','show_archived_partners'],['Показувати неактивних клієнтів','show_inactive_clients'],['Автоматичне оновлення','auto_refresh'],['Дозволити реєстрацію партнерів','allow_partner_registration'],['Вимагати модерацію партнерів','require_partner_approval'],['Дозволити редагування даних партнером','allow_partner_edits'],['Показувати рейтинг','display_partner_rating'],['Показувати підказки','show_hints'],['Режим обслуговування','maintenance_mode']
       ] as const).map(([label,id])=><SettingCheck key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
-      <SettingsPanel title="Брендування"><div className="ad-setting-fields-grid"><SettingInput label="Посилання на логотип" id="logo_url" form={form} change={change} wide/><SettingInput label="Основний колір (HEX)" id="primary_color" form={form} change={change}/><SettingInput label="Додатковий колір (HEX)" id="secondary_color" form={form} change={change}/></div></SettingsPanel>
-      <SettingsPanel title="Політика зберігання"><div className="ad-setting-fields-grid"><SettingInput label="Зберігати логи (місяців)" id="log_retention_months" type="number" form={form} change={change}/><SettingInput label="Зберігати архіви (місяців)" id="archive_retention_months" type="number" form={form} change={change}/></div><p className="ad-settings-help">Це збережені значення політики. Автоматичне видалення даних не запускається цим екраном.</p></SettingsPanel>
-      <SettingsPanel title="Регіони та кількість закладів" className="ad-settings-panel--full"><div className="ad-live-table"><div className="ad-live-table-head"><span>Регіон</span><span>Закладів партнерів</span><span>Стан</span></div>{data!.regions.map(r=><div key={r.id}><strong>{r.name}</strong><span>{r.places_count}</span><span>{r.active?'Активний':'Неактивний'}</span></div>)}</div>{data!.regions.length===0?<p className="ad-live-empty">Регіонів у базі немає.</p>:null}<p className="ad-settings-help">Кількість закладів підраховується за актуальними записами, а не задається вручну.</p></SettingsPanel>
+      <SettingsPanel title="Політика зберігання"><div className="ad-setting-fields-grid"><SettingInput label="Зберігати логи (місяців)" id="log_retention_months" type="number" form={form} change={change}/><SettingInput label="Зберігати архіви (місяців)" id="archive_retention_months" type="number" form={form} change={change}/></div></SettingsPanel>
+      <SettingsPanel title="Регіони та кількість закладів" className="ad-settings-panel--full"><div className="ad-live-table"><div className="ad-live-table-head"><span>Регіон</span><span>Закладів партнерів</span><span>Стан</span></div>{data!.regions.map(r=><div key={r.id}><strong>{r.name}</strong><span>{r.places_count}</span><span>{r.active?'Активний':'Неактивний'}</span></div>)}</div>{data!.regions.length===0?<p className="ad-live-empty">Регіонів немає.</p>:null}</SettingsPanel>
     </div>
   </>}/>;
 }
 function CompanySettingsScreen({navigate}:AdminProps) {
-  return <SettingsFrame navigate={navigate} title="Компанія" slug="admin-settings-company" section="company" render={({form,change})=>{
-    const documents=Array.isArray(form.documents)?form.documents as Array<{name:string;url:string}>:[];
-    const editDocument=(index:number,key:'name'|'url',value:string)=>change('documents',documents.map((d,i)=>i===index?{...d,[key]:value}:d));
-    return <><p className="ad-live-note">Дані компанії не заповнюються автоматично прикладами. Якщо інформацію ще не внесли, поля залишаються порожніми. Усі введені значення зберігаються в PostgreSQL.</p>
-      <div className="ad-settings-layout ad-settings-layout--two">
-        <SettingsPanel title="Дані компанії"><div className="ad-setting-fields-grid">{([
-          ['Назва компанії','name'],['Юридична назва','legal_name'],['Email','email'],['Телефон','phone'],['ЄДРПОУ / ІПН','tax_id'],['Вебсайт','website'],['Країна','country'],['Юридична адреса','address']
-        ] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
-        <SettingsPanel title="Банківські реквізити"><div className="ad-setting-fields-grid">{([['IBAN','iban'],['Назва банку','bank'],['ЄДРПОУ банку','bank_tax_id'],['Платник ПДВ','vat_payer'],['Ставка ПДВ','vat_rate'],['Вид діяльності','activity']] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div><SettingTextarea label="Примітка" id="note" form={form} change={change}/></SettingsPanel>
-        <SettingsPanel title="Додаткові відомості"><div className="ad-setting-fields-grid">{([['Часовий пояс','timezone'],['Формат дати','date_format'],['Формат часу','time_format'],['Валюта','currency'],['Мова','language'],['Початок тижня','week_start']] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
-        <SettingsPanel title="Брендування"><div className="ad-setting-fields-grid"><SettingInput label="Посилання на логотип" id="logo_url" wide form={form} change={change}/><SettingInput label="Основний колір" id="primary_color" form={form} change={change}/><SettingInput label="Додатковий колір" id="secondary_color" form={form} change={change}/></div><SettingCheck label="Логотип у документах" id="show_logo_on_documents" form={form} change={change}/><SettingCheck label="Фірмові кольори" id="use_brand_colors" form={form} change={change}/><p className="ad-settings-help">Зміни зберігаються як дані компанії. Застосування кольорів у публічному інтерфейсі потребує окремого підключення теми.</p></SettingsPanel>
-        <SettingsPanel title="Документи компанії (посилання)" className="ad-settings-panel--full">
-          {documents.length===0?<p className="ad-live-empty">Документи ще не додано.</p>:null}
-          {documents.map((doc,i)=><div className="ad-live-edit-row" key={i}><label>Назва<input value={doc.name||''} onChange={e=>editDocument(i,'name',e.target.value)}/></label><label>Посилання на документ<input type="url" value={doc.url||''} onChange={e=>editDocument(i,'url',e.target.value)}/></label><button type="button" className="ad-danger-outline" onClick={()=>change('documents',documents.filter((_,j)=>j!==i))}><Trash2 size={14}/> Видалити</button></div>)}
-          <OutlineButton onClick={()=>change('documents',[...documents,{name:'',url:''}])}><Plus size={15}/> Додати документ</OutlineButton>
-          <p className="ad-settings-help">Зберігаються лише фактичні посилання на документи, без вигаданих файлів чи дат. Фізичне завантаження файлів тут не виконується.</p>
-        </SettingsPanel>
-      </div>
-    </>;
-  }}/>;
+  return <SettingsFrame navigate={navigate} title="Компанія" slug="admin-settings-company" section="company" render={({form,change})=><div className="ad-settings-layout ad-settings-layout--two">
+    <SettingsPanel title="Реквізити для взаєморозрахунків"><div className="ad-setting-fields-grid">{([
+      ['Юридична назва','legal_name'],['ЄДРПОУ / ІПН','tax_id'],['Юридична адреса','address']
+    ] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
+    <SettingsPanel title="Банківські реквізити"><div className="ad-setting-fields-grid">{([
+      ['IBAN','iban'],['Назва банку','bank'],['Платник ПДВ','vat_payer'],['Ставка ПДВ (%)','vat_rate']
+    ] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
+  </div>}/>;
 }
 function PartnerCommissionSettingsScreen({navigate}:AdminProps) {
   return <SettingsFrame navigate={navigate} title="Партнери та комісії" slug="admin-settings-partners" section="partners" render={({data,form,change})=>{
     const map=asSettingsObject(form.category_commissions);
-    return <><p className="ad-live-note">Показники партнерів і категорії надходять безпосередньо з БД. Нова ставка комісії застосовуватиметься до майбутніх операцій; раніше створені транзакції не перераховуються.</p>
+    return <>
       <div className="ad-settings-layout ad-settings-layout--two">
-        <SettingsPanel title="Ставка комісії"><div className="ad-setting-fields-grid"><SettingInput label="Комісія за замовчуванням (%)" id="commission_rate" type="number" form={form} change={change}/><SettingInput label="Мінімальна сума замовлення (політика)" id="minimum_order" type="number" form={form} change={change}/><SettingInput label="Термін дії (днів, політика)" id="commission_duration_days" type="number" form={form} change={change}/></div><p className="ad-settings-help">За відсутності індивідуальної ставки система використовує поточну робочу комісію 4%. Поля «політика» зберігаються, але не змінюють розрахунок автоматично.</p></SettingsPanel>
-        <SettingsPanel title="Додаткові параметри"><SettingCheck label="Автоматично призначати комісію" id="auto_assign_commission" form={form} change={change}/><SettingCheck label="Показувати партнеру його комісію" id="show_partner_commission" form={form} change={change}/><SettingCheck label="Показувати борг партнера" id="show_partner_debt" form={form} change={change}/><p className="ad-settings-help">Ці параметри зберігаються в конфігурації. Зміна видимості в кабінеті потребує підключення відповідних компонентів.</p></SettingsPanel>
-        <SettingsPanel title="Категорії та комісії" className="ad-settings-panel--full"><div className="ad-live-categories"><div className="ad-live-table-head"><span>Категорія</span><span>Закладів</span><span>Ставка (%)</span></div>{data!.categories.map(c=><div key={c.slug}><strong>{c.name}</strong><span>{c.places_count}</span><input aria-label={`Комісія ${c.name}`} type="number" min="0" max="100" step="0.01" value={settingsText(map[c.slug])} onChange={e=>{const next={...map};if(e.target.value==='')delete next[c.slug];else next[c.slug]=e.target.value;change('category_commissions',next);}}/></div>)}</div>{data!.categories.length===0?<p className="ad-live-empty">Категорій у базі немає.</p>:null}<p className="ad-settings-help">Порожнє поле означає використання загальної ставки. Категорії беруться з реальної таблиці categories.</p></SettingsPanel>
+        <SettingsPanel title="Ставка комісії"><div className="ad-setting-fields-grid"><SettingInput label="Комісія за замовчуванням (%)" id="commission_rate" type="number" form={form} change={change}/><SettingInput label="Мінімальна сума замовлення (політика)" id="minimum_order" type="number" form={form} change={change}/><SettingInput label="Термін дії (днів, політика)" id="commission_duration_days" type="number" form={form} change={change}/></div></SettingsPanel>
+        <SettingsPanel title="Додаткові параметри"><SettingCheck label="Автоматично призначати комісію" id="auto_assign_commission" form={form} change={change}/><SettingCheck label="Показувати партнеру його комісію" id="show_partner_commission" form={form} change={change}/><SettingCheck label="Показувати борг партнера" id="show_partner_debt" form={form} change={change}/></SettingsPanel>
+        <SettingsPanel title="Категорії та комісії" className="ad-settings-panel--full"><div className="ad-live-categories"><div className="ad-live-table-head"><span>Категорія</span><span>Закладів</span><span>Ставка (%)</span></div>{data!.categories.map(c=><div key={c.slug}><strong>{c.name}</strong><span>{c.places_count}</span><input aria-label={`Комісія ${c.name}`} type="number" min="0" max="100" step="0.01" value={settingsText(map[c.slug])} onChange={e=>{const next={...map};if(e.target.value==='')delete next[c.slug];else next[c.slug]=e.target.value;change('category_commissions',next);}}/></div>)}</div>{data!.categories.length===0?<p className="ad-live-empty">Категорій у базі немає.</p>:null}</SettingsPanel>
         <SettingsPanel title="Фактичні статуси партнерів"><div className="ad-live-table"><div className="ad-live-table-head"><span>Статус</span><span>Кількість</span></div>{data!.partner_statuses.map(s=><div key={s.status}><span>{s.status}</span><strong>{s.count}</strong></div>)}</div>{data!.partner_statuses.length===0?<p className="ad-live-empty">Партнерських закладів ще немає.</p>:null}</SettingsPanel>
       </div>
     </>;
@@ -1309,58 +1350,37 @@ function BonusSettingsScreen({navigate}:AdminProps) {
         setEdited(previous=>{const next={...previous};delete next[row.region_id];return next;});await refresh();setMessage(`Правила регіону «${row.region_name}» збережено.`);
       }catch(e){setError(e instanceof Error?e.message:'Помилка збереження бонусів');}finally{setSaving('');}
     };
-    return <><p className="ad-live-note">Реальні правила бонусів із таблиці PostgreSQL <code>bonus_rules</code>. Їх зміна впливає на наступні покупки та нарахування, але не змінює історію проведених операцій.</p>
+    return <>
       <div className="ad-live-bonus-grid">{data!.bonus_rules.map(row=><SettingsPanel key={row.region_id} title={row.region_name}><div className="ad-setting-fields-grid">{([
         ['Нарахування (%)','earn_percent'],['Максимальне списання (%)','max_spend_percent'],['Мінімальна покупка (грн)','min_purchase'],['Термін бонусів (днів)','expiration_days']
-      ] as const).map(([label,id])=><label className="ad-live-field" key={id}><span>{label}</span><input type="number" min={id==='expiration_days'?'1':'0'} max={id==='expiration_days'?'3650':id==='min_purchase'?undefined:'100'} step={id==='expiration_days'?'1':'0.01'} value={field(row,id)} onChange={e=>change(row.region_id,id,e.target.value)}/></label>)}</div><p className="ad-settings-help">Оновлено: {dateUA(row.updated_at)}</p><PrimaryButton disabled={saving===row.region_id} onClick={()=>void save(row)}><Check size={15}/>{saving===row.region_id?'Збереження…':'Зберегти правила'}</PrimaryButton></SettingsPanel>)}</div>
+      ] as const).map(([label,id])=><label className="ad-live-field" key={id}><span>{label}</span><input type="number" min={id==='expiration_days'?'1':'0'} max={id==='expiration_days'?'3650':id==='min_purchase'?undefined:'100'} step={id==='expiration_days'?'1':'0.01'} value={field(row,id)} onChange={e=>change(row.region_id,id,e.target.value)}/></label>)}</div><PrimaryButton disabled={saving===row.region_id} onClick={()=>void save(row)}><Check size={15}/>{saving===row.region_id?'Збереження…':'Зберегти правила'}</PrimaryButton></SettingsPanel>)}</div>
       {data!.bonus_rules.length===0?<div className="ad-stage2-empty-row">Правил бонусів у базі поки немає.</div>:null}
     </>;
   }}/>;
 }
 function NotificationSettingsScreen({navigate}:AdminProps) {
-  return <SettingsFrame navigate={navigate} title="Сповіщення" slug="admin-settings-notifications" section="notifications" render={({data,form,change})=>{
-    const channelPrefs=asSettingsObject(form.event_channels);
-    return <><p className="ad-live-note">Тут показані лише збережені контактні дані та параметри. Наявність адреси не означає, що Email, SMS, Telegram або Push уже підключені: доставка потребує окремого працюючого відправника.</p>
+  return <SettingsFrame navigate={navigate} title="Сповіщення" slug="admin-settings-notifications" section="notifications" render={({form,change})=>{
+    return <>
       <div className="ad-settings-layout ad-settings-layout--two">
         <SettingsPanel title="Контакти для сповіщень"><div className="ad-setting-fields-grid">{([['Email адреса','email'],['Номер для SMS','phone'],['Telegram-одержувач','telegram'],['Push endpoint (за наявності)','push_endpoint']] as const).map(([label,id])=><SettingInput key={id} label={label} id={id} form={form} change={change}/>)}</div></SettingsPanel>
         <SettingsPanel title="Збережені уподобання каналів"><SettingCheck label="Email" id="email_enabled" form={form} change={change}/><SettingCheck label="SMS" id="sms_enabled" form={form} change={change}/><SettingCheck label="Telegram" id="telegram_enabled" form={form} change={change}/><SettingCheck label="Push" id="push_enabled" form={form} change={change}/></SettingsPanel>
         <SettingsPanel title="Графік сповіщень"><div className="ad-setting-fields-grid"><SettingInput label="Час щоденного зведення" id="daily_time" type="time" form={form} change={change}/><SettingInput label="День тижневого зведення" id="weekly_day" form={form} change={change}/><SettingInput label="Тиша з" id="quiet_start" type="time" form={form} change={change}/><SettingInput label="Тиша до" id="quiet_end" type="time" form={form} change={change}/></div><SettingCheck label="Щоденне зведення" id="daily_summary" form={form} change={change}/><SettingCheck label="Тижневе зведення" id="weekly_summary" form={form} change={change}/><SettingCheck label="Тихі години" id="quiet_hours" form={form} change={change}/></SettingsPanel>
-        <SettingsPanel title="Типи подій, які реально є в БД"><p className="ad-settings-help">Список формується з наявних подій активності, без шаблонних назв.</p>{data!.event_types.map(name=><SettingCheck key={name} label={name} id={name} form={channelPrefs} change={(id,value)=>change('event_channels',{...channelPrefs,[id]:value})}/>)}{data!.event_types.length===0?<p className="ad-live-empty">У журналі активності ще немає подій.</p>:null}</SettingsPanel>
       </div>
     </>;
   }}/>;
 }
 function SecuritySettingsScreen({navigate}:AdminProps) {
-  return <SettingsFrame navigate={navigate} title="Безпека" slug="admin-settings-security" section="security" render={({data,form,change,refresh,setError,setMessage})=>{
+  return <SettingsFrame navigate={navigate} title="Безпека" slug="admin-settings-security" section={null} render={({data,refresh,setError,setMessage})=>{
     const revoke=async(userId:string)=>{
       if(!window.confirm('Завершити всі активні сесії цього адміністратора?'))return;
       try {await adminStage2Fetch(`/admin/platform/settings/sessions/${encodeURIComponent(userId)}`,'',{method:'DELETE'});await refresh();setMessage('Сесію завершено.');}
       catch(e){setError(e instanceof Error?e.message:'Не вдалося завершити сесію');}
     };
-    return <><p className="ad-live-note">Фактичний адміністративний доступ API захищений серверним ключем ADMIN_API_KEY. Змінювати цей ключ потрібно в змінних середовища Railway, а не в браузері. Вигадані користувачі, IP-адреси та сесії не відображаються.</p>
+    return <>
       <div className="ad-settings-layout ad-settings-layout--two">
-        <SettingsPanel title="Поточний захист"><div className="ad-live-key-value"><span>Метод авторизації</span><strong>{data!.security_runtime.auth_mode}</strong></div><div className="ad-live-key-value"><span>Ключ налаштований</span><strong>{data!.security_runtime.admin_key_configured?'Так':'Ні'}</strong></div><p className="ad-settings-help">Двофакторна автентифікація та IP-обмеження для ключа тут не реалізовані, тому їх статус не підмінюється перемикачами.</p></SettingsPanel>
-        <SettingsPanel title="Контакт та інструкції безпеки"><SettingInput label="Контакт для інцидентів" id="security_contact" form={form} change={change}/><SettingTextarea label="Внутрішні інструкції" id="security_notes" form={form} change={change}/></SettingsPanel>
-        <SettingsPanel title="Адміністратори в базі"><div className="ad-live-table"><div className="ad-live-table-head"><span>Користувач</span><span>Роль</span></div>{data!.admin_users.map(u=><div key={u.id}><strong>{[u.first_name,u.last_name].filter(Boolean).join(' ')||u.telegram_username||u.id}</strong><span>{u.role}</span></div>)}</div>{data!.admin_users.length===0?<p className="ad-live-empty">Користувачів із роллю admin немає. Це не заперечує наявність доступу за ADMIN_API_KEY.</p>:null}</SettingsPanel>
-        <SettingsPanel title="Активні сесії адміністраторів"><div className="ad-live-sessions">{data!.admin_sessions.map((s,i)=><div key={`${s.user_id}-${i}`}><span>Користувач: {data!.admin_users.find(u=>u.id===s.user_id)?.telegram_username||s.user_id}<small>Створено: {dateUA(s.created_at)} · Діє до: {dateUA(s.expires_at)}</small></span><button type="button" className="ad-danger-outline" onClick={()=>void revoke(s.user_id)}>Завершити</button></div>)}</div>{data!.admin_sessions.length===0?<p className="ad-live-empty">Активних сесій користувачів із роллю admin немає.</p>:null}<p className="ad-settings-help">Сесії Telegram і адміністративний API-ключ — різні способи доступу.</p></SettingsPanel>
-      </div>
-    </>;
-  }}/>;
-}
-function IntegrationsSettingsScreen({navigate}:AdminProps) {
-  return <SettingsFrame navigate={navigate} title="Інтеграції" slug="admin-settings-integrations" section="integrations" render={({data,form,change})=>{
-    const connections=Array.isArray(form.connections)?form.connections as Array<{name:string;url:string;description:string}>:[];
-    const edit=(index:number,key:'name'|'url'|'description',value:string)=>change('connections',connections.map((c,i)=>i===index?{...c,[key]:value}:c));
-    const runtime= data!.integration_runtime;
-    const services=[['PostgreSQL',runtime.database],['Telegram Bot Token',runtime.telegram_bot_configured],['Google Places API key',runtime.google_places_key_configured],['Geoapify API key',runtime.geoapify_key_configured]] as const;
-    return <><p className="ad-live-note">Стан технічних інтеграцій отримано із серверного оточення. «Ключ наявний» не означає успішного з’єднання з постачальником. Облікові дані та API-ключі не відображаються й не зберігаються тут.</p>
-      <div className="ad-settings-layout ad-settings-layout--two">
-        <SettingsPanel title="Технічний стан"><div className="ad-live-table"><div className="ad-live-table-head"><span>Сервіс</span><span>Стан</span></div>{services.map(([name,present])=><div key={name}><strong>{name}</strong><span>{name==='PostgreSQL'?(present?'З’єднано':'Не з’єднано'):(present?'Ключ задано':'Ключ не задано')}</span></div>)}</div></SettingsPanel>
-        <SettingsPanel title="Службова інформація"><SettingTextarea label="Примітки до підключень" id="notes" form={form} change={change}/><p className="ad-settings-help">Секретні ключі конфігуруйте у Railway. Зміна записів у цьому розділі не активує інтеграцію сама по собі.</p></SettingsPanel>
-        <SettingsPanel title="Збережені записи інтеграцій" className="ad-settings-panel--full">{connections.length===0?<p className="ad-live-empty">Власних записів про інтеграції ще немає.</p>:null}
-          {connections.map((connection,i)=><div className="ad-live-edit-row" key={i}><label>Назва<input value={connection.name||''} onChange={e=>edit(i,'name',e.target.value)}/></label><label>Адреса сервісу<input value={connection.url||''} onChange={e=>edit(i,'url',e.target.value)}/></label><label>Опис<input value={connection.description||''} onChange={e=>edit(i,'description',e.target.value)}/></label><button type="button" className="ad-danger-outline" onClick={()=>change('connections',connections.filter((_,j)=>j!==i))}><Trash2 size={14}/> Видалити</button></div>)}
-          <OutlineButton onClick={()=>change('connections',[...connections,{name:'',url:'',description:''}])}><Plus size={15}/> Додати запис інтеграції</OutlineButton>
-        </SettingsPanel>
+        <SettingsPanel title="Поточний захист"><div className="ad-live-key-value"><span>Метод авторизації</span><strong>{data!.security_runtime.auth_mode}</strong></div><div className="ad-live-key-value"><span>Ключ налаштований</span><strong>{data!.security_runtime.admin_key_configured?'Так':'Ні'}</strong></div></SettingsPanel>
+        <SettingsPanel title="Адміністратори в базі"><div className="ad-live-table"><div className="ad-live-table-head"><span>Користувач</span><span>Роль</span></div>{data!.admin_users.map(u=><div key={u.id}><strong>{[u.first_name,u.last_name].filter(Boolean).join(' ')||u.telegram_username||u.id}</strong><span>{u.role}</span></div>)}</div>{data!.admin_users.length===0?<p className="ad-live-empty">Адміністраторів у списку немає.</p>:null}</SettingsPanel>
+        <SettingsPanel title="Активні сесії адміністраторів"><div className="ad-live-sessions">{data!.admin_sessions.map((s,i)=><div key={`${s.user_id}-${i}`}><span>Користувач: {data!.admin_users.find(u=>u.id===s.user_id)?.telegram_username||s.user_id}<small>Створено: {dateUA(s.created_at)} · Діє до: {dateUA(s.expires_at)}</small></span><button type="button" className="ad-danger-outline" onClick={()=>void revoke(s.user_id)}>Завершити</button></div>)}</div>{data!.admin_sessions.length===0?<p className="ad-live-empty">Активних сесій користувачів із роллю admin немає.</p>:null}</SettingsPanel>
       </div>
     </>;
   }}/>;
@@ -1374,7 +1394,7 @@ function AuditSettingsScreen({navigate}:AdminProps) {
   return <AdminShell active="settings" navigate={navigate} contentClassName="ad-main--settings">
     <AdminPageHeader title="Налаштування — Журнал дій" action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={15}/> Оновити</OutlineButton>}/>
     <SettingsTabs active="admin-settings-audit" navigate={navigate}/>
-    <p className="ad-live-note">Лише реальні записи таблиці audit_logs (до 250 останніх). Записи журналу не можна редагувати, щоб зберегти достовірність історії операцій.</p>
+    
     <SettingsPanel title="Журнал дій" className="ad-settings-panel--full">
       <label className="ad-live-field"><span>Пошук за подією, користувачем, розділом</span><input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}}/></label>
       {error?<div className="ad-create-message is-error">{error}</div>:null}
@@ -2737,7 +2757,6 @@ export function AdminDesktopScreen({ slug, navigate }: { slug: string; navigate:
     case "admin-settings-bonuses": return <BonusSettingsScreen navigate={navigate} />;
     case "admin-settings-notifications": return <NotificationSettingsScreen navigate={navigate} />;
     case "admin-settings-security": return <SecuritySettingsScreen navigate={navigate} />;
-    case "admin-settings-integrations": return <IntegrationsSettingsScreen navigate={navigate} />;
     case "admin-settings-audit": return <AuditSettingsScreen navigate={navigate} />;
     default: return <PartnersScreen navigate={navigate} />;
   }

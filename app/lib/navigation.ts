@@ -776,7 +776,7 @@ export const screens: ScreenDefinition[] = [
     slug: "admin-settings-company",
     title: "Налаштування — Компанія",
     shortTitle: "Компанія",
-    description: "Дані компанії та брендування",
+    description: "Реквізити для взаєморозрахунків",
     role: "admin",
   },
   {
@@ -809,14 +809,6 @@ export const screens: ScreenDefinition[] = [
     title: "Налаштування — Безпека",
     shortTitle: "Безпека",
     description: "Безпека входу та сесій",
-    role: "admin",
-  },
-  {
-    id: "ADSET07",
-    slug: "admin-settings-integrations",
-    title: "Налаштування — Інтеграції",
-    shortTitle: "Інтеграції",
-    description: "Інтеграції та API",
     role: "admin",
   },
   {

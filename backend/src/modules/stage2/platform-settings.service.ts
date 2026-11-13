@@ -2,16 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service.js';
 
-type SettingsSection = 'general' | 'company' | 'partners' | 'notifications' | 'security' | 'integrations';
+type SettingsSection = 'general' | 'company' | 'partners' | 'notifications';
 type SettingValue = string | boolean | number | Record<string, unknown> | unknown[] | null;
 
 const ALLOWED: Record<SettingsSection, readonly string[]> = {
-  general: ['language','timezone','date_format','time_format','currency','week_start','show_archived_partners','show_inactive_clients','auto_refresh','allow_partner_registration','require_partner_approval','allow_partner_edits','display_partner_rating','show_hints','maintenance_mode','log_retention_months','archive_retention_months','logo_url','primary_color','secondary_color'],
-  company: ['name','legal_name','email','phone','tax_id','website','country','address','iban','bank','bank_tax_id','vat_payer','vat_rate','activity','note','timezone','date_format','time_format','currency','language','week_start','logo_url','primary_color','secondary_color','documents','show_logo_on_documents','use_brand_colors'],
+  general: ['show_archived_partners','show_inactive_clients','auto_refresh','allow_partner_registration','require_partner_approval','allow_partner_edits','display_partner_rating','show_hints','maintenance_mode','log_retention_months','archive_retention_months','logo_url','primary_color','secondary_color'],
+  company: ['legal_name','tax_id','address','iban','bank','vat_payer','vat_rate'],
   partners: ['commission_rate','category_commissions','auto_assign_commission','show_partner_commission','show_partner_debt','minimum_order','commission_duration_days'],
-  notifications: ['email','phone','telegram','push_endpoint','email_enabled','sms_enabled','telegram_enabled','push_enabled','daily_summary','daily_time','weekly_summary','weekly_day','quiet_hours','quiet_start','quiet_end','event_channels'],
-  security: ['security_contact','security_notes'],
-  integrations: ['connections','notes'],
+  notifications: ['email','phone','telegram','push_endpoint','email_enabled','sms_enabled','telegram_enabled','push_enabled','daily_summary','daily_time','weekly_summary','weekly_day','quiet_hours','quiet_start','quiet_end'],
 };
 
 function sanitize(section:SettingsSection, patch:unknown):Record<string,SettingValue> {
@@ -21,19 +19,15 @@ function sanitize(section:SettingsSection, patch:unknown):Record<string,SettingV
   const result:Record<string,SettingValue> = {};
   for (const [key,value] of Object.entries(object)) {
     if (!ALLOWED[section].includes(key)) throw new BadRequestException(`Недозволене поле: ${key}`);
-    if (typeof value === 'string') {
+    if (section === 'general' && key === 'logo_url' && typeof value === 'string') {
+      if (value.length > 200000) throw new BadRequestException('Логотип завеликий');
+      if (value !== '' && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) && !/^https:\/\/[^\s]{1,2000}$/i.test(value)) throw new BadRequestException('Некоректний логотип');
+      result[key] = value;
+    } else if (typeof value === 'string') {
       if (value.length > 4000) throw new BadRequestException(`Завелике поле: ${key}`);
       result[key] = value.trim();
     } else if (typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
       result[key] = value;
-    } else if ((section === 'integrations' && key === 'connections') || (section === 'company' && key === 'documents')) {
-      if (!Array.isArray(value) || value.length > 40) throw new BadRequestException(`Некоректний список: ${key}`);
-      result[key] = value.map((item) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) throw new BadRequestException('Некоректний запис');
-        const entry = item as Record<string, unknown>;
-        const allowed = key === 'documents' ? ['name','url'] : ['name','url','description'];
-        return Object.fromEntries(allowed.map((field) => [field, typeof entry[field] === 'string' ? (entry[field] as string).trim().slice(0,500) : '']));
-      }).filter((item) => Object.values(item).some((text) => Boolean(text)));
     } else if (section === 'partners' && key === 'category_commissions') {
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 200) throw new BadRequestException('Некоректні комісії категорій');
       const rates:Record<string,number> = {};
@@ -43,14 +37,6 @@ function sanitize(section:SettingsSection, patch:unknown):Record<string,SettingV
         rates[category] = parsed;
       }
       result[key] = rates;
-    } else if (section === 'notifications' && key === 'event_channels') {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('Некоректні типи сповіщень');
-      const entries:Record<string,boolean> = {};
-      for (const [id,raw] of Object.entries(value)) {
-        if (!/^[a-z0-9_-]{1,80}$/i.test(id) || typeof raw !== 'boolean') throw new BadRequestException('Некоректний параметр сповіщення');
-        entries[id] = raw;
-      }
-      result[key] = entries;
     } else if (value === null) result[key] = null;
     else throw new BadRequestException(`Некоректне значення: ${key}`);
   }
@@ -66,7 +52,7 @@ export class PlatformSettingsService {
   constructor(private readonly db:DatabaseService) {}
 
   async snapshot() {
-    const [settings,regions,categories,statuses,bonusRules,admins,sessions,eventTypes] = await Promise.all([
+    const [settings,regions,categories,statuses,bonusRules,admins,sessions] = await Promise.all([
       this.db.query<{section:string;config:Record<string,unknown>;updated_at:string}>('SELECT section,config,updated_at FROM admin_settings ORDER BY section'),
       this.db.query<{id:string;name:string;active:boolean;places_count:number}>(`SELECT r.id,r.name,r.active,COUNT(p.id) FILTER (WHERE p.organization_id IS NOT NULL)::int AS places_count
         FROM regions r LEFT JOIN places p ON p.region_id=r.id GROUP BY r.id,r.name,r.active ORDER BY r.name`),
@@ -76,19 +62,12 @@ export class PlatformSettingsService {
       this.db.query<{region_id:string;region_name:string;earn_percent:number|string;max_spend_percent:number|string;expiration_days:number;min_purchase:number|string;updated_at:string}>(`SELECT b.region_id,r.name AS region_name,b.earn_percent,b.max_spend_percent,b.expiration_days,b.min_purchase,b.updated_at FROM bonus_rules b JOIN regions r ON r.id=b.region_id ORDER BY r.name`),
       this.db.query<{id:string;first_name:string|null;last_name:string|null;telegram_username:string|null;role:string}>(`SELECT id,first_name,last_name,telegram_username,role FROM users WHERE role IN ('admin','superadmin') ORDER BY created_at DESC LIMIT 100`),
       this.db.query<{user_id:string;created_at:string;expires_at:string}>(`SELECT s.user_id,s.created_at,s.expires_at FROM user_sessions s JOIN users u ON u.id=s.user_id WHERE u.role IN ('admin','superadmin') AND s.expires_at>now() ORDER BY s.created_at DESC LIMIT 100`),
-      this.db.query<{event_type:string}>(`SELECT DISTINCT event_type FROM activity_events ORDER BY event_type LIMIT 100`),
     ]);
     const values:Record<string,Record<string,unknown>> = {};
     for (const row of settings.rows) values[row.section] = row.config;
     return {
       values, regions:regions.rows, categories:categories.rows, partner_statuses:statuses.rows,
-      bonus_rules:bonusRules.rows, admin_users:admins.rows, admin_sessions:sessions.rows, event_types:eventTypes.rows.map(row=>row.event_type),
-      integration_runtime: {
-        database: this.db.isReady(),
-        telegram_bot_configured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-        google_places_key_configured: Boolean(process.env.GOOGLE_MAPS_SERVER_API_KEY),
-        geoapify_key_configured: Boolean(process.env.GEOAPIFY_API_KEY),
-      },
+      bonus_rules:bonusRules.rows, admin_users:admins.rows, admin_sessions:sessions.rows,
       security_runtime: {admin_key_configured:Boolean(process.env.ADMIN_API_KEY), auth_mode:'ADMIN_API_KEY'},
     };
   }
