@@ -44,6 +44,7 @@ import {
   QrCode,
   RefreshCcw,
   RotateCcw,
+  Search,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
