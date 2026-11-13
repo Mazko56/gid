@@ -1213,7 +1213,7 @@ function HotOffersScreen({ navigate }: { navigate: Navigate }) {
       <section className="gt-hot-offers-reference-list">
         {visibleOffers.map((offer) => (
           <button type="button" className="gt-hot-offers-reference-row" key={offer.id} onClick={() => selectHotOffer(offer, navigate)}>
-            <HotOfferMosaic primary={offer.photo} />
+            {offer.imageUrl ? <span className="gt-hot-mosaic gt-hot-mosaic--real"><img src={offer.imageUrl} alt="" loading="lazy" /></span> : <HotOfferMosaic primary={offer.photo} />}
             <span className={`gt-hot-offers-reference-row__discount ${offer.discount === "2 за 1" ? "is-text-deal" : ""}`}>{offer.discount}</span>
             <span className="gt-hot-offers-reference-row__body">
               <small>{offer.category}</small>
@@ -1241,7 +1241,7 @@ function HotOfferDetailScreen({ navigate }: { navigate: Navigate }) {
   return (
     <div className="tourist-screen gt-screen gt-hot-offer-detail-screen">
       <section className="gt-hot-offer-detail-hero">
-        <Thumb name={offer.photo} className="gt-hot-offer-detail-hero__photo" />
+        {offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} className="gt-hot-offer-detail-hero__photo gt-hot-offer-detail-hero__photo--remote" /> : <Thumb name={offer.photo} className="gt-hot-offer-detail-hero__photo" />}
         <div className="gt-hot-offer-detail-hero__shade" />
         <span className="gt-hot-offer-detail-hero__discount">{offer.discount}</span>
         <div className="gt-hot-offer-detail-hero__copy">
@@ -1268,7 +1268,7 @@ function HotOfferDetailScreen({ navigate }: { navigate: Navigate }) {
         </section>
 
         <section className="gt-hot-offer-detail-card gt-hot-offer-detail-card--partner">
-          <Thumb name={offer.photo} className="gt-hot-offer-detail-partner-photo" />
+          {offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} className="gt-hot-offer-detail-partner-photo gt-hot-offer-detail-partner-photo--remote" /> : <Thumb name={offer.photo} className="gt-hot-offer-detail-partner-photo" />}
           <div><small>Партнер Gid Tourist</small><strong>{offer.title}</strong><span><Star size={14} fill="currentColor" /> 4.9 · 126 відгуків</span></div>
           <ChevronRight size={20} />
         </section>

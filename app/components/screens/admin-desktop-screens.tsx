@@ -2204,8 +2204,10 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   const [pageContent, setPageContent] = useState<Record<string, string>>(DEFAULT_EMERGENCY_PAGE_CONTENT);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [applyPageToAllRegions, setApplyPageToAllRegions] = useState(false);
 
   const [contactId, setContactId] = useState("");
+  const contactTitleInput = useRef<HTMLInputElement>(null);
   const [contactTitle, setContactTitle] = useState("");
   const [contactNote, setContactNote] = useState("");
   const [contactPhone, setContactPhone] = useState("");
@@ -2247,11 +2249,11 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     try {
       const saved = await adminStage2Fetch<Stage2PageContentResponse>("/admin/stage2/page-content/emergency", adminKey, {
         method: "POST",
-        body: JSON.stringify({ region_id: regionId, content: pageContent }),
+        body: JSON.stringify({ region_id: regionId, content: pageContent, apply_to_all_regions: applyPageToAllRegions }),
       });
       const content = Object.fromEntries(Object.entries(saved.content || {}).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")]));
       setPageContent({ ...DEFAULT_EMERGENCY_PAGE_CONTENT, ...content });
-      setMessage(`Оформлення «Халепа?» збережено для регіону ${regions.find((item) => item.id === regionId)?.name || regionId}.`);
+      setMessage(applyPageToAllRegions ? "Оформлення «Халепа?» збережено для всіх активних регіонів." : `Оформлення «Халепа?» збережено для регіону ${regions.find((item) => item.id === regionId)?.name || regionId}.`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? `Помилка збереження: ${error.message}` : "Не вдалося зберегти сторінку");
@@ -2271,6 +2273,9 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     setContactPhone(contact.phone || "");
     setContactType(contact.type || "custom");
     setContactTone(contact.tone || "green");
+    // The form sits above the list: focus it when clicking Edit so changes are visible.
+    window.requestAnimationFrame(() => contactTitleInput.current?.focus());
+    setMessage(`Редагування контакту «${contact.title}». Після змін натисніть «Зберегти зміни контакту».`);
   };
 
   const saveContact = async () => {
@@ -2395,19 +2400,21 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Заголовок hero</span><input value={pageContent.hero_title || ""} onChange={(e)=>setPageField("hero_title",e.target.value)} /></label>
           <label className="is-wide"><span>Опис hero</span><textarea rows={3} value={pageContent.hero_text || ""} onChange={(e)=>setPageField("hero_text",e.target.value)} /></label>
         </div>
-        <PrimaryButton onClick={() => void savePageContent()} disabled={saving}><Check size={15}/> {saving ? "Збереження..." : "Зберегти оформлення сторінки"}</PrimaryButton>
+        <label className="ad-page-editor-global-option"><input type="checkbox" checked={applyPageToAllRegions} onChange={(e)=>setApplyPageToAllRegions(e.target.checked)}/><span><strong>Застосувати оформлення до всіх регіонів</strong><small>Тексти цієї сторінки оновляться в усіх активних регіонах. Номери екстрених служб і корисні сервіси залишаються окремими для кожного регіону.</small></span></label>
+        <PrimaryButton onClick={() => void savePageContent()} disabled={saving}><Check size={15}/> {saving ? "Збереження..." : applyPageToAllRegions ? "Зберегти для всіх регіонів" : "Зберегти оформлення сторінки"}</PrimaryButton>
       </section>
 
       <section className="ad-page-editor-panel">
-        <header><div><strong>Екстрені контакти</strong><small>Додавання, редагування та видалення номерів.</small></div></header>
+        <header><div><strong>Екстрені контакти</strong><small>Для зміни контакту натисніть «Редагувати» поруч із ним, внесіть правки та збережіть.</small></div></header>
         <div className="ad-page-editor-form-grid">
-          <label><span>Назва</span><input value={contactTitle} onChange={(e)=>setContactTitle(e.target.value)} placeholder="Назва служби" /></label>
+          <label><span>Назва</span><input ref={contactTitleInput} value={contactTitle} onChange={(e)=>setContactTitle(e.target.value)} placeholder="Назва служби" /></label>
           <label><span>Телефон</span><input value={contactPhone} onChange={(e)=>setContactPhone(e.target.value)} placeholder="+380..." /></label>
           <label className="is-wide"><span>Опис</span><input value={contactNote} onChange={(e)=>setContactNote(e.target.value)} placeholder="Короткий опис" /></label>
           <label><span>Тип</span><select value={contactType} onChange={(e)=>setContactType(e.target.value)}><option value="custom">Інше</option><option value="emergency">Єдиний номер</option><option value="ambulance">Швидка</option><option value="police">Поліція</option><option value="rescue">Рятувальники</option></select></label>
           <label><span>Колір</span><select value={contactTone} onChange={(e)=>setContactTone(e.target.value)}><option value="green">Зелений</option><option value="red">Червоний</option><option value="blue">Синій</option><option value="orange">Помаранчевий</option></select></label>
         </div>
-        <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveContact()}>{contactId ? <Check size={14}/> : <Plus size={14}/>} {contactId ? "Зберегти контакт" : "Додати контакт"}</PrimaryButton>{contactId ? <OutlineButton onClick={resetContactForm}>Скасувати</OutlineButton> : null}</div>
+        {contactId ? <p className="ad-page-editor-editing-note"><Edit3 size={14}/> Ви редагуєте існуючий контакт. Зміни збережуться без створення дубля.</p> : null}
+        <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveContact()}>{contactId ? <Check size={14}/> : <Plus size={14}/>} {contactId ? "Зберегти зміни контакту" : "Додати контакт"}</PrimaryButton>{contactId ? <OutlineButton onClick={resetContactForm}>Скасувати</OutlineButton> : null}</div>
         <div className="ad-page-editor-list">
           {contacts.map((contact)=><article key={contact.id}><span><strong>{contact.title}</strong><small>{contact.note || "Без опису"} · {contact.phone || "без номера"}</small></span><div><button type="button" onClick={()=>editContact(contact)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteContact(contact)}><Trash2 size={13}/> Видалити</button></div></article>)}
         </div>
@@ -2451,6 +2458,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   const [categories, setCategories] = useState<Stage2Category[]>([]);
   const [message, setMessage] = useState("");
   const [savingPage, setSavingPage] = useState(false);
+  const [applyPageToAllRegions, setApplyPageToAllRegions] = useState(false);
   const [savingOffer, setSavingOffer] = useState(false);
   const [offerId, setOfferId] = useState("");
   const [offerPlaceId, setOfferPlaceId] = useState("");
@@ -2459,6 +2467,9 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   const [offerDiscount, setOfferDiscount] = useState("");
   const [offerDescription, setOfferDescription] = useState("");
   const [offerDetail, setOfferDetail] = useState("");
+  const [offerImageUrl, setOfferImageUrl] = useState("");
+  const [offerPhotoUploading, setOfferPhotoUploading] = useState(false);
+  const offerPhotoInput = useRef<HTMLInputElement>(null);
   const [offerValidity, setOfferValidity] = useState("");
   const [offerBadge, setOfferBadge] = useState("Актуально");
   const [offerBadgeTone, setOfferBadgeTone] = useState<"gold"|"green"|"red">("green");
@@ -2491,10 +2502,10 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   const savePage = async () => {
     setSavingPage(true);
     try {
-      const saved = await adminStage2Fetch<Stage2PageContentResponse>("/admin/stage2/page-content/hot_offers",adminKey,{method:"POST",body:JSON.stringify({region_id:regionId,content:pageContent})});
+      const saved = await adminStage2Fetch<Stage2PageContentResponse>("/admin/stage2/page-content/hot_offers",adminKey,{method:"POST",body:JSON.stringify({region_id:regionId,content:pageContent,apply_to_all_regions:applyPageToAllRegions})});
       const content = Object.fromEntries(Object.entries(saved.content || {}).map(([key,value])=>[key,typeof value==="string"?value:String(value??"")]));
       setPageContent({ ...DEFAULT_HOT_OFFERS_PAGE_CONTENT, ...content });
-      setMessage(`Оформлення гарячих пропозицій збережено для регіону ${regions.find((item) => item.id === regionId)?.name || regionId}.`);
+      setMessage(applyPageToAllRegions ? "Оформлення «Гарячі пропозиції» збережено для всіх активних регіонів." : `Оформлення гарячих пропозицій збережено для регіону ${regions.find((item) => item.id === regionId)?.name || regionId}.`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? `Помилка збереження сторінки: ${error.message}` : "Не вдалося зберегти сторінку");
@@ -2504,19 +2515,20 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetOffer = () => {
-    setOfferId("");setOfferPlaceId("");setOfferCategorySlug("");setOfferTitle("");setOfferDiscount("");setOfferDescription("");setOfferDetail("");setOfferValidity("");setOfferBadge("Актуально");setOfferBadgeTone("green");setOfferValidFrom("");setOfferValidUntil("");setOfferActive(true);
+    setOfferId("");setOfferPlaceId("");setOfferCategorySlug("");setOfferTitle("");setOfferDiscount("");setOfferDescription("");setOfferDetail("");setOfferValidity("");setOfferBadge("Актуально");setOfferBadgeTone("green");setOfferValidFrom("");setOfferValidUntil("");setOfferActive(true);setOfferImageUrl("");
   };
   const editOffer = (offer:Stage2HotOffer) => {
-    setOfferId(offer.id);setOfferPlaceId(offer.place_id||"");setOfferCategorySlug(offer.category_slug||"");setOfferTitle(offer.title);setOfferDiscount(offer.discount||"");setOfferDescription(offer.description||"");setOfferDetail(offer.detail||"");setOfferValidity(offer.validity||"");setOfferBadge(offer.badge||"Актуально");setOfferBadgeTone(offer.badge_tone==="gold"||offer.badge_tone==="red"?offer.badge_tone:"green");setOfferValidFrom(offer.valid_from?offer.valid_from.slice(0,16):"");setOfferValidUntil(offer.valid_until?offer.valid_until.slice(0,16):"");setOfferActive(offer.active!==false);
+    setOfferId(offer.id);setOfferPlaceId(offer.place_id||"");setOfferCategorySlug(offer.category_slug||"");setOfferTitle(offer.title);setOfferDiscount(offer.discount||"");setOfferDescription(offer.description||"");setOfferDetail(offer.detail||"");setOfferValidity(offer.validity||"");setOfferBadge(offer.badge||"Актуально");setOfferBadgeTone(offer.badge_tone==="gold"||offer.badge_tone==="red"?offer.badge_tone:"green");setOfferValidFrom(offer.valid_from?offer.valid_from.slice(0,16):"");setOfferValidUntil(offer.valid_until?offer.valid_until.slice(0,16):"");setOfferActive(offer.active!==false);setOfferImageUrl(offer.image_url||"");
   };
   const saveOffer = async () => {
+    if (offerPhotoUploading) { setMessage("Дочекайтеся завершення обробки фото."); return; }
     if(!offerTitle.trim()){setMessage("Вкажіть назву пропозиції.");return;}
     setSavingOffer(true);
     try {
       const place=places.find((item)=>item.id===offerPlaceId);
       const categorySlug = place?.category_slug || offerCategorySlug;
       const category=categories.find((item)=>item.slug===categorySlug);
-      const saved = await adminStage2Fetch<Stage2HotOffer>("/admin/stage2/offers",adminKey,{method:"POST",body:JSON.stringify({id:offerId||undefined,region_id:regionId,place_id:offerPlaceId||null,category_slug:categorySlug||"",category_label:category?.name||categorySlug||"Пропозиція",title:offerTitle.trim(),discount:offerDiscount.trim(),description:offerDescription.trim(),detail:offerDetail.trim(),validity:offerValidity.trim(),badge:offerBadge.trim(),badge_tone:offerBadgeTone,valid_from:offerValidFrom||null,valid_until:offerValidUntil||null,active:offerActive})});
+      const saved = await adminStage2Fetch<Stage2HotOffer>("/admin/stage2/offers",adminKey,{method:"POST",body:JSON.stringify({id:offerId||undefined,region_id:regionId,place_id:offerPlaceId||null,category_slug:categorySlug||"",category_label:category?.name||categorySlug||"Пропозиція",title:offerTitle.trim(),discount:offerDiscount.trim(),description:offerDescription.trim(),detail:offerDetail.trim(),validity:offerValidity.trim(),image_url:offerImageUrl||null,badge:offerBadge.trim(),badge_tone:offerBadgeTone,valid_from:offerValidFrom||null,valid_until:offerValidUntil||null,active:offerActive})});
       setMessage(offerId?`Пропозицію «${saved.title || offerTitle}» оновлено.`:`Пропозицію «${saved.title || offerTitle}» створено.`);
       resetOffer();
       await load();
@@ -2551,7 +2563,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   };
 
   return (
-    <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors">
+    <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors ad-main--emergency-editor">
       <AdminPageHeader title="Редактор «Гарячі пропозиції»" subtitle="Шапка, банер та самі пропозиції." back={()=>navigate("admin","admin-pages")} action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>} />
       <section className="ad-page-editor-region-select">
         <span>Редагується регіон</span>
@@ -2571,7 +2583,8 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Плейсхолдер пошуку</span><input value={pageContent.search_placeholder||""} onChange={(e)=>setPageField("search_placeholder",e.target.value)} /></label>
           <label><span>Заголовок списку</span><input value={pageContent.section_title||""} onChange={(e)=>setPageField("section_title",e.target.value)} /></label>
         </div>
-        <PrimaryButton onClick={()=>void savePage()} disabled={savingPage}><Check size={15}/> {savingPage ? "Збереження..." : "Зберегти оформлення сторінки"}</PrimaryButton>
+        <label className="ad-page-editor-global-option"><input type="checkbox" checked={applyPageToAllRegions} onChange={(e)=>setApplyPageToAllRegions(e.target.checked)}/><span><strong>Застосувати оформлення до всіх регіонів</strong><small>Банер, заголовки та пошук оновляться в усіх активних регіонах. Самі акції залишаться прив’язаними до своїх регіонів.</small></span></label>
+        <PrimaryButton onClick={()=>void savePage()} disabled={savingPage}><Check size={15}/> {savingPage ? "Збереження..." : applyPageToAllRegions ? "Зберегти для всіх регіонів" : "Зберегти оформлення сторінки"}</PrimaryButton>
       </section>
 
       <section className="ad-page-editor-panel">
@@ -2583,6 +2596,13 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Знижка</span><input value={offerDiscount} onChange={(e)=>setOfferDiscount(e.target.value)} /></label>
           <label className="is-wide"><span>Короткий опис</span><input value={offerDescription} onChange={(e)=>setOfferDescription(e.target.value)} /></label>
           <label className="is-wide"><span>Детальний опис</span><textarea rows={3} value={offerDetail} onChange={(e)=>setOfferDetail(e.target.value)} /></label>
+          <div className="ad-page-editor-photo-field is-wide">
+            <span>Фото пропозиції</span>
+            <input ref={offerPhotoInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={async(e)=>{const file=e.target.files?.[0];if(!file)return;setOfferPhotoUploading(true);try{setOfferImageUrl(await adminImageToDataUrl(file));setMessage("Фото готове до збереження разом із пропозицією.");}catch(error){setMessage(error instanceof Error?error.message:"Не вдалося прочитати фото");}finally{setOfferPhotoUploading(false);e.target.value="";}}}/>
+            {offerImageUrl ? <div className="ad-page-editor-photo-preview"><img src={offerImageUrl} alt="Фото гарячої пропозиції"/><button type="button" onClick={()=>setOfferImageUrl("")}><Trash2 size={14}/> Прибрати фото</button></div> : null}
+            <button type="button" className="ad-page-editor-photo-upload" disabled={offerPhotoUploading} onClick={()=>offerPhotoInput.current?.click()}><ImagePlus size={17}/> {offerPhotoUploading?"Обробка фото...":offerImageUrl?"Замінити фото":"Завантажити фото"}</button>
+            <small>JPG, PNG або WebP до 8 МБ. Фото збережеться в PostgreSQL і не зникне після redeploy.</small>
+          </div>
           <label><span>Підпис терміну</span><input value={offerValidity} onChange={(e)=>setOfferValidity(e.target.value)} /></label>
           <label><span>Бейдж</span><input value={offerBadge} onChange={(e)=>setOfferBadge(e.target.value)} /></label>
           <label><span>Колір бейджа</span><select value={offerBadgeTone} onChange={(e)=>setOfferBadgeTone(e.target.value as "gold"|"green"|"red")}><option value="green">Зелений</option><option value="gold">Золотий</option><option value="red">Червоний</option></select></label>
@@ -2590,9 +2610,9 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Завершення</span><input type="datetime-local" value={offerValidUntil} onChange={(e)=>setOfferValidUntil(e.target.value)} /></label>
         </div>
         <label className="ad-stage2-check"><input type="checkbox" checked={offerActive} onChange={(e)=>setOfferActive(e.target.checked)} /><span>Пропозиція активна</span></label>
-        <div className="ad-stage2-actions-row"><PrimaryButton onClick={()=>void saveOffer()} disabled={savingOffer}>{offerId?<Check size={14}/>:<Plus size={14}/>} {savingOffer?"Збереження...":offerId?"Зберегти пропозицію":"Додати пропозицію"}</PrimaryButton>{offerId?<OutlineButton onClick={resetOffer}>Скасувати</OutlineButton>:null}</div>
+        <div className="ad-stage2-actions-row"><PrimaryButton onClick={()=>void saveOffer()} disabled={savingOffer || offerPhotoUploading}>{offerId?<Check size={14}/>:<Plus size={14}/>} {savingOffer?"Збереження...":offerId?"Зберегти пропозицію":"Додати пропозицію"}</PrimaryButton>{offerId?<OutlineButton onClick={resetOffer}>Скасувати</OutlineButton>:null}</div>
         <div className="ad-page-editor-list">
-          {offers.map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span><strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small>
+          {offers.map((offer)=><article key={offer.id} className={offer.active===false?"is-disabled":""}><span>{offer.image_url ? <img className="ad-page-editor-list-photo" src={offer.image_url} alt={offer.title}/> : null}<strong>{offer.title}</strong><small>{offer.discount||"Акція"} · {offer.place_name||offer.category_label||"без закладу"}</small>
               {offer.submitted_by_user_id ? <small>Від партнера · {offer.moderation_status==='pending'?'На модерації':offer.moderation_status==='rejected'?'Відхилено':'Схвалено'} {offer.moderation_comment?`· ${offer.moderation_comment}`:''}</small> : null}
               </span><div>{offer.submitted_by_user_id && offer.moderation_status!=='approved' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"approved")}><Check size={13}/> Схвалити</button>:null}
               {offer.submitted_by_user_id && offer.moderation_status==='pending' ? <button type="button" onClick={()=>void moderatePartnerOffer(offer,"rejected")}><X size={13}/> Відхилити</button>:null}
@@ -2632,6 +2652,20 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
     setNewSub("");
     setMessage("");
   };
+  const deleteCategory = async () => {
+    if (!slug || !categories.some((item)=>item.slug===slug)) return;
+    const selectedName = categories.find((item)=>item.slug===slug)?.name || name;
+    if (!window.confirm(`Прибрати розділ «${selectedName}» з гіда? Розділ зникне для всіх регіонів. Дані закладів не видаляються.`)) return;
+    setSaving(true);
+    try {
+      await adminStage2Fetch(`/admin/stage2/categories/${encodeURIComponent(slug)}`,adminKey,{method:"DELETE"});
+      reset();
+      await load();
+      setMessage(`Розділ «${selectedName}» вимкнено для всіх регіонів. Дані збережено.`);
+    } catch (error) {
+      setMessage(error instanceof Error?`Не вдалося видалити розділ: ${error.message}`:"Не вдалося видалити розділ");
+    } finally {setSaving(false);}
+  };
   const save=async()=>{
     if(!slug.trim()||!name.trim()){setMessage("Вкажіть slug і назву розділу.");return;}
     setSaving(true);
@@ -2645,8 +2679,8 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
     finally{setSaving(false);}
   };
   return (
-    <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors">
-      <AdminPageHeader title="Категорії / розділи" subtitle="Редагування назв вкладок і підрозділів винесено з «Контент / QR»." back={()=>navigate("admin","admin-pages")} action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>} />
+    <AdminShell active="pages" navigate={navigate} contentClassName="ad-main--page-editors ad-main--emergency-editor">
+      <AdminPageHeader title="Категорії / розділи" subtitle="Назви розділів і підрозділи спільні для всіх регіонів. Редагування винесено з «Контент / QR»." back={()=>navigate("admin","admin-pages")} action={<OutlineButton onClick={()=>void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>} />
       {message?<p className="ad-page-editor-message">{message}</p>:null}
       <section className="ad-page-editor-split">
         <div className="ad-page-editor-panel">
@@ -2671,7 +2705,10 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
             <div className="ad-page-editor-subcategory-add"><input value={newSub} onChange={(e)=>setNewSub(e.target.value)} onKeyDown={(e)=>{if(e.key==="Enter"){e.preventDefault();addSub();}}} placeholder="Назва нового підрозділу" /><button type="button" onClick={addSub}><Plus size={14}/> Додати підрозділ</button></div>
           </div>
 
-          <PrimaryButton onClick={()=>void save()} disabled={saving}><Check size={15}/> {saving?"Збереження...":"Зберегти розділ"}</PrimaryButton>
+          <div className="ad-page-editor-category-actions">
+            <PrimaryButton onClick={()=>void save()} disabled={saving}><Check size={15}/> {saving?"Збереження...":"Зберегти розділ"}</PrimaryButton>
+            {categories.some((item)=>item.slug===slug) && slug!=="emergency" ? <button type="button" className="ad-page-editor-category-delete" disabled={saving} onClick={()=>void deleteCategory()}><Trash2 size={15}/> Видалити розділ</button> : null}
+          </div>
         </div>
       </section>
     </AdminShell>

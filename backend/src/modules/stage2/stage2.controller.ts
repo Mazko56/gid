@@ -204,6 +204,10 @@ export class Stage2Controller {
   adminCategory(@Body() body: Record<string, unknown>) { return this.service.adminCreateCategory(body); }
 
   @UseGuards(AdminKeyGuard)
+  @Delete("admin/stage2/categories/:slug")
+  adminDeleteCategory(@Param("slug") slug: string) { return this.service.adminDeleteCategory(slug); }
+
+  @UseGuards(AdminKeyGuard)
   @Post("admin/stage2/place-type-templates")
   adminTemplate(@Body() body: Record<string, unknown>) { return this.service.adminSaveTemplate(body); }
 

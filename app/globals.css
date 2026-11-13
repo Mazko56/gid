@@ -30420,3 +30420,45 @@ button.gt-amenities-row {
 .gt-nearby-design__radius { overflow-x: auto !important; overflow-y:hidden; display:flex; flex-wrap:nowrap !important; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .gt-nearby-design__radius::-webkit-scrollbar { display: none; }
 .gt-nearby-design__radius button { flex: 0 0 auto !important; }
+
+/* ===== 2026-11-13 page editors: global scope, photo and safe category deletion ===== */
+.ad-page-editor-global-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #deebe2;
+  border-radius: 9px;
+  background: #f8fcf9;
+  cursor: pointer;
+}
+.ad-page-editor-global-option input[type="checkbox"] { flex: 0 0 auto; margin-top: 3px; accent-color: #0b9f58; }
+.ad-page-editor-global-option > span { display: grid; gap: 3px; min-width: 0; }
+.ad-page-editor-global-option strong { font-size: 11px; color: #1e4931; }
+.ad-page-editor-global-option small { font-size: 10px; line-height: 1.45; color: #64796b; }
+.ad-page-editor-photo-field { display: grid; gap: 8px; min-width: 0; }
+.ad-page-editor-photo-field > span { font-size: 9px; font-weight: 800; color: #526158; }
+.ad-page-editor-photo-field > small { font-size: 10px; line-height: 1.4; color: #78877c; }
+.ad-page-editor-photo-upload, .ad-page-editor-photo-preview button,
+.ad-page-editor-category-delete {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 34px; padding: 6px 12px; border: 1px solid #d6e6dc;
+  border-radius: 9px; background: white; color: #207b4c;
+  font: inherit; font-size: 10.5px; font-weight: 800; cursor: pointer;
+}
+.ad-page-editor-photo-upload { justify-self: start; }
+.ad-page-editor-photo-upload:disabled, .ad-page-editor-category-delete:disabled { opacity: .55; cursor: wait; }
+.ad-page-editor-photo-preview { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ad-page-editor-photo-preview img { width: 130px; height: 100px; object-fit: cover; border: 1px solid #e0ebe3; border-radius: 10px; }
+.ad-page-editor-photo-preview button, .ad-page-editor-category-delete { color: #ad3535; border-color: #f0d8d8; }
+.ad-page-editor-list-photo { width: 52px; height: 43px; object-fit: cover; border-radius: 7px; margin-bottom: 4px; }
+.ad-page-editor-category-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+
+.ad-page-editor-editing-note { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 10px; font-weight: 700; color: #247a4d; }
+
+/* Uploaded hot-offer photos replace placeholder artwork without changing existing card dimensions. */
+.gt-hot-mosaic--real { display: block; }
+.gt-hot-mosaic--real > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gt-hot-offer-detail-hero__photo--remote { object-fit: cover; }
+.gt-hot-offer-detail-partner-photo--remote { object-fit: cover; }
+.ad-page-editor-form-grid > .ad-page-editor-photo-field.is-wide { grid-column: 1 / -1; }

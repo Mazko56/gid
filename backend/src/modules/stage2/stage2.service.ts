@@ -1164,13 +1164,27 @@ export class Stage2Service {
     const content = body.content && typeof body.content === "object" && !Array.isArray(body.content)
       ? body.content as Record<string, unknown>
       : {};
-    await this.db.query(
-      `INSERT INTO page_content(region_id,page_key,content,updated_at)
-       VALUES($1,$2,$3::jsonb,now())
-       ON CONFLICT(region_id,page_key) DO UPDATE SET content=EXCLUDED.content,updated_at=now()`,
-      [regionId, pageKey, JSON.stringify(content)],
-    );
-    if (pageKey === "emergency") await this.touchEmergencyVerification(regionId);
+    if (body.apply_to_all_regions === true) {
+      // One atomic query applies the edited page to every existing active region.
+      // Region-specific contacts and offers are intentionally left untouched.
+      await this.db.query(
+        `INSERT INTO page_content(region_id,page_key,content,updated_at)
+         SELECT id,$1,$2::jsonb,now() FROM regions WHERE active=true
+         ON CONFLICT(region_id,page_key) DO UPDATE SET content=EXCLUDED.content,updated_at=now()`,
+        [pageKey, JSON.stringify(content)],
+      );
+      if (pageKey === "emergency") {
+        await this.db.query("UPDATE regions SET emergency_verified_at=now(),updated_at=now() WHERE active=true");
+      }
+    } else {
+      await this.db.query(
+        `INSERT INTO page_content(region_id,page_key,content,updated_at)
+         VALUES($1,$2,$3::jsonb,now())
+         ON CONFLICT(region_id,page_key) DO UPDATE SET content=EXCLUDED.content,updated_at=now()`,
+        [regionId, pageKey, JSON.stringify(content)],
+      );
+      if (pageKey === "emergency") await this.touchEmergencyVerification(regionId);
+    }
     return this.pageContent(regionId, pageKey);
   }
 
@@ -1712,6 +1726,7 @@ export class Stage2Service {
          name_en=EXCLUDED.name_en,
          name_pl=EXCLUDED.name_pl,
          subcategories=EXCLUDED.subcategories,
+         active=true,
          filter_config=CASE WHEN $8::boolean THEN EXCLUDED.filter_config ELSE categories.filter_config END,
          updated_at=now()`,
       [slug,name,body.name_en ?? null,body.name_pl ?? null,num(body.sort_order,100),JSON.stringify(subcategories),JSON.stringify(hasFilterConfig ? body.filter_config : {}),hasFilterConfig],
@@ -1721,6 +1736,31 @@ export class Stage2Service {
       [slug],
     );
     return saved.rows[0] ?? { ok: true, slug };
+  }
+
+  async adminDeleteCategory(slugValue: string) {
+    const slug = slugValue.trim().toLowerCase();
+    // Essential shell sections cannot be deleted: they are referenced directly in navigation.
+    if (["hotel", "emergency"].includes(slug)) {
+      throw new BadRequestException("Службовий розділ не можна видалити.");
+    }
+    const category = await this.db.query("SELECT slug,name,active FROM categories WHERE slug=$1", [slug]);
+    if (!category.rows[0]) throw new NotFoundException("Розділ не знайдено");
+    if (!category.rows[0].active) return { ok: true, slug, active: false };
+    // Never silently unlist active partners or hide offers when an editor deletes a category.
+    const counts = await this.db.query(
+      `SELECT
+         (SELECT count(*)::int FROM places WHERE category_slug=$1) AS places_count,
+         (SELECT count(*)::int FROM hot_offers WHERE category_slug=$1 AND active=true) AS offers_count`,
+      [slug],
+    );
+    const placesCount = Number(counts.rows[0]?.places_count ?? 0);
+    const offersCount = Number(counts.rows[0]?.offers_count ?? 0);
+    if (placesCount || offersCount) {
+      throw new BadRequestException(`Розділ використовується: ${placesCount} закладів, ${offersCount} пропозицій. Спочатку перенесіть їх до іншого розділу або вимкніть відповідні пропозиції.`);
+    }
+    await this.db.query("UPDATE categories SET active=false,updated_at=now() WHERE slug=$1", [slug]);
+    return { ok: true, slug, active: false };
   }
 
   private async touchEmergencyVerification(regionId: string) {
