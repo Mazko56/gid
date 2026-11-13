@@ -988,7 +988,7 @@ function ReviewModerationScreen({navigate}:AdminProps) {
   const visible=rows.filter(r=>status==='all'||r.status===status);
   const badge=(s:string)=>s==='approved'?'Схвалено':s==='rejected'?'Відхилено':'Очікує модерації';
   return <AdminShell active="reviews" navigate={navigate} contentClassName="ad-main--review-moderation">
-    <AdminPageHeader title="Модерація відгуків" subtitle="Відгуки реальних клієнтів із PostgreSQL: схвалення або відхилення впливають на публічний рейтинг закладу." action={<OutlineButton onClick={()=>void refresh()}><RefreshCcw size={16}/> Оновити</OutlineButton>}/>
+    <AdminPageHeader title="Модерація відгуків" action={<OutlineButton onClick={()=>void refresh()}><RefreshCcw size={16}/> Оновити</OutlineButton>}/>
     <div className="ad-review-moderation-tabs">{(['pending','approved','rejected','all'] as const).map(s=><button key={s} type="button" className={s===status?'is-active':''} onClick={()=>setStatus(s)}>{s==='all'?'Усі':badge(s)} · {s==='all'?rows.length:rows.filter(r=>r.status===s).length}</button>)}</div>
     {error?<div className="ad-create-message is-error" role="alert">{error}</div>:null}
     {loading?<div className="ad-stage2-empty-row">Завантаження відгуків…</div>:null}
