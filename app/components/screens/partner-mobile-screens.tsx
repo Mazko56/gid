@@ -1639,6 +1639,7 @@ type PartnerStatisticsData = {
   loading: boolean;
   error: string;
   placeName: string;
+  period?: PartnerStatsPeriod;
   totalViews: number;
   realClients: number;
   operations: number;
@@ -1741,25 +1742,28 @@ function partnerStatsSeries(transactions: Array<Record<string, any>>) {
   return { days, values: days.map((day) => partnerStatsNumber(amounts.get(day))) };
 }
 
+type PartnerStatsPeriod = 'all' | '7d' | '30d' | '90d';
 function buildPartnerStatistics(
   place: Record<string, any> | undefined,
   transactions: Array<Record<string, any>>,
   bookings: Array<Record<string, any>>,
   resources: Array<Record<string, any>>,
+  period: PartnerStatsPeriod = 'all',
 ): PartnerStatisticsData {
   const now = Date.now();
-  const currentPeriodStart = now - (7 * 24 * 60 * 60 * 1000);
-  const previousPeriodStart = now - (14 * 24 * 60 * 60 * 1000);
+  const days=period==='7d'?7:period==='30d'?30:period==='90d'?90:0;
+  const currentPeriodStart = days ? now - days * 86400000 : 0;
+  const previousPeriodStart = days ? now - days * 2 * 86400000 : 0;
   const lastThirtyDays = now - (30 * 24 * 60 * 60 * 1000);
+  const inPeriod=(value:unknown)=>{const time=new Date(String(value||'')).getTime();return !days||(Number.isFinite(time)&&time>=currentPeriodStart&&time<=now);};
+  const confirmedTransactions = transactions.filter(item=>item.status==='confirmed'&&inPeriod(item.confirmed_at||item.created_at));
+  const activeBookings = bookings.filter(item=>!String(item.status||'').startsWith('cancelled')&&inPeriod(item.starts_at||item.created_at));
 
-  const confirmedTransactions = transactions.filter((item) => item.status === "confirmed");
-  const activeBookings = bookings.filter((item) => !String(item.status || "").startsWith("cancelled"));
-
-  const currentTransactions = confirmedTransactions.filter((item) => new Date(String(item.confirmed_at || item.created_at || "")).getTime() >= currentPeriodStart);
-  const previousTransactions = confirmedTransactions.filter((item) => {
-    const time = new Date(String(item.confirmed_at || item.created_at || "")).getTime();
-    return time >= previousPeriodStart && time < currentPeriodStart;
-  });
+  const currentTransactions=confirmedTransactions;
+  const previousTransactions=days?transactions.filter(item=>{
+    const time=new Date(String(item.confirmed_at||item.created_at||'')).getTime();
+    return item.status==='confirmed'&&time>=previousPeriodStart&&time<currentPeriodStart;
+  }):[];
 
   const totalViews = partnerStatsNumber(place?.views);
   const totalQrScans = partnerStatsNumber(place?.qr_scans);
@@ -1805,7 +1809,7 @@ function buildPartnerStatistics(
 
   const clientRows = Array.from(clients.values()).sort((a, b) => b.total - a.total || b.operations - a.operations || a.name.localeCompare(b.name, "uk"));
   const realClients = clientRows.length;
-  const newClients = clientRows.filter((item) => item.firstSeenAt >= lastThirtyDays).length;
+  const newClients = clientRows.filter((item) => item.firstSeenAt >= (days?currentPeriodStart:lastThirtyDays)).length;
   const returningClients = Math.max(0, realClients - newClients);
   const previousClients = Math.max(0, clientRows.filter((item) => item.firstSeenAt < currentPeriodStart && item.firstSeenAt >= previousPeriodStart).length);
 
@@ -1848,12 +1852,13 @@ function buildPartnerStatistics(
   }
 
   const services = Array.from(servicesMap.values()).sort((a, b) => b.operations - a.operations || b.total - a.total || a.name.localeCompare(b.name, "uk"));
-  const { days, values } = partnerStatsSeries(currentTransactions.length ? currentTransactions : confirmedTransactions);
+  const {days:seriesDays,values} = partnerStatsSeries(currentTransactions);
 
   return {
     loading: false,
     error: "",
     placeName: String(place?.name || ""),
+    period,
     totalViews,
     realClients,
     operations: confirmedTransactions.length,
@@ -1864,7 +1869,7 @@ function buildPartnerStatistics(
     previousOperations: previousTransactions.length,
     previousTurnover,
     previousCommission,
-    lineDays: days.map(partnerStatsDayLabel),
+    lineDays: seriesDays.map(partnerStatsDayLabel),
     lineValues: values,
     clients: clientRows,
     newClients,
@@ -1873,7 +1878,7 @@ function buildPartnerStatistics(
   };
 }
 
-function usePartnerStatisticsData() {
+function usePartnerStatisticsData(period:PartnerStatsPeriod) {
   const [state, setState] = useState<PartnerStatisticsData>(EMPTY_PARTNER_STATS);
 
   useEffect(() => {
@@ -1897,7 +1902,7 @@ function usePartnerStatisticsData() {
           stage2Fetch<Array<Record<string, any>>>(`/partner/resources/${encodeURIComponent(placeId)}`).catch(() => [] as Array<Record<string, any>>),
         ]);
         if (cancelled) return;
-        setState(buildPartnerStatistics(place, transactions, bookings, resources));
+        setState(buildPartnerStatistics(place, transactions, bookings, resources,period));
       } catch (error) {
         if (cancelled) return;
         setState({
@@ -1910,19 +1915,17 @@ function usePartnerStatisticsData() {
 
     void load();
     return () => { cancelled = true; };
-  }, []);
+  }, [period]);
 
   return state;
 }
 
-function StatisticsDateFilter({ label = "За весь час" }: { label?: string }) {
-  return (
-    <button type="button" className="gt-stat-date-filter" aria-label={label}>
-      <CalendarDays size={16} />
-      <span>{label}</span>
-      <ChevronRight size={14} className="gt-stat-date-filter__arrow" />
-    </button>
-  );
+function StatisticsDateFilter({value,onChange}:{value:PartnerStatsPeriod;onChange:(v:PartnerStatsPeriod)=>void}) {
+  return <label className="gt-stat-date-filter"><CalendarDays size={16}/>
+    <select aria-label="Період статистики" value={value} onChange={e=>onChange(e.target.value as PartnerStatsPeriod)}>
+      <option value="all">За весь час</option><option value="7d">Останні 7 днів</option><option value="30d">Останні 30 днів</option><option value="90d">Останні 90 днів</option>
+    </select><ChevronRight size={14} className="gt-stat-date-filter__arrow"/>
+  </label>;
 }
 
 function StatisticMetricCard({
@@ -1991,11 +1994,11 @@ function StatisticsGeneralTab({ stats }: { stats: PartnerStatisticsData }) {
     <>
       <h3 className="gt-stat-section-heading">Ключові показники</h3>
       <section className="gt-stat-metric-grid">
-        <StatisticMetricCard title="Перегляди сторінки" value={partnerStatsCount(stats.totalViews)} change={partnerStatsChange(stats.totalViews, stats.previousViews, true)} />
-        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} change={partnerStatsChange(stats.realClients, stats.previousClients, true)} />
-        <StatisticMetricCard title="Підтверджені операції" value={partnerStatsCount(stats.operations)} change={partnerStatsChange(stats.operations, stats.previousOperations, true)} />
-        <StatisticMetricCard title="Сума операцій" value={partnerStatsMoney(stats.turnover)} change={partnerStatsChange(stats.turnover, stats.previousTurnover, true)} />
-        <StatisticMetricCard title="Комісія Gid Tourist" value={partnerStatsMoney(stats.commission)} change={partnerStatsChange(stats.commission, stats.previousCommission, true)} />
+        <StatisticMetricCard title="Перегляди сторінки (за весь час)" value={partnerStatsCount(stats.totalViews)} />
+        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} />
+        <StatisticMetricCard title="Підтверджені операції" value={partnerStatsCount(stats.operations)} change={stats.period==='all'?undefined:partnerStatsChange(stats.operations, stats.previousOperations, true)} />
+        <StatisticMetricCard title="Сума операцій" value={partnerStatsMoney(stats.turnover)} change={stats.period==='all'?undefined:partnerStatsChange(stats.turnover, stats.previousTurnover, true)} />
+        <StatisticMetricCard title="Комісія Gid Tourist" value={partnerStatsMoney(stats.commission)} change={stats.period==='all'?undefined:partnerStatsChange(stats.commission, stats.previousCommission, true)} />
       </section>
 
       <section className="gt-stat-line-block">
@@ -2006,7 +2009,7 @@ function StatisticsGeneralTab({ stats }: { stats: PartnerStatisticsData }) {
       <section className="gt-stat-summary-block">
         <h3 className="gt-stat-section-heading">Підсумки</h3>
         <div className="gt-stat-summary-list">
-          <div><Search size={16} /><span>Перегляди сторінки</span><strong>{partnerStatsCount(stats.totalViews)}</strong></div>
+          <div><Search size={16} /><span>Перегляди (за весь час)</span><strong>{partnerStatsCount(stats.totalViews)}</strong></div>
           <div><Users size={16} /><span>Реальні клієнти</span><strong>{partnerStatsCount(stats.realClients)}</strong></div>
           <div><QrCode size={16} /><span>Підтверджені операції</span><strong>{partnerStatsCount(stats.operations)}</strong></div>
           <div><WalletCards size={16} /><span>Загальна сума операцій</span><strong>{partnerStatsMoney(stats.turnover)}</strong></div>
@@ -2027,8 +2030,8 @@ function StatisticsClientsTab({ stats }: { stats: PartnerStatisticsData }) {
   return (
     <div className="gt-stat-clients-tab">
       <section className="gt-stat-client-metrics">
-        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} change={partnerStatsChange(stats.realClients, stats.previousClients)} />
-        <StatisticMetricCard title="Нові клієнти (30 днів)" value={partnerStatsCount(stats.newClients)} />
+        <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} />
+        <StatisticMetricCard title={stats.period==='all'?'Нові клієнти (30 днів)':'Нові клієнти за період'} value={partnerStatsCount(stats.newClients)} />
         <StatisticMetricCard title="Повернулися" value={partnerStatsCount(stats.returningClients)} />
       </section>
 
@@ -2185,7 +2188,8 @@ function PartnerPendingScreen({ navigate, onActivate }: { navigate: Navigate; on
 
 function StatisticsScreen({ navigate, activated }: PartnerProps) {
   const [tab, setTab] = useState<PartnerStatisticsTab>("general");
-  const stats = usePartnerStatisticsData();
+  const [period,setPeriod]=useState<PartnerStatsPeriod>('all');
+  const stats = usePartnerStatisticsData(period);
 
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav gt-partner-stats-screen">
@@ -2197,7 +2201,7 @@ function StatisticsScreen({ navigate, activated }: PartnerProps) {
           <button type="button" className={tab === "services" ? "is-active" : ""} onClick={() => setTab("services")}>Послуги</button>
         </div>
 
-        <div className="gt-stat-date-wrap"><StatisticsDateFilter label="За весь час" /></div>
+        <div className="gt-stat-date-wrap"><StatisticsDateFilter value={period} onChange={setPeriod} /></div>
         {stats.placeName ? <p className="gt-stat-caption">Заклад: <strong>{stats.placeName}</strong></p> : null}
         {stats.loading ? <div className="gt-stage2-empty">Завантажуємо реальну статистику…</div> : null}
         {!stats.loading && stats.error ? <div className="gt-stage2-empty">{stats.error}</div> : null}

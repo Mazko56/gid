@@ -30649,3 +30649,19 @@ button.gt-amenities-row {
 .ad-main--settings .ad-logo-upload__empty{min-width:220px;min-height:110px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:14px;color:#64766e;border:1px dashed #cbdad2;border-radius:10px;font-size:13px}
 .ad-main--settings .ad-logo-upload__actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
 .ad-main--settings .ad-logo-upload__actions .ad-danger-outline{font-size:13px}
+
+/* Interactive admin filters, using native accessible controls and real options */
+.ad-filter-field {position:relative;cursor:pointer;min-width:132px;}
+.ad-filter-field select {appearance:none;border:0;background:transparent;outline-offset:3px;width:100%;max-width:100%;font:inherit;font-weight:650;color:inherit;cursor:pointer;padding:1px 12px 1px 0;}
+.ad-filter-field select:focus-visible {outline:2px solid #178948;border-radius:4px;}
+.ad-filter-field > svg {pointer-events:none;flex-shrink:0;}
+.ad-pagination .ad-pagination-size {display:flex;align-items:center;justify-content:flex-end;}
+.ad-pagination-size select {background:#fff;border:1px solid #dfe6e1;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;cursor:pointer;}
+.ad-pagination button:disabled {opacity:.4;cursor:not-allowed;}
+
+.gt-stat-date-filter select {border:0;background:transparent;color:inherit;font:inherit;font-weight:600;min-width:0;flex:1;cursor:pointer;appearance:none;}
+.gt-stat-date-filter select:focus-visible {outline:2px solid #178948;border-radius:4px;}
+.gt-stat-date-filter > svg:last-child {pointer-events:none;}
+
+.gt-regional-filter {display:inline-flex;align-items:center;gap:7px;border:1px solid #e0e6e2;border-radius:8px;background:#fff;padding:6px 9px;color:inherit;}
+.gt-regional-filter select {font:inherit;color:inherit;border:0;background:transparent;min-width:100px;max-width:180px;}

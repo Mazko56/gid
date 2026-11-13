@@ -206,20 +206,39 @@ function RegionalDashboard({ navigate }: { navigate: Navigate }) {
 }
 
 function RegionalPartners() {
-  return (
-    <div className="screen-stack">
-      <PageHeading eyebrow="Tenant: Івано‑Франківська область" title="Партнери регіону" description="Створення, модерація та контроль актуальності карток у межах регіону." action={<PrimaryButton icon={<Plus size={20} />}>Додати партнера</PrimaryButton>} />
-      <Card className="table-card">
-        <div className="table-toolbar"><SearchField placeholder="Назва, ЄДРПОУ або населений пункт" /><div><button type="button"><Filter size={19} /> Статус</button><button type="button"><Tags size={19} /> Категорія</button><button type="button"><Download size={19} /> Експорт</button></div></div>
-        <Table headers={["Партнер / заклад", "Категорія", "Локація", "Повнота", "Оновлено", "Статус", ""]} columns="1.5fr 1fr 1fr .8fr .8fr .85fr 40px">
-          {[
-            ["Готель «Смерека»", "Готель", "Яремче", 92, "2 год тому", "На модерації", "orange"], ["Коруна SPA", "Чани / SPA", "Татарів", 100, "Сьогодні", "Опубліковано", "green"], ["Рафтинг Черемош", "Розваги", "Верховина", 78, "8 год тому", "На модерації", "orange"], ["Грибова хата", "Ресторан", "Поляниця", 96, "Учора", "Опубліковано", "green"], ["Садиба «Обрій»", "Готель", "Ворохта", 64, "2 год тому", "Повернено", "red"],
-          ].map((row) => <TableRow key={row[0] as string} columns="1.5fr 1fr 1fr .8fr .8fr .85fr 40px"><div className="table-entity"><span><Building2 size={20} /></span><strong>{row[0] as string}</strong></div><span>{row[1] as string}</span><span>{row[2] as string}</span><div className="table-progress"><ProgressBar value={row[3] as number} /><small>{row[3] as number}%</small></div><span>{row[4] as string}</span><StatusBadge tone={row[6] as "green" | "orange" | "red"}>{row[5] as string}</StatusBadge><IconButton label="Більше"><MoreHorizontal size={22} /></IconButton></TableRow>)}
-        </Table>
-        <div className="table-pagination"><span>Показано 1–5 із 128</span><div><button type="button">1</button><button type="button">2</button><button type="button">3</button><button type="button"><ChevronRight size={19} /></button></div></div>
-      </Card>
-    </div>
-  );
+  const [search,setSearch]=useState('');
+  const [status,setStatus]=useState('');
+  const [category,setCategory]=useState('');
+  const rows:(string|number)[][]=[
+    ["Готель «Смерека»", "Готель", "Яремче", 92, "2 год тому", "На модерації", "orange"],
+    ["Коруна SPA", "Чани / SPA", "Татарів", 100, "Сьогодні", "Опубліковано", "green"],
+    ["Рафтинг Черемош", "Розваги", "Верховина", 78, "8 год тому", "На модерації", "orange"],
+    ["Грибова хата", "Ресторан", "Поляниця", 96, "Учора", "Опубліковано", "green"],
+    ["Садиба «Обрій»", "Готель", "Ворохта", 64, "2 год тому", "Повернено", "red"],
+  ];
+  const categories=Array.from(new Set(rows.map(r=>String(r[1]))));
+  const statuses=Array.from(new Set(rows.map(r=>String(r[5]))));
+  const visible=rows.filter(r=>(!search||[r[0],r[1],r[2]].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
+    &&(!category||r[1]===category)&&(!status||r[5]===status));
+  const exportCurrent=()=>{
+    const csv=[['Назва','Категорія','Локація','Повнота','Оновлено','Статус'],...visible.map(r=>r.slice(0,6))].map(row=>row.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');
+    const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download='regional-partners-filtered.csv';link.click();URL.revokeObjectURL(url);
+  };
+  return <div className="screen-stack">
+    <PageHeading eyebrow="Регіональна адмінка" title="Партнери регіону" description="Перегляд і модерація карток у межах регіону." />
+    <Card className="table-card">
+      <div className="table-toolbar"><label className="search-field"><Search size={20}/><input aria-label="Пошук партнерів регіону" placeholder="Назва, категорія або населений пункт" value={search} onChange={e=>setSearch(e.target.value)}/></label>
+        <div><label className="gt-regional-filter"><Filter size={18}/><select aria-label="Статус партнера" value={status} onChange={e=>setStatus(e.target.value)}><option value="">Усі статуси</option>{statuses.map(x=><option key={x} value={x}>{x}</option>)}</select></label>
+        <label className="gt-regional-filter"><Tags size={18}/><select aria-label="Категорія партнера" value={category} onChange={e=>setCategory(e.target.value)}><option value="">Усі категорії</option>{categories.map(x=><option key={x} value={x}>{x}</option>)}</select></label>
+        <button type="button" onClick={exportCurrent}><Download size={19}/> Експорт</button>
+        <button type="button" onClick={()=>{setSearch('');setStatus('');setCategory('');}}><RefreshCcw size={17}/> Скинути</button></div></div>
+      <Table headers={["Партнер / заклад", "Категорія", "Локація", "Повнота", "Оновлено", "Статус", ""]} columns="1.5fr 1fr 1fr .8fr .8fr .85fr 40px">
+        {visible.map(row=><TableRow key={String(row[0])} columns="1.5fr 1fr 1fr .8fr .8fr .85fr 40px"><div className="table-entity"><span><Building2 size={20}/></span><strong>{row[0] as string}</strong></div><span>{row[1] as string}</span><span>{row[2] as string}</span><div className="table-progress"><ProgressBar value={row[3] as number}/><small>{row[3] as number}%</small></div><span>{row[4] as string}</span><StatusBadge tone={row[6] as 'green'|'orange'|'red'}>{row[5] as string}</StatusBadge><IconButton label="Більше"><MoreHorizontal size={22}/></IconButton></TableRow>)}
+      </Table>
+      <div className="table-pagination"><span>Показано {visible.length} із {rows.length}</span>{visible.length===0?<span>За вибраними фільтрами записів немає</span>:null}</div>
+    </Card>
+  </div>;
 }
 
 function RegionalContent() {

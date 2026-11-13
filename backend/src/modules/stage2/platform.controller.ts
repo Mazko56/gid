@@ -63,7 +63,7 @@ export class PlatformController {
   @UseGuards(AdminKeyGuard) @Get('admin/platform/clients/:id') client(@Param('id') id:string) { return this.platform.adminClient(id); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/partners/:id/summary') partnerSummary(@Param('id') id:string) { return this.platform.adminPartnerSummary(id); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/settlements') settlements() { return this.platform.adminSettlements(); }
-  @UseGuards(AdminKeyGuard) @Get('admin/platform/analytics') analytics(@Query('region_id') p?:string) { return this.platform.adminAnalytics(p); }
+  @UseGuards(AdminKeyGuard) @Get('admin/platform/analytics') analytics(@Query('region_id') r?:string,@Query('category_slug') c?:string,@Query('placement_type') p?:string,@Query('partner_status') s?:string) { return this.platform.adminAnalytics(r,c,p,s); }
   @UseGuards(AdminKeyGuard) @Get('admin/platform/audit') audit(@Query('region_id') p?:string) { return this.platform.auditLog(p); }
   // Keep settings on the backend API (not in the Next.js UI). Updating this
   // controller also triggers the separate Railway backend-service deployment.

@@ -1438,7 +1438,7 @@ export class Stage2Service {
 
   async adminPartners() {
     const result = await this.db.query(
-      `SELECT p.id,p.name,p.category_slug,p.subcategory,p.address,p.status,p.region_id,p.lat,p.lng,r.name region_name,o.name organization_name,
+      `SELECT p.id,p.name,p.category_slug,p.subcategory,p.address,p.status,p.region_id,p.attributes,p.lat,p.lng,r.name region_name,o.name organization_name,
               COALESCE((SELECT json_agg(a.telegram_id::text ORDER BY a.telegram_id) FROM organization_telegram_access a WHERE a.organization_id=o.id AND a.active=true),'[]'::json) telegram_ids,
               (SELECT q.start_param FROM qr_points q WHERE q.place_id=p.id AND q.type='partner_access' AND q.active=true ORDER BY q.created_at DESC LIMIT 1) partner_start_param
        FROM places p JOIN organizations o ON o.id=p.organization_id JOIN regions r ON r.id=p.region_id
