@@ -265,16 +265,28 @@ function filterChoices(values:(string|null|undefined)[]):FilterChoice[] {
   return Array.from(new Set(values.map(v=>String(v??'').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'uk-UA')).map(v=>({value:v,label:v}));
 }
 const clientIsActive=(c:LiveClient)=>Boolean(c.last_active_at&&Date.now()-new Date(c.last_active_at).getTime()<30*86400000);
-function FilterStrip({search='',onSearch,fields=[],values={},onChange,onReset,placeholder='Пошук...'}:{
+/* Retains the pixel sizes, spacing, typography and DOM outline of the
+   original static filter controls, with a native select overlay for interaction. */
+function FilterStrip({search='',onSearch,fields=[],values={},onChange,onReset,placeholder='Пошук...',originalKeys}:{
  search?:string;onSearch?:(v:string)=>void;fields?:FilterDefinition[];values?:Record<string,string>;
- onChange?:(key:string,v:string)=>void;onReset?:()=>void;placeholder?:string;
+ onChange?:(key:string,v:string)=>void;onReset?:()=>void;placeholder?:string;originalKeys?:string[];
 }) {
- return <div className="ad-filter-strip">
-   {onSearch?<label className="ad-search-box"><Search size={19}/><input aria-label="Пошук у списку" placeholder={placeholder} value={search} onChange={e=>onSearch(e.target.value)}/></label>:null}
-   {fields.map(field=><label key={field.key} className="ad-select-box ad-filter-field"><span><small>{field.label}</small>
-     <select aria-label={field.label} value={values[field.key]||''} onChange={e=>onChange?.(field.key,e.target.value)}>
-       <option value="">{field.allLabel||'Усі'}</option>{field.options.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
-     </select></span><ChevronDown size={16}/></label>)}
+ const shownFields=originalKeys ? originalKeys.flatMap(key=>fields.filter(field=>field.key===key)) : fields;
+ const isAdditional=!originalKeys && (shownFields.length+(onSearch?1:0)>5);
+ return <div className={`ad-filter-strip${isAdditional?' ad-filter-strip--additional':''}`}>
+   {onSearch?<label className="ad-search-box"><Search size={20}/><input aria-label="Пошук у списку" placeholder={placeholder} value={search} onChange={e=>onSearch(e.target.value)}/></label>:null}
+   {shownFields.map(field=>{
+     const chosen=values[field.key]||'';
+     const shownValue=field.options.find(item=>item.value===chosen)?.label || field.allLabel || 'Усі';
+     return <label key={field.key} className="ad-select-box ad-native-picker">
+       <span><small>{field.label}</small><strong>{shownValue}</strong></span>
+       <ChevronDown size={16}/>
+       <select className="ad-native-picker__select" aria-label={field.label} value={chosen} onChange={e=>onChange?.(field.key,e.target.value)}>
+         <option value="">{field.allLabel||'Усі'}</option>
+         {field.options.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
+       </select>
+     </label>;
+   })}
    <OutlineButton onClick={onReset}><RefreshCcw size={17}/> Скинути фільтри</OutlineButton>
  </div>;
 }
@@ -297,7 +309,7 @@ function Pagination({page,pageSize,total,onPage,onPageSize}:{page:number;pageSiz
     {Array.from({length:Math.min(5,pages)},(_,i)=>Math.max(0,Math.min(page-2,pages-5))+i).map(i=><button type="button" key={i} className={i===page?'is-active':''} onClick={()=>onPage(i)} aria-label={`Сторінка ${i+1}`}>{i+1}</button>)}
     <button type="button" disabled={page>=pages-1} aria-label="Наступна сторінка" onClick={()=>onPage(Math.min(pages-1,page+1))}><ChevronRight size={16}/></button>
    </div>
-   <label className="ad-pagination-size"><select aria-label="Записів на сторінці" value={pageSize} onChange={e=>onPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} на сторінці</option>)}</select></label>
+   <label className="ad-select-box ad-native-picker"><span><strong>{pageSize} на сторінці</strong></span><ChevronDown size={16}/><select className="ad-native-picker__select" aria-label="Записів на сторінці" value={pageSize} onChange={e=>onPageSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n} value={n}>{n} на сторінці</option>)}</select></label>
  </div>;
 }
 function useTableFilters(){
@@ -369,7 +381,7 @@ function PartnersScreen({ navigate }: AdminProps) {
         title="Партнери"
         action={<PrimaryButton onClick={() => { if (typeof window !== "undefined") window.sessionStorage.removeItem(ADMIN_EDIT_PARTNER_KEY); navigate("admin", "admin-partner-create"); }}><Plus size={18} /> Новий партнер</PrimaryButton>}
       />
-      <FilterStrip placeholder="Назва, адреса, організація, ID" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
+      <FilterStrip placeholder="Пошук партнера..." search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["region", "category", "placement", "status"]}/>
       {loadError ? <div className="ad-create-message is-error">{loadError}</div> : null}
       <AdminTable columns={[
         { label: "Назва", className: "1.8fr" }, { label: "Категорія", className: "1fr" }, { label: "Локація", className: ".9fr" },
@@ -397,9 +409,9 @@ function ClientsScreen({ navigate }: AdminProps) {
   const {data:clients,error}=useAdminRemote<LiveClient[]>('/admin/platform/clients');
   const filters=useTableFilters();
   const fields:FilterDefinition[]=[
-    {key:'status',label:'Активність',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
-    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((clients||[]).map(c=>c.region_name))},
-    {key:'balance',label:'Бонусний баланс',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Без бонусів'}]},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
+    {key:'region',label:'Місто / локація',allLabel:'Усі міста',options:filterChoices((clients||[]).map(c=>c.region_name))},
+    {key:'balance',label:'Рівень бонусів',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Без бонусів'}]},
     {key:'purchases',label:'Покупки',allLabel:'Усі клієнти',options:[{value:'yes',label:'Є покупки'},{value:'no',label:'Без покупок'}]},
     {key:'registered',label:'Дата реєстрації',allLabel:'Весь період',options:timePeriods},
   ];
@@ -410,7 +422,7 @@ function ClientsScreen({ navigate }: AdminProps) {
     &&(!filters.values.purchases||(filters.values.purchases==='yes'?Number(c.purchases)>0:Number(c.purchases)<=0))
     &&matchesPeriod(c.created_at,filters.values.registered||''));
   return <AdminShell active="clients" navigate={navigate} contentClassName="ad-main--clients">
-    <AdminPageHeader title="Клієнти"/><FilterStrip placeholder="Ім’я, Telegram, телефон, ID" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
+    <AdminPageHeader title="Клієнти"/><FilterStrip placeholder="Пошук клієнта..." search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["status", "region"]}/>
     <AdminRemoteInfo error={error} data={clients}/>
     {clients?<><AdminTable columns={[{label:"Ім'я",className:"1.5fr"},{label:"Telegram",className:"1fr"},{label:"Статус",className:".9fr"},{label:"Бонуси",className:".8fr"},{label:"Остання активність",className:"1.45fr"},{label:"Дії",className:".8fr"}]}>
       {filtered.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize).map(c=><TableRow key={c.id} columns={["1.5fr","1fr",".9fr",".8fr","1.45fr",".8fr"]}>
@@ -439,10 +451,10 @@ function BonusesScreen({navigate}: AdminProps) {
   const {data:stats,error:statsError}=useAdminRemote<LiveAnalytics>('/admin/platform/analytics');
   const filters=useTableFilters();
   const fields:FilterDefinition[]=[
-    {key:'status',label:'Активність',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
-    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((clients||[]).map(c=>c.region_name))},
-    {key:'balance',label:'Бонусний баланс',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Немає бонусів'}]},
-    {key:'earned',label:'Нарахування',allLabel:'Усі клієнти',options:[{value:'yes',label:'Були нарахування'},{value:'no',label:'Без нарахувань'}]},
+    {key:'status',label:'Статус',allLabel:'Усі статуси',options:[{value:'active',label:'Активні за 30 днів'},{value:'inactive',label:'Неактивні'}]},
+    {key:'region',label:'Місто / локація',allLabel:'Усі міста',options:filterChoices((clients||[]).map(c=>c.region_name))},
+    {key:'balance',label:'Рівень бонусів',allLabel:'Усі баланси',options:[{value:'positive',label:'Є бонуси'},{value:'zero',label:'Немає бонусів'}]},
+    {key:'earned',label:'Загальний статус',allLabel:'Усі клієнти',options:[{value:'yes',label:'Були нарахування'},{value:'no',label:'Без нарахувань'}]},
     {key:'spent',label:'Використання',allLabel:'Усі клієнти',options:[{value:'yes',label:'Були списання'},{value:'no',label:'Без списань'}]},
   ];
   const filtered=(clients||[]).filter(c=>(!filters.search||normalizeFilterText([clientFullName(c),c.phone,c.telegram_id,c.telegram_username].join(' ')).includes(normalizeFilterText(filters.search)))
@@ -459,7 +471,7 @@ function BonusesScreen({navigate}: AdminProps) {
       <SummaryCard label="Використано бонусів" value={moneyUA(filtered.reduce((sum,c)=>sum+Number(c.spent),0))} tone="blue"/>
       <SummaryCard label="Баланс клієнтів" value={moneyUA(filtered.reduce((sum,c)=>sum+Number(c.balance),0))} tone="orange"/>
       <SummaryCard label="Клієнтів" value={countUA(filtered.length)}/>
-    </div><FilterStrip placeholder="Ім’я, телефон, Telegram" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/>
+    </div><FilterStrip placeholder="Пошук клієнта..." search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["status", "region", "earned", "balance"]}/>
     <AdminTable columns={[{label:"Клієнт",className:"1.35fr"},{label:"Телефон",className:"1fr"},{label:"Telegram ID",className:".8fr"},{label:"Нараховано",className:".9fr"},{label:"Баланс",className:".9fr"},{label:"Списано",className:".9fr"},{label:"Остання активність",className:"1fr"}]}>
       {filtered.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize).map(c=><TableRow key={c.id} columns={["1.35fr","1fr",".8fr",".9fr",".9fr","1fr","1fr"]}><strong>{clientFullName(c)}</strong><span>{c.phone||'Не надано'}</span><span>{c.telegram_id||'—'}</span><strong>{moneyUA(c.earned)}</strong><strong className="ad-green-number">{moneyUA(c.balance)}</strong><strong>{moneyUA(c.spent)}</strong><span>{dateUA(c.last_active_at)}</span></TableRow>)}
       {!filtered.length?<div className="ad-stage2-empty-row">Клієнтів за вибраними фільтрами немає</div>:null}
@@ -1126,8 +1138,8 @@ function SettlementsScreen({navigate}:AdminProps){
   const fields:FilterDefinition[]=[
    {key:'region',label:'Локація',allLabel:'Усі локації',options:filterChoices((rows||[]).map(r=>r.region_name))},
    {key:'category',label:'Категорія',allLabel:'Усі категорії',options:filterChoices((rows||[]).map(r=>r.category_name))},
-   {key:'balance',label:'Стан розрахунків',allLabel:'Усі баланси',options:[{value:'debt',label:'Є заборгованість'},{value:'credit',label:'Переплата'},{value:'settled',label:'Баланс нульовий'}]},
-   {key:'payments',label:'Підтверджена оплата',allLabel:'Усі оплати',options:[{value:'yes',label:'Є оплати'},{value:'no',label:'Оплат немає'}]},
+   {key:'balance',label:'Статус рахунку',allLabel:'Усі баланси',options:[{value:'debt',label:'Є заборгованість'},{value:'credit',label:'Переплата'},{value:'settled',label:'Баланс нульовий'}]},
+   {key:'payments',label:'Статус оплати',allLabel:'Усі оплати',options:[{value:'yes',label:'Є оплати'},{value:'no',label:'Оплат немає'}]},
    {key:'transactions',label:'Операції',allLabel:'Усі партнери',options:[{value:'yes',label:'Є операції'},{value:'no',label:'Без операцій'}]},
   ];
   const filteredRows=(rows||[]).filter(r=>(!filters.search||normalizeFilterText([r.name,r.region_name,r.category_name,r.place_id].join(' ')).includes(normalizeFilterText(filters.search)))
@@ -1149,7 +1161,7 @@ function SettlementsScreen({navigate}:AdminProps){
       <SummaryCard label="Компенсація бонусів" value={moneyUA(reimbursement)} tone="orange"/>
       <SummaryCard label="Несплачений баланс" value={moneyUA(remaining)} tone="violet"/>
       <SummaryCard label="Підтверджено оплат" value={moneyUA(paid)}/>
-    </div><FilterStrip placeholder="Пошук партнера, регіону, категорії" search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".9fr"},{label:"Категорія",className:".9fr"},{label:"Операцій",className:".7fr"},{label:"Оборот",className:".9fr"},{label:"Комісія",className:".9fr"},{label:"Оплачено",className:".9fr"},{label:"Залишок",className:".9fr"}]}>
+    </div><FilterStrip placeholder="Пошук партнера..." search={filters.search} onSearch={filters.onSearch} fields={fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["region", "category", "balance", "payments"]}/><AdminTable columns={[{label:"Партнер",className:"1.6fr"},{label:"Локація",className:".9fr"},{label:"Категорія",className:".9fr"},{label:"Операцій",className:".7fr"},{label:"Оборот",className:".9fr"},{label:"Комісія",className:".9fr"},{label:"Оплачено",className:".9fr"},{label:"Залишок",className:".9fr"}]}>
       {filteredRows.slice(filters.page*filters.pageSize,(filters.page+1)*filters.pageSize).map(r=><TableRow key={r.place_id} columns={["1.6fr",".9fr",".9fr",".7fr",".9fr",".9fr",".9fr",".9fr"]}><strong>{r.name}</strong><span>{r.region_name}</span><span>{r.category_name}</span><span>{r.transactions}</span><strong>{moneyUA(r.turnover)}</strong><span>{moneyUA(r.commission_due)}</span><span>{moneyUA(r.paid_commission)}</span><strong className={Number(r.balance_due)<0?'ad-red-number':'ad-green-number'}>{moneyUA(r.balance_due)}</strong></TableRow>)}
       {!filteredRows.length?<div className="ad-stage2-empty-row">Немає партнерів за вибраним фільтром</div>:null}
     </AdminTable><Pagination page={filters.page} pageSize={filters.pageSize} total={filteredRows.length} onPage={filters.setPage} onPageSize={filters.changeSize}/></>:null}
@@ -1209,7 +1221,7 @@ function StatisticsOverview({navigate}:AdminProps){
       <SummaryCard label="Кількість клієнтів" value={countUA(stats.clients.total)} tone="violet"/>
       <SummaryCard label="Нараховано бонусів" value={moneyUA(stats.bonuses.earned)} tone="orange"/>
       <SummaryCard label="Кількість партнерів" value={countUA(partnerCount)} tone="blue"/>
-    </div><FilterStrip fields={filters.fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/><div className="ad-stats-dashboard">
+    </div><FilterStrip fields={filters.fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["region_id","category_slug","placement_type","partner_status"]}/><div className="ad-stats-dashboard">
       <section className="ad-chart-card ad-chart-card--wide"><h2>Оборот за останні 30 днів</h2>
         {stats.series.length?stats.series.map(item=><div className="ad-key-value" key={item.day}><span>{item.day}</span><strong>{moneyUA(item.amount)}</strong></div>):<div className="ad-stage2-empty-row">Підтверджених операцій за період немає</div>}
       </section>
@@ -1242,7 +1254,7 @@ function StatisticsSubscreen({navigate,kind}:AdminProps & {kind:'partners'|'clie
   const titles={partners:'Партнери',clients:'Клієнти',bonuses:'Бонуси',settlements:'Розрахунки'};
   return <AdminShell active="statistics" navigate={navigate} contentClassName="ad-main--statistics">
     <StatTop slug={`admin-statistics-${kind}`} navigate={navigate} title={`Статистика — ${titles[kind]}`}/><AdminRemoteInfo error={error} data={stats}/>
-    {stats?<><StatsMetricGrid kind={kind} stats={stats}/><FilterStrip fields={filters.fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset}/><div className="ad-stats-subgrid">
+    {stats?<><StatsMetricGrid kind={kind} stats={stats}/><FilterStrip fields={filters.fields} values={filters.values} onChange={filters.onChange} onReset={filters.reset} originalKeys={["region_id","category_slug","placement_type","partner_status"]}/><div className="ad-stats-subgrid">
       <section className="ad-chart-card ad-chart-card--wide"><h2>Фактичні події</h2>{stats.events.length?stats.events.map(e=><div className="ad-key-value" key={e.event_type}><span>{e.event_type}</span><strong>{countUA(e.count)}</strong></div>):<p>Подій ще немає</p>}</section>
       <section className="ad-chart-card"><h2>Партнери по регіонах</h2>{stats.locations.map(x=><div className="ad-key-value" key={x.name}><span>{x.name}</span><strong>{countUA(x.total)}</strong></div>)}</section>
       <section className="ad-chart-card"><h2>Бронювання за статусами</h2>{stats.bookings.map(x=><div className="ad-key-value" key={x.status}><span>{x.status}</span><strong>{countUA(x.count)}</strong></div>)}</section>

@@ -1921,10 +1921,12 @@ function usePartnerStatisticsData(period:PartnerStatsPeriod) {
 }
 
 function StatisticsDateFilter({value,onChange}:{value:PartnerStatsPeriod;onChange:(v:PartnerStatsPeriod)=>void}) {
-  return <label className="gt-stat-date-filter"><CalendarDays size={16}/>
-    <select aria-label="Період статистики" value={value} onChange={e=>onChange(e.target.value as PartnerStatsPeriod)}>
+  const label=value==='7d'?'Останні 7 днів':value==='30d'?'Останні 30 днів':value==='90d'?'Останні 90 днів':'За весь час';
+  return <label className="gt-stat-date-filter ad-native-picker" aria-label="Період статистики">
+    <CalendarDays size={16}/><span>{label}</span><ChevronRight size={14} className="gt-stat-date-filter__arrow"/>
+    <select className="ad-native-picker__select" aria-label="Період статистики" value={value} onChange={e=>onChange(e.target.value as PartnerStatsPeriod)}>
       <option value="all">За весь час</option><option value="7d">Останні 7 днів</option><option value="30d">Останні 30 днів</option><option value="90d">Останні 90 днів</option>
-    </select><ChevronRight size={14} className="gt-stat-date-filter__arrow"/>
+    </select>
   </label>;
 }
 

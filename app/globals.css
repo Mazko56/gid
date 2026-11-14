@@ -30650,78 +30650,24 @@ button.gt-amenities-row {
 .ad-main--settings .ad-logo-upload__actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
 .ad-main--settings .ad-logo-upload__actions .ad-danger-outline{font-size:13px}
 
-/* Interactive admin filters, using native accessible controls and real options */
-.ad-filter-field {position:relative;cursor:pointer;min-width:132px;}
-.ad-filter-field select {appearance:none;border:0;background:transparent;outline-offset:3px;width:100%;max-width:100%;font:inherit;font-weight:650;color:inherit;cursor:pointer;padding:1px 12px 1px 0;}
-.ad-filter-field select:focus-visible {outline:2px solid #178948;border-radius:4px;}
-.ad-filter-field > svg {pointer-events:none;flex-shrink:0;}
-.ad-pagination .ad-pagination-size {display:flex;align-items:center;justify-content:flex-end;}
-.ad-pagination-size select {background:#fff;border:1px solid #dfe6e1;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;cursor:pointer;}
-.ad-pagination button:disabled {opacity:.4;cursor:not-allowed;}
-
-.gt-stat-date-filter select {border:0;background:transparent;color:inherit;font:inherit;font-weight:600;min-width:0;flex:1;cursor:pointer;appearance:none;}
-.gt-stat-date-filter select:focus-visible {outline:2px solid #178948;border-radius:4px;}
-.gt-stat-date-filter > svg:last-child {pointer-events:none;}
-
-.gt-regional-filter {display:inline-flex;align-items:center;gap:7px;border:1px solid #e0e6e2;border-radius:8px;background:#fff;padding:6px 9px;color:inherit;}
-.gt-regional-filter select {font:inherit;color:inherit;border:0;background:transparent;min-width:100px;max-width:180px;}
-
-/* Administrative list filters — original compact visual language, without stretched controls. */
-.ad-filter-strip {
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  gap:12px;
-  margin:18px 0;
-  min-width:0;
+/* Functional native controls are layered over the original static filter surfaces.
+   The original .ad-filter-strip, .ad-select-box, .ad-search-box,
+   .gt-stat-date-filter and .table-toolbar measurements are unchanged. */
+.ad-native-picker { position: relative; cursor: pointer; }
+.ad-native-picker > .ad-native-picker__select {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; opacity: 0; cursor: pointer; appearance: none;
 }
-.ad-filter-strip > * { flex:0 1 auto; }
-.ad-filter-strip .ad-search-box {
-  flex:1 1 238px;
-  width:auto;
-  max-width:420px;
-  min-width:205px;
-  min-height:49px;
-  font-size:12.1px;
+.ad-native-picker:focus-within { outline: 2px solid #138b4f; outline-offset: 2px; }
+.ad-native-picker > svg { pointer-events: none; flex-shrink: 0; }
+.ad-pagination > div button:disabled { opacity: .45; cursor: not-allowed; }
+/* Only filters added to pages that had no original filter row may wrap. */
+.ad-filter-strip--additional { flex-wrap: wrap; }
+.ad-filter-strip--additional > .ad-native-picker { min-width: 145px; }
+.ad-filter-strip--additional > .ad-search-box { min-width: 200px; }
+/* Regional toolbar: the same 34px button design as the original static controls. */
+.table-toolbar > div > .gt-original-toolbar-picker {
+  display: flex; align-items: center; gap: 4px; min-height: 34px;
+  padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px;
+  background: #fff; color: var(--ink-soft); font-size: 12px;
 }
-.ad-filter-strip .ad-filter-field {
-  flex:1 1 168px;
-  width:auto;
-  min-width:168px;
-  max-width:240px;
-  min-height:49px;
-  gap:8px;
-  padding:0 13px;
-  font-family:inherit;
-}
-.ad-filter-strip .ad-filter-field > span { flex:1; min-width:0; }
-.ad-filter-strip .ad-filter-field small { margin-bottom:3px; font-size:11px; font-weight:500; line-height:1.2; color:#858e89; }
-.ad-filter-strip .ad-filter-field select {
-  width:100%; min-width:0; max-width:100%;
-  padding:1px 0;
-  font-family:inherit; font-size:12.1px; font-weight:650;
-  line-height:1.3; color:#323a35;
-  text-overflow:ellipsis; white-space:nowrap;
-}
-.ad-filter-strip .ad-filter-field > svg { width:16px; height:16px; color:#59635d; }
-.ad-filter-strip .ad-btn { flex:0 0 auto; min-height:39px; font-size:12.3px; }
-.ad-filter-strip .ad-filter-field:focus-within,
-.ad-filter-strip .ad-search-box:focus-within { border-color:#1b9b54; box-shadow:0 0 0 2px rgba(15,164,81,.08); }
-.ad-filter-strip .ad-filter-field select:focus-visible { outline:none; }
-.ad-detail-card > .ad-filter-strip,
-.ad-page-editor-panel > .ad-filter-strip,
-.ad-stage2-section > .ad-filter-strip { margin:12px 0 14px; }
-.ad-main--review-moderation > .ad-filter-strip { margin-top:12px; }
-.ad-main--settings .ad-filter-strip { margin:12px 0 16px; }
-@media (max-width:980px) {
-  .ad-filter-strip { min-width:0; }
-}
-@media (max-width:650px) {
-  .ad-filter-strip .ad-search-box,
-  .ad-filter-strip .ad-filter-field { flex:1 1 100%; max-width:none; min-width:0; }
-  .ad-filter-strip .ad-btn { width:100%; justify-content:center; }
-}
-/* Regional toolbar retains its original 34px controls, with wrapping for added filters. */
-.table-toolbar > div { flex-wrap:wrap; align-items:center; }
-.table-toolbar .gt-regional-filter { min-height:34px; gap:5px; font-size:12px; padding:5px 8px; }
-.table-toolbar .gt-regional-filter select { min-width:95px; max-width:155px; font-size:12px; }
