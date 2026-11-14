@@ -2382,6 +2382,7 @@ type AdminPageRegion = {
 
 type EmergencyAdminContact = {
   id: string;
+  region_id: string;
   type: string;
   title: string;
   note: string;
@@ -2409,6 +2410,9 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   const adminKey = "";
   const [regions, setRegions] = useState<AdminPageRegion[]>([]);
   const [regionId, setRegionId] = useState("region-tatariv");
+  // "all" only changes the admin list scope; individual records retain their own city.
+  const [contactTargetRegionId, setContactTargetRegionId] = useState("region-tatariv");
+  const [serviceTargetRegionId, setServiceTargetRegionId] = useState("region-tatariv");
   const [contacts, setContacts] = useState<EmergencyAdminContact[]>([]);
   const [services, setServices] = useState<Stage2EmergencyService[]>([]);
   const contactFilters=useTableFilters();
@@ -2430,6 +2434,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
 
   const [serviceId, setServiceId] = useState("");
   const [serviceTitle, setServiceTitle] = useState("");
+  const serviceTitleInput = useRef<HTMLInputElement>(null);
   const [serviceNote, setServiceNote] = useState("");
   const [serviceTone, setServiceTone] = useState<Stage2EmergencyService["tone"]>("green");
   const [serviceTranslations,setServiceTranslations]=useState<EditableTranslations>(emptyTranslations);
@@ -2442,7 +2447,9 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         adminStage2Fetch<AdminPageRegion[]>("/admin/stage2/regions", adminKey),
         adminStage2Fetch<EmergencyAdminContact[]>(`/admin/stage2/emergency?region_id=${encodeURIComponent(regionId)}`, adminKey),
         adminStage2Fetch<Stage2EmergencyServicesResponse>(`/admin/stage2/emergency-services?region_id=${encodeURIComponent(regionId)}`, adminKey),
-        adminStage2Fetch<Stage2PageContentResponse>(`/page-content/emergency?region_id=${encodeURIComponent(regionId)}`, adminKey),
+        regionId === "all"
+          ? Promise.resolve({ content: {} } as Stage2PageContentResponse)
+          : adminStage2Fetch<Stage2PageContentResponse>(`/page-content/emergency?region_id=${encodeURIComponent(regionId)}`, adminKey),
       ]);
       setRegions(regionRows);
       setContacts(contactRows);
@@ -2455,11 +2462,12 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     }
   };
 
-  useEffect(() => { void load(); }, [regionId]);
+  useEffect(() => { setContacts([]); setServices([]); void load(); }, [regionId]);
 
   const setPageField = (key: string, value: string) => setPageContent((current) => ({ ...current, [key]: value }));
 
   const savePageContent = async () => {
+    if (regionId === "all") { setMessage("Для редагування оформлення сторінки оберіть конкретне місто."); return; }
     setSaving(true);
     try {
       const saved = await adminStage2Fetch<Stage2PageContentResponse>("/admin/stage2/page-content/emergency", adminKey, {
@@ -2478,10 +2486,12 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetContactForm = () => {
+    setContactTargetRegionId(regionId === "all" ? "" : regionId);
     setContactId(""); setContactTitle(""); setContactNote(""); setContactPhone(""); setContactType("custom"); setContactTone("green"); setContactTranslations(emptyTranslations());
   };
 
   const editContact = (contact: EmergencyAdminContact) => {
+    setContactTargetRegionId(contact.region_id);
     setContactId(contact.id);
     setContactTitle(contact.title);
     setContactNote(contact.note || "");
@@ -2496,12 +2506,14 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
 
   const saveContact = async () => {
     if (!contactTitle.trim()) { setMessage("Вкажіть назву контакту."); return; }
+    const targetRegion = contactId ? contacts.find(item => item.id === contactId)?.region_id : (regionId === "all" ? contactTargetRegionId : regionId);
+    if (!targetRegion) { setMessage("Оберіть місто для контакту."); return; }
     try {
       await adminStage2Fetch("/admin/stage2/emergency", adminKey, {
         method: "POST",
         body: JSON.stringify({
           id: contactId || undefined,
-          region_id: regionId,
+          region_id: targetRegion,
           title: contactTitle.trim(),
           note: contactNote.trim(),
           phone: contactPhone.trim() || null,
@@ -2531,11 +2543,14 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetServiceForm = () => {
+    setServiceTargetRegionId(regionId === "all" ? "" : regionId);
     setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true); setServiceTranslations(emptyTranslations());
   };
 
   const editService = (service: Stage2EmergencyService) => {
+    setServiceTargetRegionId(service.region_id);
     setServiceId(service.id);
+    window.requestAnimationFrame(() => serviceTitleInput.current?.focus());
     setServiceTitle(service.title);
     setServiceNote(service.note);
     setServiceTone(service.tone);
@@ -2546,12 +2561,14 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
 
   const saveService = async () => {
     if (!serviceTitle.trim()) { setMessage("Вкажіть назву корисного сервісу."); return; }
+    const targetRegion = serviceId ? services.find(item => item.id === serviceId)?.region_id : (regionId === "all" ? serviceTargetRegionId : regionId);
+    if (!targetRegion) { setMessage("Оберіть місто для сервісу."); return; }
     try {
       await adminStage2Fetch("/admin/stage2/emergency-services", adminKey, {
         method: "POST",
         body: JSON.stringify({
           id: serviceId || undefined,
-          region_id: regionId,
+          region_id: targetRegion,
           title: serviceTitle.trim(),
           note: serviceNote.trim(),
           tone: serviceTone,
@@ -2572,7 +2589,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     try {
       await adminStage2Fetch("/admin/stage2/emergency-services", adminKey, {
         method: "POST",
-        body: JSON.stringify({ ...service, region_id: regionId, active: !service.active, translations: service.translations || {} }),
+        body: JSON.stringify({ ...service, region_id: service.region_id, active: !service.active, translations: service.translations || {} }),
       });
       setMessage(service.active ? "Сервіс вимкнено." : "Сервіс увімкнено.");
       await load();
@@ -2593,16 +2610,17 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     }
   };
 
+  const cityLabel = (id: string) => regions.find(r => r.id === id)?.name || id;
   const contactFields:FilterDefinition[]=[
     {key:'type',label:'Тип контакту',allLabel:'Усі типи',options:filterChoices(contacts.map(c=>c.type))},
   ];
-  const filteredContacts=contacts.filter(c=>(!contactFilters.search||normalizeFilterText([c.title,c.phone,c.note,c.id].join(' ')).includes(normalizeFilterText(contactFilters.search)))
+  const filteredContacts=contacts.filter(c=>(!contactFilters.search||normalizeFilterText([c.title,c.phone,c.note,c.id,cityLabel(c.region_id)].join(' ')).includes(normalizeFilterText(contactFilters.search)))
     &&(!contactFilters.values.type||c.type===contactFilters.values.type));
   const serviceFields:FilterDefinition[]=[
     {key:'status',label:'Статус',allLabel:'Усі статуси',options:[{value:'active',label:'Увімкнені'},{value:'inactive',label:'Вимкнені'}]},
     {key:'icon',label:'Тип сервісу',allLabel:'Усі типи',options:filterChoices(services.map(x=>x.icon))},
   ];
-  const filteredServices=services.filter(x=>(!serviceFilters.search||normalizeFilterText([x.title,x.note,x.id].join(' ')).includes(normalizeFilterText(serviceFilters.search)))
+  const filteredServices=services.filter(x=>(!serviceFilters.search||normalizeFilterText([x.title,x.note,x.id,cityLabel(x.region_id)].join(' ')).includes(normalizeFilterText(serviceFilters.search)))
     &&(!serviceFilters.values.status||(serviceFilters.values.status==='active')===x.active)
     &&(!serviceFilters.values.icon||x.icon===serviceFilters.values.icon));
   return (
@@ -2614,14 +2632,16 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         action={<OutlineButton onClick={() => void load()}><RefreshCcw size={16}/> Оновити</OutlineButton>}
       />
       <section className="ad-page-editor-region-select">
-        <span>Редагується регіон</span>
-        <select value={regionId} onChange={(e) => { setRegionId(e.target.value); resetContactForm(); resetServiceForm(); contactFilters.reset(); serviceFilters.reset(); setMessage(""); }}>
+        <span>Місто для перегляду контактів і сервісів</span>
+        <select value={regionId} onChange={(e) => { const value=e.target.value; resetContactForm(); resetServiceForm(); setRegionId(value); setContactTargetRegionId(value === "all" ? "" : value); setServiceTargetRegionId(value === "all" ? "" : value); contactFilters.reset(); serviceFilters.reset(); setMessage(""); }}>
+          <option value="all">Усі міста</option>
           {regions.length ? regions.map((region) => <option key={region.id} value={region.id}>{region.name}</option>) : <option value="region-tatariv">Татарів</option>}
         </select>
       </section>
       {message ? <p className="ad-page-editor-message">{message}</p> : null}
 
-      <section className="ad-page-editor-panel">
+      {regionId === "all" ? <p className="ad-page-editor-message">Показані записи з усіх міст. Для кожного контакту та сервісу зберігається місто, до якого він належить. Щоб змінити оформлення сторінки, виберіть конкретне місто.</p> : null}
+      {regionId !== "all" ? <section className="ad-page-editor-panel">
         <header><div><strong>Шапка та основний блок</strong><small>Змінюється текст без зміни поточного дизайну туристичної сторінки.</small></div></header>
         <div className="ad-page-editor-form-grid">
           <label><span>Позначка</span><input value={pageContent.badge || ""} onChange={(e)=>setPageField("badge",e.target.value)} /></label>
@@ -2634,11 +2654,12 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         <label className="ad-page-editor-global-option"><input type="checkbox" checked={applyPageToAllRegions} onChange={(e)=>setApplyPageToAllRegions(e.target.checked)}/><span><strong>Застосувати оформлення до всіх регіонів</strong><small>Тексти цієї сторінки оновляться в усіх активних регіонах. Номери екстрених служб і корисні сервіси залишаються окремими для кожного регіону.</small></span></label>
         <TranslatedPageInputs content={pageContent} onField={setPageField} fields={[{key:"badge",label:"Позначка"},{key:"title",label:"Заголовок"},{key:"subtitle",label:"Підзаголовок",multiline:true},{key:"hero_kicker",label:"Малий текст"},{key:"hero_title",label:"Заголовок hero"},{key:"hero_text",label:"Опис hero",multiline:true}]}/>
         <PrimaryButton onClick={() => void savePageContent()} disabled={saving}><Check size={15}/> {saving ? "Збереження..." : applyPageToAllRegions ? "Зберегти для всіх регіонів" : "Зберегти оформлення сторінки"}</PrimaryButton>
-      </section>
+      </section> : null}
 
       <section className="ad-page-editor-panel">
         <header><div><strong>Екстрені контакти</strong><small>Для зміни контакту натисніть «Редагувати» поруч із ним, внесіть правки та збережіть.</small></div></header>
         <div className="ad-page-editor-form-grid">
+          {regionId === "all" ? <label><span>Місто для контакту</span><select value={contactTargetRegionId} disabled={Boolean(contactId)} onChange={e=>setContactTargetRegionId(e.target.value)}><option value="">Оберіть місто</option>{regions.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label> : null}
           <label><span>Назва</span><input ref={contactTitleInput} value={contactTitle} onChange={(e)=>setContactTitle(e.target.value)} placeholder="Назва служби" /></label>
           <label><span>Телефон</span><input value={contactPhone} onChange={(e)=>setContactPhone(e.target.value)} placeholder="+380..." /></label>
           <label className="is-wide"><span>Опис</span><input value={contactNote} onChange={(e)=>setContactNote(e.target.value)} placeholder="Короткий опис" /></label>
@@ -2650,7 +2671,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveContact()}>{contactId ? <Check size={14}/> : <Plus size={14}/>} {contactId ? "Зберегти зміни контакту" : "Додати контакт"}</PrimaryButton>{contactId ? <OutlineButton onClick={resetContactForm}>Скасувати</OutlineButton> : null}</div>
         <FilterStrip placeholder="Назва, телефон або опис" search={contactFilters.search} onSearch={contactFilters.onSearch} fields={contactFields} values={contactFilters.values} onChange={contactFilters.onChange} onReset={contactFilters.reset}/>
         <div className="ad-page-editor-list">
-          {filteredContacts.slice(contactFilters.page*contactFilters.pageSize,(contactFilters.page+1)*contactFilters.pageSize).map((contact)=><article key={contact.id}><span><strong>{contact.title}</strong><small>{contact.note || "Без опису"} · {contact.phone || "без номера"}</small></span><div><button type="button" onClick={()=>editContact(contact)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteContact(contact)}><Trash2 size={13}/> Видалити</button></div></article>)}
+          {filteredContacts.slice(contactFilters.page*contactFilters.pageSize,(contactFilters.page+1)*contactFilters.pageSize).map((contact)=><article key={contact.id}><span><strong>{contact.title}</strong><small>{regionId === "all" ? `${cityLabel(contact.region_id)} · ` : ""}{contact.note || "Без опису"} · {contact.phone || "без номера"}</small></span><div><button type="button" onClick={()=>editContact(contact)}><Edit3 size={13}/> Редагувати</button><button type="button" className="is-delete" onClick={()=>void deleteContact(contact)}><Trash2 size={13}/> Видалити</button></div></article>)}
           {!filteredContacts.length?<p className="ad-stage2-empty-row">Контактів за вибраними фільтрами немає</p>:null}
         </div><Pagination page={contactFilters.page} pageSize={contactFilters.pageSize} total={filteredContacts.length} onPage={contactFilters.setPage} onPageSize={contactFilters.changeSize}/>
       </section>
@@ -2658,7 +2679,8 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
       <section className="ad-page-editor-panel">
         <header><div><strong>Корисні сервіси</strong><small>Сервіси можна редагувати, вимикати, додавати та видаляти.</small></div><small>Перевірено: {verifiedAt ? new Date(verifiedAt).toLocaleString("uk-UA") : "—"}</small></header>
         <div className="ad-page-editor-form-grid">
-          <label><span>Назва</span><input value={serviceTitle} onChange={(e)=>setServiceTitle(e.target.value)} /></label>
+          {regionId === "all" ? <label><span>Місто для сервісу</span><select value={serviceTargetRegionId} disabled={Boolean(serviceId)} onChange={e=>setServiceTargetRegionId(e.target.value)}><option value="">Оберіть місто</option>{regions.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label> : null}
+          <label><span>Назва</span><input ref={serviceTitleInput} value={serviceTitle} onChange={(e)=>setServiceTitle(e.target.value)} /></label>
           <label><span>Короткий опис</span><input value={serviceNote} onChange={(e)=>setServiceNote(e.target.value)} /></label>
           <TranslationInputs fields={[{key:"title",label:"Назва"},{key:"note",label:"Опис"}]} values={serviceTranslations} onChange={setServiceTranslations}/>
           <label><span>Іконка</span><select value={serviceIcon} onChange={(e)=>setServiceIcon(e.target.value as Stage2EmergencyService["icon"])}><option value="doctor">Лікар</option><option value="pharmacy">Аптека</option><option value="repair">СТО</option><option value="tow">Евакуатор</option><option value="vet">Ветеринар</option><option value="custom">Інше</option></select></label>
@@ -2668,7 +2690,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         <div className="ad-stage2-actions-row"><PrimaryButton onClick={() => void saveService()}>{serviceId ? <Check size={14}/> : <Plus size={14}/>} {serviceId ? "Зберегти сервіс" : "Додати сервіс"}</PrimaryButton>{serviceId ? <OutlineButton onClick={resetServiceForm}>Скасувати</OutlineButton> : null}</div>
         <FilterStrip placeholder="Назва або опис сервісу" search={serviceFilters.search} onSearch={serviceFilters.onSearch} fields={serviceFields} values={serviceFilters.values} onChange={serviceFilters.onChange} onReset={serviceFilters.reset}/>
         <div className="ad-page-editor-list">
-          {filteredServices.slice(serviceFilters.page*serviceFilters.pageSize,(serviceFilters.page+1)*serviceFilters.pageSize).map((service)=><article key={service.id} className={service.active ? "" : "is-disabled"}><span><strong>{service.title}</strong><small>{service.note || "Без опису"} · {service.active ? "увімкнено" : "вимкнено"}</small></span><div><button type="button" onClick={()=>editService(service)}><Edit3 size={13}/> Редагувати</button><button type="button" onClick={()=>void toggleService(service)}>{service.active ? "Вимкнути" : "Увімкнути"}</button><button type="button" className="is-delete" onClick={()=>void deleteService(service)}><Trash2 size={13}/> Видалити</button></div></article>)}
+          {filteredServices.slice(serviceFilters.page*serviceFilters.pageSize,(serviceFilters.page+1)*serviceFilters.pageSize).map((service)=><article key={service.id} className={service.active ? "" : "is-disabled"}><span><strong>{service.title}</strong><small>{regionId === "all" ? `${cityLabel(service.region_id)} · ` : ""}{service.note || "Без опису"} · {service.active ? "увімкнено" : "вимкнено"}</small></span><div><button type="button" onClick={()=>editService(service)}><Edit3 size={13}/> Редагувати</button><button type="button" onClick={()=>void toggleService(service)}>{service.active ? "Вимкнути" : "Увімкнути"}</button><button type="button" className="is-delete" onClick={()=>void deleteService(service)}><Trash2 size={13}/> Видалити</button></div></article>)}
           {!filteredServices.length?<p className="ad-stage2-empty-row">Сервісів за вибраними фільтрами немає</p>:null}
         </div><Pagination page={serviceFilters.page} pageSize={serviceFilters.pageSize} total={filteredServices.length} onPage={serviceFilters.setPage} onPageSize={serviceFilters.changeSize}/>
       </section>

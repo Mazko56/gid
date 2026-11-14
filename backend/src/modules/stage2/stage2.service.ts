@@ -1157,6 +1157,33 @@ export class Stage2Service {
     return result.rows;
   }
 
+  // Admin-only cross-city list; public emergency endpoints remain region-scoped.
+  async adminEmergencyList(regionId: string) {
+    if (regionId !== "all") {
+      const result = await this.db.query(
+        "SELECT id,region_id,type,title,note,phone,lat,lng,tone,sort_order,translations FROM emergency_contacts WHERE region_id=$1 AND active=true ORDER BY sort_order,title",
+        [regionId],
+      );
+      return result.rows;
+    }
+    const result = await this.db.query(
+      `SELECT c.id,c.region_id,c.type,c.title,c.note,c.phone,c.lat,c.lng,c.tone,c.sort_order,c.translations
+       FROM emergency_contacts c JOIN regions r ON r.id=c.region_id
+       WHERE c.active=true AND r.active=true ORDER BY r.name,c.sort_order,c.title`,
+    );
+    return result.rows;
+  }
+
+  async adminEmergencyServices(regionId: string) {
+    if (regionId !== "all") return this.emergencyServices(regionId, true);
+    const result = await this.db.query(
+      `SELECT s.id,s.region_id,s.title,s.note,s.tone,s.icon,s.sort_order,s.active,s.updated_at,s.translations
+       FROM emergency_services s JOIN regions r ON r.id=s.region_id
+       WHERE s.deleted_at IS NULL AND r.active=true ORDER BY r.name,s.sort_order,s.title`,
+    );
+    return { services: result.rows, verified_at: null };
+  }
+
   async emergencyServices(regionId: string, includeInactive = false) {
     const [services, region] = await Promise.all([
       this.db.query(

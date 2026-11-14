@@ -213,7 +213,7 @@ export class Stage2Controller {
 
   @UseGuards(AdminKeyGuard)
   @Get("admin/stage2/emergency")
-  adminEmergencyList(@Query("region_id") regionId = "region-tatariv") { return this.service.emergency(regionId); }
+  adminEmergencyList(@Query("region_id") regionId = "region-tatariv") { return this.service.adminEmergencyList(regionId); }
 
   @UseGuards(AdminKeyGuard)
   @Post("admin/stage2/emergency")
@@ -225,7 +225,7 @@ export class Stage2Controller {
 
   @UseGuards(AdminKeyGuard)
   @Get("admin/stage2/emergency-services")
-  adminEmergencyServices(@Query("region_id") regionId = "region-tatariv") { return this.service.emergencyServices(regionId, true); }
+  adminEmergencyServices(@Query("region_id") regionId = "region-tatariv") { return this.service.adminEmergencyServices(regionId); }
 
   @UseGuards(AdminKeyGuard)
   @Post("admin/stage2/emergency-services")

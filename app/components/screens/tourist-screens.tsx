@@ -3205,6 +3205,7 @@ async function touristLocationImageToDataUrl(file: File) {
 function AddLocationScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
   const localText=(uk:string)=>touristInterfaceText(runtime.language,uk);
+  const label=(uk:string,en:string,pl:string)=>tr(runtime.language,uk,en,pl);
   const categories: Array<{ label: string; slug: string; icon: LucideIcon; tone: string }> = [
     { label: "Де поїсти", slug: "food", icon: Utensils, tone: "orange" },
     { label: "Де купити", slug: "shop", icon: ShoppingBag, tone: "blue" },
@@ -3251,7 +3252,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
       setRegionName(details.region || "");
     } catch (reason) {
       setAddress(`${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`);
-      setError(`Точку обрано, але адресу не вдалося визначити автоматично: ${reason instanceof Error ? reason.message : "помилка геокодування"}`);
+      setError(`${label("Точку обрано, але адресу не вдалося визначити автоматично", "Point selected, but the address could not be found automatically", "Wybrano punkt, ale nie udało się automatycznie ustalić adresu")}: ${runtime.language === "uk" && reason instanceof Error ? reason.message : label("помилка геокодування", "geocoding error", "błąd geokodowania")}`);
     }
     if (closeMap) setMapOpen(false);
   };
@@ -3262,7 +3263,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
     try {
       const point = await runtime.requestLocation();
       if (!point) {
-        setError("Не вдалося отримати геолокацію. Дозвольте доступ до місцезнаходження в Telegram/браузері та повторіть.");
+        setError(label("Не вдалося отримати геолокацію. Дозвольте доступ до місцезнаходження в Telegram/браузері та повторіть.", "Location is unavailable. Allow location access in Telegram or your browser and try again.", "Nie można ustalić lokalizacji. Zezwól na dostęp do lokalizacji w Telegramie lub przeglądarce i spróbuj ponownie."));
         return;
       }
       await resolvePoint({ lat: point.lat, lng: point.lng });
@@ -3280,7 +3281,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
       const encoded = await Promise.all(selected.map(touristLocationImageToDataUrl));
       setPhotos((current) => [...current, ...encoded].slice(0, 6));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не вдалося додати фото");
+      setError(runtime.language === "uk" && reason instanceof Error ? reason.message : label("Не вдалося додати фото", "Could not add photos", "Nie udało się dodać zdjęć"));
     } finally {
       if (photoInput.current) photoInput.current.value = "";
     }
@@ -3289,9 +3290,9 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
   const submit = async () => {
     setError("");
     setSuccess("");
-    if (!runtime.user) return setError("Щоб додати локацію, відкрийте Mini App через Telegram та авторизуйтеся.");
-    if (!name.trim()) return setError("Вкажіть назву локації.");
-    if (!selectedPoint) return setError("Оберіть точку на мапі або натисніть «Моє місце».");
+    if (!runtime.user) return setError(label("Щоб додати локацію, відкрийте Mini App через Telegram та авторизуйтеся.", "Sign in to add a place.", "Zaloguj się, aby dodać miejsce."));
+    if (!name.trim()) return setError(label("Вкажіть назву локації.", "Enter a place name.", "Wpisz nazwę miejsca."));
+    if (!selectedPoint) return setError(label("Оберіть точку на мапі або натисніть «Моє місце».", "Select a point on the map or tap My location.", "Wybierz punkt na mapie lub kliknij Moja lokalizacja."));
     setSaving(true);
     try {
       await stage2Fetch<{ ok: true; id: string; status: string }>("/me/place-submissions", {
@@ -3317,7 +3318,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
       setName(""); setDescription(""); setPhone(""); setWebsite(""); setPhotos([]);
       setSelectedPoint(null); setAddress(""); setCity(""); setRegionName("");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : localText("Не вдалося надіслати локацію"));
+      setError(runtime.language === "uk" && reason instanceof Error ? reason.message : localText("Не вдалося надіслати локацію"));
     } finally {
       setSaving(false);
     }
@@ -3363,7 +3364,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
                     onClick={() => setCategory(item)}
                   >
                     <i><Icon size={19} /></i>
-                    <strong>{item.label}</strong>
+                    <strong>{label(item.label, ({"Де поїсти":"Food & drinks","Де купити":"Shopping","Відпочинок":"Relaxation","Розваги":"Entertainment","Природа":"Nature","Корисне":"Essentials"} as Record<string,string>)[item.label] || item.label, ({"Де поїсти":"Jedzenie","Де купити":"Zakupy","Відпочинок":"Wypoczynek","Розваги":"Rozrywka","Природа":"Przyroda","Корисне":"Przydatne"} as Record<string,string>)[item.label] || item.label)}</strong>
                     {category.slug === item.slug ? <Check size={16} /> : null}
                   </button>
                 );
@@ -3385,10 +3386,10 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
               <span><MapPin size={22} /></span>
             </div>
             <div className="gt-add-location-map-card__copy">
-              <strong>{selectedPoint ? "Точку обрано" : "Позначте місце на мапі"}</strong>
-              <small>{selectedPoint ? `${selectedPoint.lat.toFixed(5)}, ${selectedPoint.lng.toFixed(5)}` : "Оберіть свою геолокацію або поставте точку на чистій мапі."}</small>
+              <strong>{selectedPoint ? label("Точку обрано", "Location selected", "Wybrano lokalizację") : label("Позначте місце на мапі", "Mark the place on the map", "Zaznacz miejsce na mapie")}</strong>
+              <small>{selectedPoint ? `${selectedPoint.lat.toFixed(5)}, ${selectedPoint.lng.toFixed(5)}` : label("Оберіть свою геолокацію або поставте точку на чистій мапі.", "Use your current location or drop a pin on the map.", "Użyj swojej lokalizacji lub zaznacz punkt na mapie.")}</small>
               <div>
-                <button type="button" disabled={locating} onClick={() => void useMyLocation()}><LocateFixed size={17} /> {locating ? "Визначаємо…" : "Моє місце"}</button>
+                <button type="button" disabled={locating} onClick={() => void useMyLocation()}><LocateFixed size={17} /> {locating ? label("Визначаємо…", "Locating…", "Ustalanie lokalizacji…") : label("Моє місце", "My location", "Moja lokalizacja")}</button>
                 <button type="button" onClick={() => { setMapDraft(selectedPoint || initialCenter); setMapOpen(true); }}><Map size={17} /> <TouristText uk="Обрати на мапі"/></button>
               </div>
             </div>
@@ -3410,10 +3411,10 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
           <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => void choosePhotos(event.target.files)} />
           <button type="button" className="gt-add-location-upload" onClick={() => photoInput.current?.click()}>
             <i><Plus size={24} /></i>
-            <span><strong>{photos.length ? `Додано фото: ${photos.length}/6` : "Додати фотографії"}</strong><small><TouristText uk="До 6 фото · JPG, PNG або WEBP"/></small></span>
+            <span><strong>{photos.length ? `${label("Додано фото", "Photos added", "Dodane zdjęcia")}: ${photos.length}/6` : label("Додати фотографії", "Add photos", "Dodaj zdjęcia")}</strong><small><TouristText uk="До 6 фото · JPG, PNG або WEBP"/></small></span>
             <ChevronRight size={19} />
           </button>
-          {photos.length ? <div className="gt-add-location-photo-grid">{photos.map((src, index) => <figure key={`${src.slice(0, 32)}-${index}`}><img src={src} alt={`Фото локації ${index + 1}`} /><button type="button" aria-label={localText("Видалити фото")} onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></figure>)}</div> : null}
+          {photos.length ? <div className="gt-add-location-photo-grid">{photos.map((src, index) => <figure key={`${src.slice(0, 32)}-${index}`}><img src={src} alt={`${label("Фото локації", "Place photo", "Zdjęcie miejsca")} ${index + 1}`} /><button type="button" aria-label={localText("Видалити фото")} onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></figure>)}</div> : null}
 
           <label className="gt-add-location-field">
             <span><TouristText uk="Короткий опис"/></span>
@@ -3439,7 +3440,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
         </div>
 
         <button type="button" disabled={saving} className="gt-primary-button gt-add-location-submit" onClick={() => void submit()}>
-          <Send size={19} /> {saving ? "Надсилаємо…" : "Надіслати на модерацію"}
+          <Send size={19} /> {saving ? label("Надсилаємо…", "Submitting…", "Wysyłanie…") : label("Надіслати на модерацію", "Submit for review", "Wyślij do moderacji")}
         </button>
         <button type="button" className="gt-outline-button" onClick={() => navigate("tourist", "profile")}><ArrowLeft size={18} /> <TouristText uk="Назад до профілю"/></button>
       </main>
@@ -3457,7 +3458,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
 
 function ProfileScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
-  const name = [runtime.user?.first_name, runtime.user?.last_name].filter(Boolean).join(" ") || "Користувач Telegram";
+  const name = [runtime.user?.first_name, runtime.user?.last_name].filter(Boolean).join(" ") || tr(runtime.language,"Користувач Telegram","Telegram user","Użytkownik Telegrama");
   const username = runtime.user?.telegram_username ? `@${runtime.user.telegram_username}` : (runtime.context?.region.name || "Гід туриста");
   const languageLabel = runtime.language === "en" ? "English" : runtime.language === "pl" ? "Polski" : "Українська";
   const [editing, setEditing] = useState(false);
@@ -3560,7 +3561,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
         </form> : null}
         {notice && !editing ? <p className="gt-profile-edit-form__notice" role="status">{notice}</p> : null}
         <div className="gt-profile-list gt-profile-list--reference">
-          <button type="button" className="gt-profile-row--location" onClick={() => void runtime.requestLocation()}><LocateFixed size={27} /><span>{runtime.location?.source === "gps" ? tr(runtime.language, "Геолокація дозволена", "Location enabled", "Lokalizacja włączona") : tr(runtime.language, "Надати доступ до геолокації", "Enable location", "Włącz lokalizację")}</span><ChevronRight size={20} /></button>
+          <button type="button" className="gt-profile-row--location" onClick={() => navigate("tourist", "nearby")}><LocateFixed size={27} /><span>{tr(runtime.language,"Моє місцеположення", "My location", "Moja lokalizacja")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--add-location" onClick={() => navigate("tourist", "add-location")}><MapPin size={27} /><span>{tr(runtime.language, "Додати локацію", "Add place", "Dodaj miejsce")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--reviews" onClick={() => navigate("tourist", "review")}><MessageSquareMore size={27} /><span>{tr(runtime.language, "Мої відгуки", "My reviews", "Moje opinie")}</span><ChevronRight size={20} /></button>
           <button type="button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={27}/><span>{tr(runtime.language,"Мої бронювання","My bookings","Moje rezerwacje")}</span><ChevronRight size={20}/></button>
@@ -3570,7 +3571,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
         </div>
         <div className="gt-profile-list gt-profile-list--reference">
           <button type="button" className="gt-profile-row--language" onClick={() => navigate("tourist", "language")}><Globe size={27} /><span>{tr(runtime.language, "Мова", "Language", "Język")}</span><small>{languageLabel}</small><ChevronRight size={20} /></button>
-          <button type="button" className="gt-profile-row--notifications"><Bell size={26} /><span>{tr(runtime.language, "Сповіщення", "Notifications", "Powiadomienia")}</span><ChevronRight size={20} /></button>
+          <button type="button" className="gt-profile-row--notifications" onClick={() => navigate("tourist", "notifications")}><Bell size={26} /><span>{tr(runtime.language, "Сповіщення", "Notifications", "Powiadomienia")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--support" onClick={() => navigate("tourist", "community")}><Headset size={27} /><span>{tr(runtime.language, "Підтримка / спільнота", "Support / community", "Wsparcie / społeczność")}</span><ChevronRight size={20} /></button>
         </div>
         <div className="gt-profile-list gt-profile-list--reference">
@@ -3630,6 +3631,47 @@ function ActivityScreen({ navigate }: { navigate: Navigate }) {
       </main>
     </div>
   );
+}
+
+function NotificationsScreen({ navigate }: { navigate: Navigate }) {
+  const runtime = useTouristRuntime();
+  type NotificationEvent = { id: string; event_type: string; created_at: string; place_name?: string | null; payload?: Record<string, unknown> };
+  const [events, setEvents] = useState<NotificationEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = async () => {
+    setLoading(true); setError("");
+    try {
+      const rows = await stage2Fetch<NotificationEvent[]>("/me/activity");
+      const relevant = new Set(["place_submission_created", "booking_created", "booking_confirmed", "booking_cancelled", "transaction_confirmed", "transaction_reversed", "bonus_earned", "bonus_spent", "review_submitted", "review_moderated"]);
+      setEvents(rows.filter((row) => relevant.has(row.event_type)));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : tr(runtime.language, "Не вдалося завантажити повідомлення", "Could not load notifications", "Nie udało się wczytać powiadomień")); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, [runtime.user?.id]);
+  const labels: Record<string, [string, string, string]> = {
+    place_submission_created: ["Локацію надіслано на модерацію", "Place submitted for review", "Miejsce wysłano do moderacji"],
+    booking_created: ["Бронювання створено", "Booking created", "Utworzono rezerwację"],
+    booking_confirmed: ["Бронювання підтверджено", "Booking confirmed", "Rezerwacja potwierdzona"],
+    booking_cancelled: ["Бронювання скасовано", "Booking cancelled", "Rezerwacja anulowana"],
+    transaction_confirmed: ["Операцію підтверджено", "Transaction confirmed", "Transakcja potwierdzona"],
+    transaction_reversed: ["Операцію скасовано", "Transaction reversed", "Transakcja cofnięta"],
+    bonus_earned: ["Бонуси нараховано", "Bonuses earned", "Naliczono bonusy"],
+    bonus_spent: ["Бонуси використано", "Bonuses redeemed", "Wykorzystano bonusy"],
+    review_submitted: ["Відгук надіслано", "Review submitted", "Opinia wysłana"],
+    review_moderated: ["Відгук перевірено", "Review reviewed", "Opinia sprawdzona"],
+  };
+  return <div className="tourist-screen gt-screen"><main className="gt-content">
+    <div className="gt-page-heading"><span className="gt-tone--green"><Bell size={23}/></span><div><h1>{tr(runtime.language,"Сповіщення","Notifications","Powiadomienia")}</h1><p>{tr(runtime.language,"Останні події вашого облікового запису","Recent account events","Ostatnie zdarzenia na koncie")}</p></div></div>
+    <button type="button" className="gt-outline-button" onClick={() => void load()} disabled={loading}><RefreshCcw size={17}/>{tr(runtime.language,"Оновити","Refresh","Odśwież")}</button>
+    {error ? <div className="gt-add-location-feedback is-error" role="alert">{error}</div> : null}
+    <div className="gt-stage2-activity-list" aria-live="polite">
+      {events.map((event) => { const words=labels[event.event_type]; return <article key={event.id}><span><Bell size={18}/></span><div><strong>{words ? tr(runtime.language,...words) : event.event_type}</strong><small>{event.place_name || "Gid Tourist"}</small></div><time>{new Date(event.created_at).toLocaleString(runtime.language === "en" ? "en-GB" : runtime.language === "pl" ? "pl-PL" : "uk-UA", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</time></article>; })}
+      {!loading && !events.length && !error ? <div className="gt-stage2-empty">{tr(runtime.language,"Поки немає сповіщень про бронювання, покупки чи модерацію.","No booking, purchase or moderation notifications yet.","Brak jeszcze powiadomień o rezerwacjach, zakupach lub moderacji.")}</div> : null}
+    </div>
+    <p className="gt-profile-edit-form__hint">{tr(runtime.language,"Тут показано події, які вже записані в системі. Надсилання push- та Telegram-повідомлень налаштовується окремо.","This screen shows recorded account events. Push and Telegram delivery are configured separately.","Tutaj widać zapisane zdarzenia konta. Powiadomienia push i Telegram konfiguruje się osobno.")}</p>
+    <button type="button" className="gt-outline-button" onClick={() => navigate("tourist", "profile")}><ArrowLeft size={18}/>{tr(runtime.language,"Назад до профілю","Back to profile","Wróć do profilu")}</button>
+  </main></div>;
 }
 
 function LanguageScreen({ navigate }: { navigate: Navigate }) {
@@ -3743,6 +3785,8 @@ export function TouristScreen({
       return <ActivityScreen navigate={navigate} />;
     case "language":
       return <LanguageScreen navigate={navigate} />;
+    case "notifications":
+      return <NotificationsScreen navigate={navigate} />;
     case "add-location":
       return <AddLocationScreen navigate={navigate} />;
     case "community":
