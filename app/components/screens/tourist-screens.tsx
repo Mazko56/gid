@@ -2941,6 +2941,16 @@ function QrScreen({ navigate }: { navigate: Navigate }) {
   const [qr,setQr]=useState<{token:string;expires_at:string}|null>(null);
   const [seconds,setSeconds]=useState(0);
   const [error,setError]=useState('');
+  const [canRequestBotMessages,setCanRequestBotMessages]=useState(false);
+  const [botPermission,setBotPermission]=useState<'idle'|'allowed'|'denied'>('idle');
+  useEffect(()=>{
+    const telegram=(window as Window & {Telegram?:{WebApp?:{requestWriteAccess?:(cb:(allowed:boolean)=>void)=>void}}}).Telegram?.WebApp;
+    setCanRequestBotMessages(typeof telegram?.requestWriteAccess==='function');
+  },[]);
+  const requestBotMessages=()=>{
+    const telegram=(window as Window & {Telegram?:{WebApp?:{requestWriteAccess?:(cb:(allowed:boolean)=>void)=>void}}}).Telegram?.WebApp;
+    telegram?.requestWriteAccess?.((allowed)=>setBotPermission(allowed?'allowed':'denied'));
+  };
   useEffect(()=>{
     let cancelled=false;let busy=false;
     const refresh=async()=>{if(busy)return;busy=true;try{const result=await stage2Fetch<{token:string;expires_at:string}>('/qr/customer-token',{method:'POST',body:JSON.stringify({start_param:runtime.context?.qr?.startParam||undefined})});if(!cancelled){setQr(result);setError('');}}catch(e){if(!cancelled)setError(e instanceof Error?e.message:'Не вдалося отримати код');}finally{busy=false;}};
@@ -2957,11 +2967,14 @@ function QrScreen({ navigate }: { navigate: Navigate }) {
     {runtime.context?.place?.id ? <div className="gt-notice"><MapPin size={19}/><p>{tr(runtime.language,'QR діє лише в закладі: ','QR valid only at: ','Kod QR działa tylko w obiekcie: ')}<strong>{localizedField(runtime.language,runtime.context.place,'name',runtime.context.place.name)}</strong></p></div>
       : runtime.context?.region.id ? <div className="gt-notice"><MapPin size={19}/><p>{tr(runtime.language,'QR діє в межах регіону: ','QR valid within region: ','Kod QR działa w regionie: ')}<strong>{runtime.language==='en'?(runtime.context.region.nameEn||runtime.context.region.name):runtime.language==='pl'?(runtime.context.region.namePl||runtime.context.region.name):runtime.context.region.name}</strong></p></div> : null}
     <div className="gt-notice"><ShieldCheck size={21}/><p><TouristText uk="Не передавайте QR іншим. Операцію потрібно підтвердити на цьому пристрої."/></p></div>
+    {canRequestBotMessages && botPermission!=='allowed' ? <button type="button" className="gt-outline-button" onClick={requestBotMessages}><Bell size={18}/>{tr(runtime.language,'Дозволити повідомлення про покупки','Allow purchase notifications','Zezwól na powiadomienia o zakupach')}</button> : null}
+    {botPermission==='allowed'?<div className="gt-notice"><Bell size={19}/><p>{tr(runtime.language,'Доступ до повідомлень дозволено. Якщо у вас є чат із ботом, підтвердження покупок надходитимуть також туди.','Messaging permission granted. If you have a chat with the bot, purchase requests can arrive there too.','Zezwolono na wiadomości. Jeśli masz czat z botem, potwierdzenia zakupów mogą też tam trafiać.')}</p></div>:null}
+    {botPermission==='denied'?<div className="gt-notice"><Bell size={19}/><p>{tr(runtime.language,'Щоб отримувати підтвердження в Telegram, дозвольте повідомлення або відкрийте чат із ботом і натисніть /start.','To receive purchase requests in Telegram, allow messages or open the bot chat and tap /start.','Aby otrzymywać potwierdzenia w Telegramie, zezwól na wiadomości albo otwórz czat z botem i wybierz /start.')}</p></div>:null}
     <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','purchase-confirmation')}><TouristText uk="Перевірити підтвердження"/> <ChevronRight size={20}/></button>
   </main></div>;
 }
 
-type PendingPurchase = {id:string;place_name:string;amount:number;spent:number;earned:number;cash_due:number;expires_at:string};
+type PendingPurchase = {id:string;place_name:string;amount:number;spent:number;earned:number;cash_due:number;expires_at:string|null};
 function PurchaseConfirmationScreen({ navigate }: { navigate: Navigate }) {
   const runtime=useTouristRuntime();
   const [items,setItems]=useState<PendingPurchase[]>([]);

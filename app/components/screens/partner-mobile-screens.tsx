@@ -3545,7 +3545,7 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
             <div>
               <small>{customer?.place_name}</small>
               <h2>{customer?.customer_name}</h2>
-              <p>{isFormStep ? 'Заповніть суму покупки та підтвердьте операцію для клієнта.' : purchase?.status === 'confirmed' ? 'Клієнт підтвердив операцію. Сума та бонуси зафіксовані.' : 'Запит надіслано клієнту. Остаточне нарахування буде лише після його підтвердження.'}</p>
+              {isFormStep ? null : purchase?.status === 'confirmed' ? <p>Клієнт підтвердив операцію. Сума та бонуси зафіксовані.</p> : null}
             </div>
           </div>
 
@@ -3565,7 +3565,6 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
               <label className="gt-qr-field"><span>Сума покупки, ₴</span><input inputMode="decimal" type="number" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Наприклад, 1200" /></label>
               <label className="gt-qr-field"><span>Списати бонусів (максимум 20% чека)</span><input type="number" min="0" value={spend} onChange={(e) => setSpend(e.target.value)} placeholder="0" /></label>
             </div>
-            <div className="gt-qr-flow-note"><Sparkles size={18} /><p>Після підтвердження клієнт отримає запит у своєму застосунку. Суму та бонуси можна буде перевірити перед завершенням операції.</p></div>
             {error ? <p role="alert" className="gt-qr-scanner-error gt-qr-scanner-error--boxed">{error}</p> : null}
             <div className="gt-qr-flow-actions">
               <button type="button" className="gt-qr-flow-button gt-qr-flow-button--ghost" onClick={reset}>Відхилити</button>
@@ -3579,7 +3578,6 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
               <div><span>Нарахування</span><b>+{partnerStatsCount(Number(purchase.earned))}</b></div>
             </div>
             <div className="gt-qr-flow-status-pill">{resultStatusLabel}</div>
-            <p className="gt-qr-scanner-status-text gt-qr-scanner-status-text--center">{purchase.status === 'confirmed' ? 'Клієнт уже підтвердив покупку. Операцію можна завершити і перейти до наступного сканування.' : 'Запит створено. Після підтвердження клієнтом баланс та бонуси оновляться автоматично.'}</p>
             <div className="gt-qr-flow-actions">
               <button type="button" className="gt-qr-flow-button gt-qr-flow-button--ghost" onClick={() => navigate('partner', 'partner-dashboard')}>Закрити</button>
               <button type="button" className="gt-qr-flow-button gt-qr-flow-button--primary" onClick={reset}>Сканувати наступний</button>

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomBytes, createHash } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service.js';
 import { makeId } from '../../common/id.js';
@@ -20,8 +20,91 @@ const activeBookingStatuses = ['new', 'pending_partner', 'confirmed', 'alternati
 const allowedBookingStatuses = [...activeBookingStatuses, 'cancelled_by_user', 'cancelled_by_partner', 'completed', 'no_show', 'refunded'];
 
 @Injectable()
-export class PlatformService {
+export class PlatformService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PlatformService.name);
+  private notificationTimer?: ReturnType<typeof setInterval>;
+  private deliveringNotifications = false;
   constructor(private readonly db: DatabaseService) {}
+
+  onModuleInit() {
+    // Revisit unsent notifications after a process restart; no message is lost
+    // just because the user closed the Mini App before delivery.
+    this.notificationTimer = setInterval(() => { void this.deliverNotifications(); }, 20_000);
+  }
+  onModuleDestroy() {
+    if (this.notificationTimer) clearInterval(this.notificationTimer);
+  }
+
+  private async deliverNotifications(transactionId?: string) {
+    if (this.deliveringNotifications) return;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+    const rawFrontendUrl = (process.env.FRONTEND_APP_URL || process.env.APP_URL ||
+      process.env.ALLOWED_ORIGINS?.split(',')[0] || '').trim();
+    let frontend: URL | undefined;
+    try { const parsed = new URL(rawFrontendUrl); if (parsed.protocol === 'https:') frontend = parsed; } catch { /* no valid URL */ }
+    if (!botToken || !frontend || !this.db.isReady()) return;
+    this.deliveringNotifications = true;
+    try {
+      const candidates = await this.db.query<{transaction_id:string}>(
+        `SELECT transaction_id FROM purchase_telegram_outbox
+         WHERE status IN ('pending','sending') AND next_attempt_at<=now()
+         ${transactionId ? 'AND transaction_id=$1' : ''}
+         ORDER BY created_at LIMIT 20`, transactionId ? [transactionId] : []);
+      for (const entry of candidates.rows) {
+        const claimed = await this.db.query<{transaction_id:string;telegram_id:string|null;place_name:string;amount:string;status:string}>(
+          `WITH claimed AS (
+             UPDATE purchase_telegram_outbox SET status='sending',attempts=attempts+1,
+               next_attempt_at=now()+interval '60 seconds'
+             WHERE transaction_id=$1 AND status IN ('pending','sending') AND next_attempt_at<=now()
+             RETURNING transaction_id
+           ) SELECT c.transaction_id,u.telegram_id::text,p.name AS place_name,t.amount::text,t.status
+             FROM claimed c JOIN purchase_transactions t ON t.id=c.transaction_id
+             JOIN users u ON u.id=t.user_id JOIN places p ON p.id=t.place_id`, [entry.transaction_id]);
+        const task = claimed.rows[0];
+        if (!task) continue;
+        if (task.status !== 'pending_customer') {
+          await this.db.query("UPDATE purchase_telegram_outbox SET status='skipped' WHERE transaction_id=$1",[task.transaction_id]);
+          continue;
+        }
+        if (!task.telegram_id) {
+          await this.db.query("UPDATE purchase_telegram_outbox SET status='unavailable',last_error='No Telegram account linked' WHERE transaction_id=$1",[task.transaction_id]);
+          continue;
+        }
+        try {
+          const url = new URL('/tourist/purchase-confirmation', frontend);
+          const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify({
+              chat_id: task.telegram_id,
+              text: `Гід туриста · Підтвердження покупки\nЗаклад: ${task.place_name}\nСума: ${task.amount} ₴\nПеревірте суму та бонуси і підтвердьте або відхиліть операцію в Mini App.`,
+              reply_markup: {inline_keyboard: [[{text:'Переглянути й підтвердити',web_app:{url:url.toString()}}]]},
+            }), signal: AbortSignal.timeout(7_000),
+          });
+          const data = await resp.json() as {ok?:boolean;description?:string};
+          if (!resp.ok || !data.ok) {
+            const problem = data.description || `Telegram HTTP ${resp.status}`;
+            if (resp.status === 403 || resp.status === 400) {
+              await this.db.query("UPDATE purchase_telegram_outbox SET status='unavailable',last_error=$2 WHERE transaction_id=$1",[task.transaction_id,problem.slice(0,300)]);
+              continue;
+            }
+            throw new Error(problem);
+          }
+          await this.db.query("UPDATE purchase_telegram_outbox SET status='sent',sent_at=now(),last_error=NULL WHERE transaction_id=$1",[task.transaction_id]);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.warn(`Telegram purchase notification retry: ${msg}`);
+          await this.db.query(`UPDATE purchase_telegram_outbox SET status='pending',last_error=$2,
+             next_attempt_at=now()+LEAST(900,30*POWER(2,LEAST(attempts,5))) * interval '1 second'
+             WHERE transaction_id=$1`,[task.transaction_id,msg.slice(0,300)]);
+        }
+      }
+    } catch(e) {
+      // Notifications must never break a financial purchase. The customer can
+      // still see the durable pending quote in their authenticated Mini App.
+      this.logger.warn(`Telegram notification queue: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { this.deliveringNotifications = false; }
+  }
 
   private async audit(actor: string | null, region: string | null, entity: string, id: string, action: string, data: Record<string, unknown> = {}) {
     await this.db.query('INSERT INTO audit_logs(id,actor_user_id,region_id,entity_type,entity_id,action,details) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',
@@ -107,7 +190,7 @@ export class PlatformService {
     }
     const token = `gt_${randomBytes(24).toString('base64url')}`;
     const hash = createHash('sha256').update(token).digest('hex');
-    await this.db.query('DELETE FROM customer_qr_tokens q WHERE q.user_id=$1 AND (q.expires_at<now() OR q.consumed_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM purchase_transactions t WHERE t.qr_token_hash=q.token_hash)', [user.id]);
+    await this.db.query('DELETE FROM customer_qr_tokens q WHERE q.user_id=$1 AND (q.expires_at<now() OR q.consumed_at IS NOT NULL) AND (q.scan_expires_at IS NULL OR q.scan_expires_at<=now()) AND NOT EXISTS (SELECT 1 FROM purchase_transactions t WHERE t.qr_token_hash=q.token_hash)', [user.id]);
     await this.db.query(`INSERT INTO customer_qr_tokens(token_hash,user_id,expires_at,context_region_id,context_place_id)
       VALUES($1,$2,now()+interval '45 seconds',$3,$4)`, [hash,user.id,regionId,placeId]);
     await this.audit(user.id,regionId,'customer_qr',hash.slice(0,12),'created',{place_id:placeId});
@@ -115,7 +198,7 @@ export class PlatformService {
       scope: placeId ? 'place' : regionId ? 'region' : 'unrestricted' };
   }
 
-  private async customerForToken(token: string) {
+  private async customerForToken(token: string, requireFreshQr = true) {
     const hash = createHash('sha256').update(token).digest('hex');
     const result = await this.db.query<{
       user_id: string;
@@ -123,12 +206,15 @@ export class PlatformService {
       consumed_at: Date | null;
       context_region_id: string | null;
       context_place_id: string | null;
+      scan_claimed_by_user_id: string | null;
+      scan_claimed_place_id: string | null;
+      scan_expires_at: Date | null;
       first_name: string | null;
       last_name: string | null;
-    }>(`SELECT q.user_id,q.expires_at,q.consumed_at,q.context_region_id,q.context_place_id,u.first_name,u.last_name
+    }>(`SELECT q.user_id,q.expires_at,q.consumed_at,q.context_region_id,q.context_place_id,q.scan_claimed_by_user_id,q.scan_claimed_place_id,q.scan_expires_at,u.first_name,u.last_name
       FROM customer_qr_tokens q JOIN users u ON u.id=q.user_id WHERE q.token_hash=$1`,[hash]);
     const row = result.rows[0];
-    if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) throw new BadRequestException('QR недійсний або строк дії минув');
+    if (!row || row.consumed_at || (requireFreshQr && new Date(row.expires_at).getTime() <= Date.now())) throw new BadRequestException('QR недійсний або строк дії минув');
     return { ...row, hash };
   }
 
@@ -155,6 +241,19 @@ export class PlatformService {
     const qr = await this.customerForToken(txt(body.token,200));
     if(qr.user_id === user.id) throw new ForbiddenException('Власні операції заборонені');
     this.assertQrForPlace(qr,place);
+    // Claim the valid QR for this cashier/place for five minutes. The customer
+    // QR may rotate after 45 seconds without cancelling an already started scan.
+    const lease = await this.db.query(`UPDATE customer_qr_tokens
+       SET scan_claimed_at=COALESCE(scan_claimed_at,now()),
+           scan_expires_at=COALESCE(scan_expires_at,now()+interval '5 minutes'),
+           scan_claimed_by_user_id=COALESCE(scan_claimed_by_user_id,$2),
+           scan_claimed_place_id=COALESCE(scan_claimed_place_id,$3)
+       WHERE token_hash=$1 AND consumed_at IS NULL
+         AND (scan_claimed_by_user_id IS NULL OR scan_claimed_by_user_id=$2)
+         AND (scan_claimed_place_id IS NULL OR scan_claimed_place_id=$3)
+         AND (scan_expires_at IS NULL OR scan_expires_at>now())
+       RETURNING token_hash`,[qr.hash,user.id,place.id]);
+    if (!lease.rows[0]) throw new ConflictException('Цей QR уже сканується іншим касиром або сеанс сканування завершився');
     await this.db.query(`INSERT INTO activity_events(id,user_id,region_id,place_id,event_type,payload)
       VALUES($1,$2,$3,$4,'partner_customer_qr_scanned',$5::jsonb) ON CONFLICT DO NOTHING`,
       [makeId('evt'),qr.user_id,place.region_id,place.id,json({token_hash:qr.hash})]);
@@ -164,7 +263,10 @@ export class PlatformService {
   async quote(user: AuthUser, body: Record<string, unknown>) {
     const place = await this.placeWithRole(user,txt(body.place_id,90));
     if(place.status !== 'approved') throw new ForbiddenException('Операції доступні після модерації');
-    const qr = await this.customerForToken(txt(body.token,200));
+    const qr = await this.customerForToken(txt(body.token,200),false);
+    if (!qr.scan_expires_at || new Date(qr.scan_expires_at).getTime() <= Date.now() ||
+      qr.scan_claimed_by_user_id !== user.id || qr.scan_claimed_place_id !== place.id)
+      throw new ConflictException('Сеанс сканування завершився. Відскануйте новий QR клієнта.');
     if(qr.user_id === user.id) throw new ForbiddenException('Самостійні операції заборонені');
     this.assertQrForPlace(qr,place);
     const total = amount(body.amount);
@@ -193,17 +295,24 @@ export class PlatformService {
     const id = makeId('txn');
     const result = await this.db.query(`INSERT INTO purchase_transactions
        (id,user_id,cashier_user_id,place_id,region_id,qr_token_hash,amount,spent,earned,cash_due,commission,commission_rate,expires_at,idempotency_key)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()+interval '120 seconds',$13)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13)
        ON CONFLICT(cashier_user_id,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key RETURNING *`,
       [id,qr.user_id,user.id,place.id,place.region_id,qr.hash,total,spend,earn,cash,money(total*rate/100),rate,idempotency]);
     await this.audit(user.id,place.region_id,'transaction',result.rows[0].id,'quoted',{total,spend,earn});
+    // A Telegram service message is queued on quote creation even if the Mini
+    // App has already closed. Delivery is retried and is idempotent by txn ID.
+    try {
+      await this.db.query(`INSERT INTO purchase_telegram_outbox(transaction_id,user_id)
+        VALUES($1,$2) ON CONFLICT(transaction_id) DO NOTHING`,[result.rows[0].id,qr.user_id]);
+      await this.deliverNotifications(result.rows[0].id);
+    } catch(e) { this.logger.warn(`Purchase notification: ${e instanceof Error ? e.message : String(e)}`); }
     return result.rows[0];
   }
 
   async pendingCustomer(user: AuthUser) {
     const pending = await this.db.query(`SELECT t.id,t.place_id,p.name AS place_name,t.amount,t.spent,t.earned,t.cash_due,t.commission,
       t.expires_at,t.created_at,t.status FROM purchase_transactions t JOIN places p ON p.id=t.place_id
-      WHERE t.user_id=$1 AND t.status='pending_customer' AND t.expires_at>now() ORDER BY t.created_at DESC`,[user.id]);
+      WHERE t.user_id=$1 AND t.status='pending_customer' ORDER BY t.created_at DESC`,[user.id]);
     return pending.rows;
   }
 
@@ -215,7 +324,7 @@ export class PlatformService {
       if(!item) throw new NotFoundException('Операцію не знайдено');
       if(item.user_id !== user.id) throw new ForbiddenException('Підтвердити може тільки клієнт');
       if(item.status === 'confirmed') return item;
-      if(item.status !== 'pending_customer' || new Date(item.expires_at).getTime() <= Date.now()) throw new ConflictException('Операція вже недійсна');
+      if(item.status !== 'pending_customer') throw new ConflictException('Операція вже опрацьована');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[user.id]);
       const token = await client.query('SELECT * FROM customer_qr_tokens WHERE token_hash=$1 FOR UPDATE',[item.qr_token_hash]);
       if(!token.rows[0] || token.rows[0].consumed_at) throw new ConflictException('QR вже використано або минув строк');

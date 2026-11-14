@@ -330,6 +330,12 @@ CREATE TABLE IF NOT EXISTS customer_qr_tokens (
 -- Additive migration; existing short-lived QR tokens remain readable and expire normally.
 ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS context_region_id text REFERENCES regions(id);
 ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS context_place_id text REFERENCES places(id);
+-- A successful scan creates a five-minute server-side checkout lease. The QR itself
+-- remains short-lived and cannot be newly scanned after its original expiry.
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS scan_claimed_at timestamptz;
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS scan_expires_at timestamptz;
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS scan_claimed_by_user_id text REFERENCES users(id);
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS scan_claimed_place_id text REFERENCES places(id);
 CREATE INDEX IF NOT EXISTS idx_customer_qr_expiry ON customer_qr_tokens(expires_at);
 CREATE TABLE IF NOT EXISTS bonus_rules (
   region_id text PRIMARY KEY REFERENCES regions(id),
@@ -355,8 +361,24 @@ CREATE TABLE IF NOT EXISTS purchase_transactions (
   refunded_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
   idempotency_key text NOT NULL, UNIQUE(cashier_user_id,idempotency_key)
 );
+-- A pending purchase never expires automatically: only an authenticated customer
+-- confirmation/decline or an explicit administrative cancellation changes its state.
+ALTER TABLE purchase_transactions ALTER COLUMN expires_at DROP NOT NULL;
+UPDATE purchase_transactions SET expires_at=NULL WHERE status='pending_customer' AND expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_transactions_customer ON purchase_transactions(user_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_place ON purchase_transactions(place_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS purchase_telegram_outbox (
+  transaction_id text PRIMARY KEY REFERENCES purchase_transactions(id),
+  user_id text NOT NULL REFERENCES users(id),
+  status text NOT NULL DEFAULT 'pending',
+  attempts integer NOT NULL DEFAULT 0,
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz,
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_telegram_outbox_pending ON purchase_telegram_outbox(next_attempt_at)
+  WHERE status IN ('pending','sending');
 CREATE TABLE IF NOT EXISTS bonus_ledger (
   id text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id),
   transaction_id text REFERENCES purchase_transactions(id),
