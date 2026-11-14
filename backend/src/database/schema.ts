@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS categories (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS subcategories_i18n jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE TABLE IF NOT EXISTS organizations (
   id text PRIMARY KEY,
   owner_user_id text REFERENCES users(id) ON DELETE SET NULL,
@@ -173,6 +175,7 @@ CREATE TABLE IF NOT EXISTS emergency_contacts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE emergency_contacts ADD COLUMN IF NOT EXISTS translations jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE INDEX IF NOT EXISTS idx_emergency_region ON emergency_contacts(region_id, active, sort_order);
 
 CREATE TABLE IF NOT EXISTS emergency_services (
@@ -189,6 +192,7 @@ CREATE TABLE IF NOT EXISTS emergency_services (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE emergency_services ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE emergency_services ADD COLUMN IF NOT EXISTS translations jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE INDEX IF NOT EXISTS idx_emergency_services_region ON emergency_services(region_id, active, sort_order);
 
 CREATE TABLE IF NOT EXISTS hot_offers (
@@ -212,6 +216,7 @@ CREATE TABLE IF NOT EXISTS hot_offers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS translations jsonb NOT NULL DEFAULT '{}'::jsonb;
 -- Partner hot offers require explicit moderation; old admin offers remain approved.
 ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS moderation_status text NOT NULL DEFAULT 'approved';
 ALTER TABLE hot_offers ADD COLUMN IF NOT EXISTS moderation_comment text NOT NULL DEFAULT '';
@@ -261,6 +266,7 @@ CREATE TABLE IF NOT EXISTS place_type_templates (
 );
 ALTER TABLE place_type_templates ADD COLUMN IF NOT EXISTS default_title text;
 ALTER TABLE place_type_templates ADD COLUMN IF NOT EXISTS default_description text;
+ALTER TABLE place_type_templates ADD COLUMN IF NOT EXISTS translations jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE place_type_templates ADD COLUMN IF NOT EXISTS default_amenities jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 -- PRD modules: resources, bookings, signed ephemeral customer QR, immutable bonus ledger,

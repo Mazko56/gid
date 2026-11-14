@@ -91,6 +91,13 @@ import { kyivBookingIso } from "../../lib/kyiv-time";
 import { stage2Fetch, trackEvent, type Stage2Category, type Stage2EmergencyServicesResponse, type Stage2GeoDetails, type Stage2HotOffer, type Stage2PageContentResponse, type Stage2Place, type Stage2Weather } from "../../lib/stage2-api";
 import { useTouristRuntime } from "../../lib/tourist-runtime";
 import { tr, translateKnownLabel, type TouristLanguage } from "../../lib/tourist-i18n";
+import { localizedField, localizedPageField, localizedSubcategory } from "../../lib/content-i18n";
+import { touristInterfaceText } from "../../lib/tourist-ui-labels";
+
+function TouristText({ uk }: { uk: string }) {
+  const { language } = useTouristRuntime();
+  return <>{touristInterfaceText(language, uk)}</>;
+}
 
 type Navigate = (role: RoleKey, slug: string) => void;
 
@@ -182,6 +189,7 @@ function MapStrip({ real = false, places = [] }: { real?: boolean; places?: Stag
 }
 
 function FoodMap() {
+  const {language}=useTouristRuntime();
   const markers = [
     { left: "10%", top: "23%" },
     { left: "35%", top: "59%" },
@@ -191,7 +199,7 @@ function FoodMap() {
   ];
 
   return (
-    <div className="gt-food-map" aria-label="Карта рекомендованих закладів">
+    <div className="gt-food-map" aria-label={touristInterfaceText(language,"Карта рекомендованих закладів")}>
       <i className="gt-food-map__river" />
       <i className="gt-food-map__road gt-food-map__road--one" />
       <i className="gt-food-map__road gt-food-map__road--two" />
@@ -199,7 +207,7 @@ function FoodMap() {
         <span className="gt-food-map__marker" style={marker} key={index}><Utensils size={15} /></span>
       ))}
       <span className="gt-food-map__user" />
-      <button type="button" aria-label="Показати моє місцезнаходження"><LocateFixed size={21} /></button>
+      <button type="button" aria-label={touristInterfaceText(language,"Показати моє місцезнаходження")}><LocateFixed size={21} /></button>
     </div>
   );
 }
@@ -211,10 +219,11 @@ function SectionTitle({
   title: string;
   action?: string;
 }) {
+  const {language}=useTouristRuntime();
   return (
     <div className="gt-section-title">
-      <h2>{title}</h2>
-      {action ? <button type="button">{action}</button> : null}
+      <h2>{touristInterfaceText(language,title)}</h2>
+      {action ? <button type="button">{touristInterfaceText(language,action)}</button> : null}
     </div>
   );
 }
@@ -574,6 +583,7 @@ async function diagnoseRemoteImage(url: string) {
 }
 
 function RemotePlaceImage({ url, alt = "", className, google = false, googlePlaceId: googleId = "", eager = false, fallback, diagnostics = false, diagnosticHint = "" }: { url?: string | null; alt?: string; className: string; google?: boolean; googlePlaceId?: string; eager?: boolean; fallback?: ReactNode; diagnostics?: boolean; diagnosticHint?: string }) {
+  const {language}=useTouristRuntime();
   const fallbackUrl = google && googleId ? `/api/stage2/google/place-photo?id=${encodeURIComponent(googleId)}` : "";
   // Prefer the fresh photo resource already returned with Nearby Search / Place Details.
   // If it fails or is absent, fall back to resolving a fresh resource by stable Place ID.
@@ -600,9 +610,9 @@ function RemotePlaceImage({ url, alt = "", className, google = false, googlePlac
 
   if (activeUrl) return <img src={activeUrl} alt={alt} className={className} loading={eager ? "eager" : "lazy"} decoding="async" onError={handleImageError} />;
   if (google || diagnostics) return (
-    <span className={`${className} gt-real-place-image-placeholder ${diagnostics ? "gt-real-place-image-placeholder--diagnostic" : ""}`} aria-label="Фото недоступне">
+    <span className={`${className} gt-real-place-image-placeholder ${diagnostics ? "gt-real-place-image-placeholder--diagnostic" : ""}`} aria-label={touristInterfaceText(language,"Фото недоступне")}>
       <ImageIcon size={25} />
-      {diagnostics ? <span className="gt-photo-diagnostic"><strong>Фото не завантажилось</strong><small>{diagnosing ? "Перевіряємо причину…" : diagnostic || diagnosticHint || "Geoapify / Wikipedia / Openverse / Outscraper не повернули зображення для цієї локації."}</small></span> : null}
+      {diagnostics ? <span className="gt-photo-diagnostic"><strong><TouristText uk="Фото не завантажилось"/></strong><small>{diagnosing ? "Перевіряємо причину…" : diagnostic || diagnosticHint || "Geoapify / Wikipedia / Openverse / Outscraper не повернули зображення для цієї локації."}</small></span> : null}
     </span>
   );
   return <>{fallback ?? <span className={`${className} gt-real-place-image-placeholder`}><ImageIcon size={25} /></span>}</>;
@@ -696,8 +706,9 @@ function CategoryHeader({
 }
 
 function MockQr() {
+  const {language}=useTouristRuntime();
   return (
-    <div className="gt-qr-code" aria-label="QR-код">
+    <div className="gt-qr-code" aria-label={touristInterfaceText(language,"QR-код")}>
       {qrPattern.flatMap((row, rowIndex) =>
         row.split("").map((cell, cellIndex) => (
           <i
@@ -978,6 +989,7 @@ type HotOffer = {
   placeId?: string | null;
   placeRating?: number | null;
   placeReviewCount?: number;
+  source?: Stage2HotOffer;
 };
 
 const hotOffers: HotOffer[] = [
@@ -1056,31 +1068,32 @@ function hotOfferPhoto(categorySlug?: string | null): PhotoName {
   return "restaurant";
 }
 
-function formatOfferValidity(item: Stage2HotOffer) {
-  if (item.validity?.trim()) return item.validity.trim();
+function formatOfferValidity(item: Stage2HotOffer, language: TouristLanguage) {
+  if (localizedField(language,item,"validity").trim()) return localizedField(language,item,"validity");
   const until = item.valid_until ? new Date(item.valid_until) : null;
-  if (until && Number.isFinite(until.getTime())) return `До ${until.toLocaleDateString("uk-UA")}`;
-  return "Актуальна пропозиція";
+  if (until && Number.isFinite(until.getTime())) return tr(language,"До","Until","Do")+` ${until.toLocaleDateString(language==="en"?"en-GB":language==="pl"?"pl-PL":"uk-UA")}`;
+  return tr(language,"Актуальна пропозиція","Current offer","Aktualna oferta");
 }
 
-function mapHotOffer(item: Stage2HotOffer): HotOffer {
+function mapHotOffer(item: Stage2HotOffer,language:TouristLanguage): HotOffer {
   const tone = item.badge_tone === "gold" || item.badge_tone === "red" ? item.badge_tone : "green";
   return {
     id: item.id,
     photo: hotOfferPhoto(item.category_slug),
-    category: String(item.category_label || item.category_slug || "ПРОПОЗИЦІЯ").toUpperCase(),
+    category: localizedField(language,item,"category_label",item.category_slug||tr(language,"ПРОПОЗИЦІЯ","OFFER","OFERTA")).toUpperCase(),
     categorySlug: item.category_slug || undefined,
-    title: item.title,
-    discount: item.discount || "Акція",
-    description: item.description || item.detail || "Спеціальна пропозиція",
-    validity: formatOfferValidity(item),
-    badge: item.badge || "Актуально",
+    title: localizedField(language,item,"title"),
+    discount: localizedField(language,item,"discount",tr(language,"Акція","Offer","Promocja")),
+    description: localizedField(language,item,"description",localizedField(language,item,"detail",tr(language,"Спеціальна пропозиція","Special offer","Oferta specjalna"))),
+    validity: formatOfferValidity(item,language),
+    badge: localizedField(language,item,"badge",tr(language,"Актуально","Current","Aktualne")),
     badgeTone: tone,
-    detail: item.detail || item.description || "Спеціальна пропозиція від партнера Gid Tourist.",
+    detail: localizedField(language,item,"detail",localizedField(language,item,"description",tr(language,"Спеціальна пропозиція від партнера Gid Tourist.","Special offer from a Gid Tourist partner.","Oferta specjalna partnera Gid Tourist."))),
     imageUrl: item.image_url || null,
     placeId: item.place_id || null,
     placeRating: item.place_rating ?? null,
     placeReviewCount: item.place_review_count ?? 0,
+    source: item,
   };
 }
 
@@ -1158,7 +1171,7 @@ function HotOffersScreen({ navigate }: { navigate: Navigate }) {
         stage2Fetch<Stage2PageContentResponse>(`/page-content/hot_offers?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
       ]).then(([items, contentPayload]) => {
         if (cancelled) return;
-        setOffers(items.map(mapHotOffer));
+        setOffers(items.map(item=>mapHotOffer(item,runtime.language)));
         const raw = contentPayload.content || {};
         setPageContent(Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")])));
       }).catch(() => {
@@ -1170,7 +1183,7 @@ function HotOffersScreen({ navigate }: { navigate: Navigate }) {
     window.addEventListener("focus", loadOffers);
     document.addEventListener("visibilitychange", onVisibility);
     return () => { cancelled = true; window.removeEventListener("focus", loadOffers); document.removeEventListener("visibilitychange", onVisibility); };
-  }, [runtime.context]);
+  }, [runtime.context,runtime.language]);
 
   const visibleOffers = offers.filter((offer) => {
     if (activeCategory && offer.categorySlug !== activeCategory) return false;
@@ -1187,28 +1200,28 @@ function HotOffersScreen({ navigate }: { navigate: Navigate }) {
           style={pageContent.banner_image_url ? { backgroundImage: `url("${pageContent.banner_image_url.replaceAll('"', "%22")}")` } : undefined}
         />
         <div className="gt-hot-offers-reference-hero__overlay" />
-        <span className="gt-hot-offers-reference-hero__discount">{pageContent.discount_label || "до"}<br /><b>{pageContent.discount_value || "-30%"}</b></span>
+        <span className="gt-hot-offers-reference-hero__discount">{localizedPageField(runtime.language,pageContent,"discount_label",{uk:"до",en:"up to",pl:"do"})}<br /><b>{pageContent.discount_value || "-30%"}</b></span>
         <div className="gt-hot-offers-reference-hero__copy">
-          <h1 style={{ whiteSpace: "pre-line" }}>{pageContent.title || "Вигідні пропозиції\nдля вашого відпочинку"}</h1>
-          <p style={{ whiteSpace: "pre-line" }}>{pageContent.subtitle || "Спеціальні знижки\nвід перевірених партнерів 💚"}</p>
+          <h1 style={{ whiteSpace: "pre-line" }}>{localizedPageField(runtime.language,pageContent,"title",{uk:"Вигідні пропозиції\nдля вашого відпочинку",en:"Great deals\nfor your holiday",pl:"Korzystne oferty\nna Twój wypoczynek"})}</h1>
+          <p style={{ whiteSpace: "pre-line" }}>{localizedPageField(runtime.language,pageContent,"subtitle",{uk:"Спеціальні знижки\nвід перевірених партнерів 💚",en:"Special discounts\nfrom verified partners 💚",pl:"Wyjątkowe zniżki\nod sprawdzonych partnerów 💚"})}</p>
         </div>
         <div className="gt-hot-offers-reference-hero__dots"><i className="is-active" /><i /></div>
       </section>
 
-      <SearchBar placeholder={pageContent.search_placeholder || "Пошук місць, маршрутів, активностей..."} value={query} onChange={setQuery} />
+      <SearchBar placeholder={localizedPageField(runtime.language,pageContent,"search_placeholder",{uk:"Пошук місць, маршрутів, активностей...",en:"Search places, routes and activities...",pl:"Szukaj miejsc, tras i atrakcji..."})} value={query} onChange={setQuery} />
 
       <div className="gt-hot-offers-reference-categories">
         {hotOfferCategories.map(({ label, icon: Icon, tone, slug }) => (
           <button type="button" key={label} className={`gt-hot-offers-reference-category is-${tone} ${activeCategory === slug ? "is-active" : ""}`.trim()} onClick={() => setActiveCategory((current) => current === slug ? "" : slug)}>
             <span><Icon size={25} /></span>
-            <small>{label}</small>
+            <small>{translateKnownLabel(runtime.language,label)}</small>
           </button>
         ))}
       </div>
 
       <MapStrip />
 
-      <SectionTitle title={pageContent.section_title || "Пропозиції поруч"} action={`${visibleOffers.length}`} />
+      <SectionTitle title={localizedPageField(runtime.language,pageContent,"section_title",{uk:"Пропозиції поруч",en:"Offers nearby",pl:"Oferty w pobliżu"})} action={`${visibleOffers.length}`} />
 
       <section className="gt-hot-offers-reference-list">
         {visibleOffers.map((offer) => (
@@ -1225,18 +1238,20 @@ function HotOffersScreen({ navigate }: { navigate: Navigate }) {
             <ChevronRight size={22} className="gt-hot-offers-reference-row__arrow" />
           </button>
         ))}
-        {!visibleOffers.length ? <div className="gt-stage2-empty">Активних пропозицій за цим фільтром немає</div> : null}
+        {!visibleOffers.length ? <div className="gt-stage2-empty">{tr(runtime.language,"Активних пропозицій за цим фільтром немає","No active offers match this filter","Brak aktywnych ofert dla tego filtra")}</div> : null}
       </section>
     </div>
   );
 }
 
 function HotOfferDetailScreen({ navigate }: { navigate: Navigate }) {
+  const runtime = useTouristRuntime();
   const [offer, setOffer] = useState<HotOffer>(hotOffers[0]);
 
   useEffect(() => {
-    setOffer(readSelectedHotOffer());
-  }, []);
+    const current=readSelectedHotOffer();
+    setOffer(current.source ? mapHotOffer(current.source,runtime.language) : current);
+  }, [runtime.language]);
 
   return (
     <div className="tourist-screen gt-screen gt-hot-offer-detail-screen">
@@ -1253,29 +1268,29 @@ function HotOfferDetailScreen({ navigate }: { navigate: Navigate }) {
 
       <main className="gt-hot-offer-detail-content">
         <div className="gt-hot-offer-detail-status">
-          <span><Clock3 size={19} /><i><small>Термін дії</small><strong>{offer.validity}</strong></i></span>
-          <span><BadgeCheck size={19} /><i><small>Статус</small><strong>Перевірено партнером</strong></i></span>
+          <span><Clock3 size={19} /><i><small>{tr(runtime.language,"Термін дії","Validity","Ważność")}</small><strong>{offer.validity}</strong></i></span>
+          <span><BadgeCheck size={19} /><i><small>{tr(runtime.language,"Статус","Status","Status")}</small><strong>{tr(runtime.language,"Перевірено партнером","Verified by partner","Zweryfikowano przez partnera")}</strong></i></span>
         </div>
 
         <section className="gt-hot-offer-detail-card">
-          <h2>Про пропозицію</h2>
+          <h2>{tr(runtime.language,"Про пропозицію","About this offer","O ofercie")}</h2>
           <p>{offer.detail}</p>
           <div className="gt-hot-offer-detail-tags">
-            <span><Sparkles size={15} /> Ексклюзивно</span>
-            <span><MapPin size={15} /> Поруч</span>
-            <span><ShieldCheck size={15} /> Перевірено</span>
+            <span><Sparkles size={15} /> {tr(runtime.language,"Ексклюзивно","Exclusive","Ekskluzywnie")}</span>
+            <span><MapPin size={15} /> {tr(runtime.language,"Поруч","Nearby","W pobliżu")}</span>
+            <span><ShieldCheck size={15} /> {tr(runtime.language,"Перевірено","Verified","Zweryfikowano")}</span>
           </div>
         </section>
 
         <section className="gt-hot-offer-detail-card gt-hot-offer-detail-card--partner">
           {offer.imageUrl ? <img src={offer.imageUrl} alt={offer.title} className="gt-hot-offer-detail-partner-photo gt-hot-offer-detail-partner-photo--remote" /> : <Thumb name={offer.photo} className="gt-hot-offer-detail-partner-photo" />}
-          <div><small>Партнер Gid Tourist</small><strong>{offer.title}</strong><span><Star size={14} fill="currentColor" /> 4.9 · 126 відгуків</span></div>
+          <div><small>{tr(runtime.language,"Партнер Gid Tourist","Gid Tourist partner","Partner Gid Tourist")}</small><strong>{offer.title}</strong><span><Star size={14} fill="currentColor" /> <TouristText uk="4.9 · 126 відгуків"/></span></div>
           <ChevronRight size={20} />
         </section>
 
         <div className="gt-hot-offer-detail-actions">
-          <button type="button" className="is-primary" onClick={() => navigate("tourist", "qr")}><QrCode size={20} /> Скористатися пропозицією</button>
-          <button type="button"><MapPin size={19} /> Побудувати маршрут</button>
+          <button type="button" className="is-primary" onClick={() => navigate("tourist", "qr")}><QrCode size={20} /> {tr(runtime.language,"Скористатися пропозицією","Use this offer","Skorzystaj z oferty")}</button>
+          <button type="button"><MapPin size={19} /> {tr(runtime.language,"Побудувати маршрут","Get directions","Wyznacz trasę")}</button>
         </div>
       </main>
     </div>
@@ -1289,18 +1304,18 @@ function AboutScreen({ navigate }: { navigate: Navigate }) {
   const details = place?.details ?? {};
   const checkIn = typeof details.check_in === "string" ? details.check_in : "—";
   const checkOut = typeof details.check_out === "string" ? details.check_out : "—";
-  const placeType = place?.subcategory || place?.category_name || tr(language, "заклад", "place", "miejsce");
+  const placeType = place?.subcategory ? translateKnownLabel(language,place.subcategory) : localizedField(language,place,"category_name",tr(language, "заклад", "place", "miejsce"));
 
   return (
     <div className="tourist-screen gt-screen gt-about-screen">
       <section className="gt-about-hero" style={place?.image_url ? { backgroundImage: `linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.56)),url(${place.image_url})` } : undefined}>
         <div className="gt-about-logo">
           {typeof details.logo_url === 'string' && details.logo_url ? <img src={details.logo_url} className="gt-about-brand-logo" alt={`Логотип ${place?.name || 'закладу'}`} /> : <MountainSnow size={43} />}
-          <strong>{place?.name || "Gid Tourist"}</strong>
+          <strong>{localizedField(language,place,"name","Gid Tourist")}</strong>
           <small>{placeType}</small>
         </div>
         <div className="gt-about-hero__copy">
-          <h1>{place?.name || tr(language, "Інформація про заклад", "Place information", "Informacje o miejscu")}</h1>
+          <h1>{localizedField(language,place,"name",tr(language, "Інформація про заклад", "Place information", "Informacje o miejscu"))}</h1>
           <p><MapPin size={18} /> {place?.address || tr(language, "Адреса завантажується", "Loading address", "Ładowanie adresu")}</p>
         </div>
         <div className="gt-checkin-card gt-checkin-card--hero">
@@ -1357,7 +1372,7 @@ function AboutInfoScreen({ navigate, kind }: { navigate: Navigate; kind: AboutIn
     <div className="tourist-screen gt-screen gt-about-info-screen">
       <main className="gt-content">
         <button type="button" className="gt-back-button" onClick={() => navigate("tourist", "about")}><ArrowLeft size={20} /> {tr(language, "Назад", "Back", "Wstecz")}</button>
-        <section className="gt-about-info-head"><span><Icon size={26} /></span><div><h1>{config.title}</h1><p>{place?.name || tr(language, "Ваш заклад", "Your place", "Twój obiekt")}</p></div></section>
+        <section className="gt-about-info-head"><span><Icon size={26} /></span><div><h1>{config.title}</h1><p>{localizedField(language,place,"name",tr(language, "Ваш заклад", "Your place", "Twój obiekt"))}</p></div></section>
         {kind === "reception" ? <div className="gt-about-info-list">
           <div><strong>{tr(language, "Телефон рецепції", "Reception phone", "Telefon recepcji")}</strong><small>{place?.phone || tr(language, "Не вказано", "Not provided", "Nie podano")}</small>{place?.phone ? <a href={`tel:${place.phone}`}>{tr(language, "Подзвонити", "Call", "Zadzwoń")}</a> : null}</div>
           <div><strong>{tr(language, "Графік", "Hours", "Godziny")}</strong><small>{typeof details.reception_hours === "string" ? details.reception_hours : tr(language, "Уточнюйте у закладі", "Ask the place", "Zapytaj w obiekcie")}</small></div>
@@ -1369,8 +1384,8 @@ function AboutInfoScreen({ navigate, kind }: { navigate: Navigate; kind: AboutIn
         {kind === "rules" ? <div className="gt-about-info-list">
           {ruleItems.map((rule, index) => <div key={`${String(rule.title || rule.text || "rule")}-${index}`}><strong>{String(rule.title || rule.text || `${tr(language, "Правило", "Rule", "Zasada")} ${index + 1}`)}</strong>{rule.title ? <small>{String(rule.text || rule.description || "")}</small> : null}</div>)}
           {!ruleItems.length && legacyRules.map((rule, index) => <div key={`${rule}-${index}`}><strong>{tr(language, "Правило", "Rule", "Zasada")} {index + 1}</strong><small>{rule}</small></div>)}
-          {typeof details.cancellation === 'string' && details.cancellation.trim() ? <div><strong>Скасування бронювання</strong><small>{details.cancellation}</small></div> : null}
-          {typeof details.other_rules === 'string' && details.other_rules.trim() ? <div><strong>Інші умови</strong><small>{details.other_rules}</small></div> : null}
+          {typeof details.cancellation === 'string' && details.cancellation.trim() ? <div><strong><TouristText uk="Скасування бронювання"/></strong><small>{details.cancellation}</small></div> : null}
+          {typeof details.other_rules === 'string' && details.other_rules.trim() ? <div><strong><TouristText uk="Інші умови"/></strong><small>{details.other_rules}</small></div> : null}
           {!ruleItems.length && !legacyRules.length && !details.cancellation && !details.other_rules ? <div><strong>{tr(language, "Правила", "Rules", "Zasady")}</strong><small>{tr(language, "Заклад ще не додав правила проживання.", "The place has not added house rules yet.", "Obiekt nie dodał jeszcze zasad pobytu.")}</small></div> : null}
         </div> : null}
         {kind === "contacts" ? <div className="gt-about-info-list">
@@ -1485,11 +1500,11 @@ function HotelServiceDetail({ service, onBack }: { service: HotelService; onBack
   return (
     <main className="tourist-screen gt-screen gt-hotel-service-detail">
       <header className="gt-hotel-services-header">
-        <button type="button" aria-label="Назад до послуг" onClick={onBack}><ArrowLeft size={27} /></button>
-        <h1>Послуги закладу</h1>
+        <button type="button" aria-label={touristInterfaceText(runtime.language,"Назад до послуг")} onClick={onBack}><ArrowLeft size={27} /></button>
+        <h1><TouristText uk="Послуги закладу"/></h1>
         <div className="gt-hotel-service-actions">
-          <button type="button" aria-label="Поділитися"><Share2 size={23} /></button>
-          <button type="button" aria-label="Додати в улюблені"><Heart size={24} /></button>
+          <button type="button" aria-label={touristInterfaceText(runtime.language,"Поділитися")}><Share2 size={23} /></button>
+          <button type="button" aria-label={touristInterfaceText(runtime.language,"Додати в улюблені")}><Heart size={24} /></button>
         </div>
       </header>
 
@@ -1513,14 +1528,14 @@ function HotelServiceDetail({ service, onBack }: { service: HotelService; onBack
         <small>{service.priceNote}</small>
       </section>
 
-      <a className="gt-hotel-service-call" href="tel:+380673421868"><Phone size={19} /> Зателефонувати</a>
-      <footer className="gt-hotel-service-provider"><MountainSnow size={23} /> Послуга від: Гірський затишок</footer>
+      <a className="gt-hotel-service-call" href="tel:+380673421868"><Phone size={19} /> <TouristText uk="Зателефонувати"/></a>
+      <footer className="gt-hotel-service-provider"><MountainSnow size={23} /> <TouristText uk="Послуга від: Гірський затишок"/></footer>
     </main>
   );
 }
 
 type PublicPartnerService = {
-  id:string;name:string;category:string;description:string;active:boolean;hidden:boolean;
+  id:string;name:string;category:string;description:string;active:boolean;hidden:boolean;translations?:Record<string,Record<string,string>>;
   image?:string;priceType?:string;price?:string;currency?:string;audience?:string;
   timeFrom?:string;timeTo?:string;phone?:string;bookingNote?:string;additionalInfo?:string;
 };
@@ -1528,7 +1543,7 @@ type PublicPartnerService = {
 function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
   const placeId = runtime.selectedPlace?.id || runtime.selectedPlaceId || runtime.context?.place?.id || "";
-  const placeName = runtime.selectedPlace?.name || runtime.context?.place?.name || "Заклад";
+  const placeName = localizedField(runtime.language,runtime.selectedPlace||runtime.context?.place,"name",tr(runtime.language,"Заклад","Place","Obiekt"));
   const [services,setServices] = useState<PublicPartnerService[]>([]);
   const [selected,setSelected] = useState<PublicPartnerService|null>(null);
   const [loading,setLoading] = useState(true);
@@ -1538,34 +1553,34 @@ function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
     let closed=false;setLoading(true);
     void stage2Fetch<PublicPartnerService[]>(`/partner/services/public/${encodeURIComponent(placeId)}`)
       .then((items)=>{if(!closed){setServices(items.filter(s=>s.active!==false && !s.hidden));setMessage('');}})
-      .catch((error)=>{if(!closed){setServices([]);setMessage(error instanceof Error?error.message:'Послуги не вдалося завантажити');}})
+      .catch((error)=>{if(!closed){setServices([]);setMessage(error instanceof Error?error.message:touristInterfaceText(runtime.language,'Послуги не вдалося завантажити'));}})
       .finally(()=>{if(!closed)setLoading(false);});
     return ()=>{closed=true;};
   },[placeId]);
   const servicePrice=(s:PublicPartnerService)=>{
-    if(s.priceType==='free')return 'Безкоштовно';
-    if(s.priceType==='request'||!s.price)return 'За запитом';
-    return `${s.priceType==='from'?'Від ':''}${s.price} ${s.currency==='UAH'||!s.currency?'₴':s.currency}`;
+    if(s.priceType==='free')return touristInterfaceText(runtime.language,'Безкоштовно');
+    if(s.priceType==='request'||!s.price)return touristInterfaceText(runtime.language,'За запитом');
+    return `${s.priceType==='from'?touristInterfaceText(runtime.language,'Від '):''}${s.price} ${s.currency==='UAH'||!s.currency?'₴':s.currency}`;
   };
   return <div className="tourist-screen gt-screen gt-hotel-services-screen"><main className="gt-hotel-services gt-live-services">
-    <header className="gt-hotel-services-header"><button type="button" aria-label="Назад" onClick={()=>selected?setSelected(null):navigate('tourist',runtime.context?.place?.id===placeId?'about':'place')}><ArrowLeft size={25}/></button><h1>{selected?'Деталі послуги':'Послуги закладу'}</h1><span/></header>
+    <header className="gt-hotel-services-header"><button type="button" aria-label={touristInterfaceText(runtime.language,"Назад")} onClick={()=>selected?setSelected(null):navigate('tourist',runtime.context?.place?.id===placeId?'about':'place')}><ArrowLeft size={25}/></button><h1>{touristInterfaceText(runtime.language,selected?'Деталі послуги':'Послуги закладу')}</h1><span/></header>
     <p className="gt-live-services__place">{placeName}</p>
     {selected?<article className="gt-live-service-detail">
       {selected.image?<img src={selected.image} alt={selected.name}/>:null}
-      <div><small>{selected.category||'Послуга закладу'}</small><h2>{selected.name}</h2><strong>{servicePrice(selected)}</strong></div>
-      {selected.description?<p>{selected.description}</p>:null}
-      {selected.timeFrom&&selected.timeTo?<p>Години роботи: {selected.timeFrom}–{selected.timeTo}</p>:null}
-      {selected.bookingNote?<p>Бронювання: {selected.bookingNote}</p>:null}
-      {selected.additionalInfo?<p>{selected.additionalInfo}</p>:null}
-      {selected.phone?<a className="gt-primary-button" href={`tel:${selected.phone}`}>Зателефонувати щодо послуги <Phone size={18}/></a>:null}
-      <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','booking')}><CalendarDays size={19}/> Перевірити можливість бронювання</button>
+      <div><small>{touristInterfaceText(runtime.language,selected.category||'Послуга закладу')}</small><h2>{localizedField(runtime.language,selected,"name")}</h2><strong>{servicePrice(selected)}</strong></div>
+      {selected.description?<p>{localizedField(runtime.language,selected,"description")}</p>:null}
+      {selected.timeFrom&&selected.timeTo?<p>{touristInterfaceText(runtime.language,"Години роботи")}: {selected.timeFrom}–{selected.timeTo}</p>:null}
+      {selected.bookingNote?<p>{touristInterfaceText(runtime.language,"Бронювання")}: {localizedField(runtime.language,selected,"bookingNote")}</p>:null}
+      {selected.additionalInfo?<p>{localizedField(runtime.language,selected,"additionalInfo")}</p>:null}
+      {selected.phone?<a className="gt-primary-button" href={`tel:${selected.phone}`}><TouristText uk="Зателефонувати щодо послуги"/> <Phone size={18}/></a>:null}
+      <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','booking')}><CalendarDays size={19}/> <TouristText uk="Перевірити можливість бронювання"/></button>
     </article>:<>
-      {loading?<div className="gt-stage2-empty">Завантажуємо послуги закладу…</div>:null}
+      {loading?<div className="gt-stage2-empty"><TouristText uk="Завантажуємо послуги закладу…"/></div>:null}
       {!loading && message?<div className="gt-stage2-empty">{message}</div>:null}
-      {!loading&&!message&&!services.length?<div className="gt-stage2-empty">На цей момент заклад ще не додав послуг.</div>:null}
+      {!loading&&!message&&!services.length?<div className="gt-stage2-empty"><TouristText uk="На цей момент заклад ще не додав послуг."/></div>:null}
       <section className="gt-live-services-grid">{services.map(service=><button type="button" key={service.id} className="gt-live-service-card" onClick={()=>setSelected(service)}>
         {service.image?<img src={service.image} alt=""/>:<span className="gt-live-service-card__icon"><Hotel size={29}/></span>}
-        <span><small>{service.category||'Послуга закладу'}</small><strong>{service.name}</strong><em>{servicePrice(service)}</em></span><ChevronRight size={19}/>
+        <span><small>{touristInterfaceText(runtime.language,service.category||'Послуга закладу')}</small><strong>{localizedField(runtime.language,service,"name")}</strong><em>{servicePrice(service)}</em></span><ChevronRight size={19}/>
       </button>)}</section>
     </>}
   </main></div>;
@@ -1711,6 +1726,7 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
   }, [runtime.context, runtime.location, query, selectedChip, config.category]);
 
   const chips = ["Усі", ...((category?.subcategories?.length ? category.subcategories : config.fallbackChips).filter((item) => item !== "Усі"))];
+  const subcategoryLabel=(value:string)=>localizedSubcategory(runtime.language,category,value,translateKnownLabel);
   const title = runtime.language === "en" ? (category?.name_en || config.titleEn) : runtime.language === "pl" ? (category?.name_pl || config.titlePl) : (category?.name || config.title);
   const subtitle = runtime.language === "en" ? config.subtitleEn : runtime.language === "pl" ? config.subtitlePl : config.subtitle;
   const placeholder = runtime.language === "en" ? config.placeholderEn : runtime.language === "pl" ? config.placeholderPl : config.placeholder;
@@ -1727,7 +1743,7 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
       <main className="gt-content">
         <CategoryHeader icon={config.icon} title={title} subtitle={subtitle} tone={config.tone} onMap={() => navigate("tourist", "nearby")} />
         <SearchBar placeholder={placeholder} value={query} onChange={setQuery} />
-        <Chips items={chips} selected={selectedChip} onSelect={setSelectedChip} displayLabel={(item) => translateKnownLabel(runtime.language, item)} />
+        <Chips items={chips} selected={selectedChip} onSelect={setSelectedChip} displayLabel={subcategoryLabel} />
         <MapStrip real places={places} />
         <SectionTitle title={sectionTitle} action={`${places.length}`} />
         <div className="gt-place-list">
@@ -1739,8 +1755,8 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
               google={hasGooglePhotoCandidate(place)}
               googlePlaceId={googlePlaceId(place)}
               eager={index < 4}
-              title={place.name}
-              subtitle={place.subcategory ? translateKnownLabel(runtime.language, place.subcategory) : (place.category_name || tr(runtime.language, "Локація", "Place", "Miejsce"))}
+              title={localizedField(runtime.language,place,"name")}
+              subtitle={place.subcategory ? subcategoryLabel(place.subcategory) : localizedField(runtime.language,place,"category_name",tr(runtime.language, "Локація", "Place", "Miejsce"))}
               rating={placeRatingLabel(place)}
               distance={distanceLabel(place.distance_m, runtime.language)}
               walk={walkLabel(place.distance_m, place.walking_duration_s, runtime.language)}
@@ -1985,8 +2001,8 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
           {previewPlace ? <div className="gt-map-place-preview" role="dialog" aria-label={`Перегляд ${previewPlace.name}`}>
             <RemotePlaceImage url={previewPlace.image_url} className="gt-map-place-preview__image" google={hasGooglePhotoCandidate(previewPlace)} googlePlaceId={googlePlaceId(previewPlace)} eager fallback={<Thumb name={placePhotoFallback(previewPlace)} />} />
             <div className="gt-map-place-preview__copy">
-              <strong>{previewPlace.name}</strong>
-              <small>{previewPlace.subcategory ? translateKnownLabel(runtime.language, previewPlace.subcategory) : (previewPlace.category_name || previewPlace.address)}</small>
+              <strong>{localizedField(runtime.language,previewPlace,"name")}</strong>
+              <small>{previewPlace.subcategory ? translateKnownLabel(runtime.language, previewPlace.subcategory) : localizedField(runtime.language,previewPlace,"category_name",previewPlace.address)}</small>
               <span><b><Star size={13} fill="currentColor" /> {placeRatingLabel(previewPlace, false)}{Number(previewPlace.rating || 0) > 0 ? ` · ${previewPlace.review_count || 0}` : ""}</b><em>{previewPlace.is_open_now === true ? tr(runtime.language, "Відкрито", "Open", "Otwarte") : previewPlace.is_open_now === false ? tr(runtime.language, "Зачинено", "Closed", "Zamknięte") : tr(runtime.language, "Графік", "Hours", "Godziny")} · {placeHoursLabel(previewPlace, runtime.language)}</em></span>
               <span><b>{distanceLabel(previewPlace.distance_m, runtime.language)}</b><em><WalkingIcon size={13} /> {walkLabel(previewPlace.distance_m, previewPlace.walking_duration_s, runtime.language)}</em></span>
               <div><button type="button" onClick={() => setPreviewPlace(null)}>{tr(runtime.language, "Закрити", "Close", "Zamknij")}</button><button type="button" className="is-primary" onClick={() => openPlace(previewPlace)}>{tr(runtime.language, "Відкрити", "Open", "Otwórz")}</button></div>
@@ -2009,7 +2025,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
                 <button type="button" className="gt-nearby-design__card" key={place.id} onClick={() => openPlace(place)}>
                   <RemotePlaceImage url={place.image_url} className="gt-photo gt-nearby-design__remote-photo" google={hasGooglePhotoCandidate(place)} googlePlaceId={googlePlaceId(place)} fallback={<Thumb name={placePhotoFallback(place)} />} />
                   <span className="gt-nearby-design__card-copy">
-                    <strong>{place.name}{place.is_partner || place.attributes?.partner === true ? <i className="gt-nearby-partner-badge">{tr(runtime.language, "Партнер", "Partner", "Partner")}</i> : null}</strong><small>{place.subcategory || place.category_name}</small>
+                    <strong>{localizedField(runtime.language,place,"name")}{place.is_partner || place.attributes?.partner === true ? <i className="gt-nearby-partner-badge">{tr(runtime.language, "Партнер", "Partner", "Partner")}</i> : null}</strong><small>{place.subcategory ? translateKnownLabel(runtime.language,place.subcategory) : localizedField(runtime.language,place,"category_name")}</small>
                     <span><b><Star size={12} fill="currentColor" /> {placeRatingLabel(place, false)}</b><em>{distanceLabel(place.distance_m, runtime.language)} · {walkLabel(place.distance_m, place.walking_duration_s, runtime.language)}</em></span>
                   </span>
                 </button>
@@ -2144,8 +2160,8 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" onClick={() => current.telegram ? window.open(current.telegram, "_blank", "noopener,noreferrer") : undefined}><MessageCircle size={22} /><span>Telegram</span></button>
           <button type="button" className={favorite ? "is-active" : ""} onClick={() => void toggleFavorite()}><Heart size={22} fill={favorite ? "currentColor" : "none"} /><span>{favorite ? tr(runtime.language, "Збережено", "Saved", "Zapisano") : tr(runtime.language, "Зберегти", "Save", "Zapisz")}</span></button>
         </div>
-        {bookableResources.length ? <button type="button" className="gt-primary-button gt-place-book-button" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','booking');}}><CalendarDays size={20}/> Забронювати <span>{bookableResources.length} {bookableResources.length===1?'ресурс':'ресурси'}</span><ChevronRight size={18}/></button>:null}
-        {Array.isArray(current.details?.services) && current.details.services.some((s:unknown)=>typeof s==='object'&&s!==null&&(s as {active?:boolean;hidden?:boolean}).active!==false&&(s as {hidden?:boolean}).hidden!==true) ? <button type="button" className="gt-detail-card gt-place-services-link" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','hotel-services');}}><span><Hotel size={22}/></span><div><strong>Послуги закладу</strong><small>Тільки послуги, додані партнером</small></div><ChevronRight size={19}/></button> : null}
+        {bookableResources.length ? <button type="button" className="gt-primary-button gt-place-book-button" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','booking');}}><CalendarDays size={20}/> <TouristText uk="Забронювати"/> <span>{bookableResources.length} {bookableResources.length===1?'ресурс':'ресурси'}</span><ChevronRight size={18}/></button>:null}
+        {Array.isArray(current.details?.services) && current.details.services.some((s:unknown)=>typeof s==='object'&&s!==null&&(s as {active?:boolean;hidden?:boolean}).active!==false&&(s as {hidden?:boolean}).hidden!==true) ? <button type="button" className="gt-detail-card gt-place-services-link" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','hotel-services');}}><span><Hotel size={22}/></span><div><strong><TouristText uk="Послуги закладу"/></strong><small><TouristText uk="Тільки послуги, додані партнером"/></small></div><ChevronRight size={19}/></button> : null}
         <SectionTitle title={tr(runtime.language, "Про заклад", "About", "O miejscu")} />
         <p className="gt-body-copy">{current.description || tr(runtime.language, "Інформація про заклад уточнюється.", "Place information is being updated.", "Informacje o miejscu są aktualizowane.")}</p>
         <div className="gt-detail-card">
@@ -2308,8 +2324,8 @@ function TransferScreen({ navigate }: { navigate: Navigate }) {
 
   const display = places.map((place, index) => ({
     image: place.image_url || "",
-    title: place.name,
-    subtitle: place.description || (place.subcategory ? translateKnownLabel(runtime.language, place.subcategory) : tr(runtime.language, "Транспортна послуга", "Transport service", "Usługa transportowa")),
+    title: localizedField(runtime.language,place,"name"),
+    subtitle: localizedField(runtime.language,place,"description") || (place.subcategory ? translateKnownLabel(runtime.language, place.subcategory) : tr(runtime.language, "Транспортна послуга", "Transport service", "Usługa transportowa")),
     rating: placeRatingLabel(place),
     distance: distanceLabel(place.distance_m, runtime.language),
     walk: walkLabel(place.distance_m, place.walking_duration_s, runtime.language),
@@ -2346,6 +2362,7 @@ function BookingScreen({ navigate }: { navigate: Navigate }) {
   const selected = runtime.selectedPlace;
   const placeId = selected?.id || runtime.selectedPlaceId || runtime.context?.place?.id || '';
   const [resources, setResources] = useState<BookingResource[]>([]);
+  const langText=(text:string)=>touristInterfaceText(runtime.language,text);
   const [resourceId, setResourceId] = useState('');
   const [date, setDate] = useState(() => new Date(Date.now()+86400000).toISOString().slice(0,10));
   const [time, setTime] = useState('16:00');
@@ -2375,56 +2392,58 @@ function BookingScreen({ navigate }: { navigate: Navigate }) {
     return start<Date.now()||occupied.some((b)=>b.resource_id===resourceId&&start<new Date(b.ends_at).getTime()&&start+duration>new Date(b.starts_at).getTime());
   };
   const send=async()=>{
-    if(!resource)return setError('У цьому закладі ще не додано ресурси для онлайн-бронювання');
+    if(!resource)return setError(langText('У цьому закладі ще не додано ресурси для онлайн-бронювання'));
     setSaving(true);setError('');
     try{
       await stage2Fetch('/bookings',{method:'POST',body:JSON.stringify({resource_id:resourceId,starts_at:kyivBookingIso(date,time),party_size:people,phone,comment,client_name:[runtime.user?.first_name,runtime.user?.last_name].filter(Boolean).join(' ')})});
       setConfirmed(true);
-    }catch(e){setError(e instanceof Error?e.message:'Не вдалося створити бронювання');}
+    }catch(e){setError(e instanceof Error?e.message:langText('Не вдалося створити бронювання'));}
     finally{setSaving(false);}
   };
   return (
     <div className="tourist-screen gt-screen"><main className="gt-content">
-      <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1>Бронювання</h1><p>Оберіть вільний ресурс і час</p></div></div>
-      <div className="gt-booking-place"><Thumb name="tub"/><div><strong>{selected?.name||runtime.context?.place?.name||'Бронювання послуги'}</strong><small>{selected?.address||runtime.context?.place?.address||'Оберіть заклад у каталозі'}</small></div></div>
+      <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1><TouristText uk="Бронювання"/></h1><p><TouristText uk="Оберіть вільний ресурс і час"/></p></div></div>
+      <div className="gt-booking-place"><Thumb name="tub"/><div><strong>{localizedField(runtime.language,selected||runtime.context?.place,'name',langText('Бронювання послуги'))}</strong><small>{selected?.address||runtime.context?.place?.address||langText('Оберіть заклад у каталозі')}</small></div></div>
       <SectionTitle title="Ресурс"/>
-      {resources.length?<div className="gt-time-grid">{resources.map(r=><button type="button" key={r.id} className={resourceId===r.id?'is-active':''} onClick={()=>setResourceId(r.id)}>{r.name}</button>)}</div>:<div className="gt-notice"><Info size={20}/><p>Онлайн-бронювання ще не налаштоване цим партнером. Скористайтеся контактом у картці закладу.</p></div>}
-      <SectionTitle title="Дата"/><input aria-label="Дата бронювання" type="date" min={new Date().toISOString().slice(0,10)} value={date} onChange={e=>setDate(e.target.value)} style={{width:'100%',padding:'14px',borderRadius:12,border:'1px solid #dde3df'}}/>
-      <SectionTitle title="Вільний час"/><div className="gt-time-grid">{availableSlots.map(slot=><button key={slot} type="button" disabled={slotIsBusy(slot)} className={time===slot?'is-active':''} onClick={()=>setTime(slot)}>{slot}{slotIsBusy(slot)?' · Зайнято':''}</button>)}</div>
-      <div className="gt-booking-summary"><div><span>Тривалість</span><strong>{resource?.duration_minutes||'—'} хв</strong></div><div><span>Місткість</span><strong>{resource?.capacity||'—'} гостей</strong></div><div><span>Вартість</span><strong>{resource?`${Number(resource.price).toLocaleString('uk-UA')} ₴`:'Уточнити'}</strong></div></div>
-      <div style={{display:'grid',gap:12,margin:'18px 0'}}><label>Кількість осіб <input type="number" min={1} max={resource?.capacity||20} value={people} onChange={e=>setPeople(Number(e.target.value))} style={{width:'100%',padding:10}}/></label><label>Телефон для звʼязку <input type="tel" placeholder="+380XXXXXXXXX" value={phone} onChange={e=>setPhone(e.target.value)} style={{width:'100%',padding:10}}/></label><label>Коментар (необовʼязково)<textarea value={comment} onChange={e=>setComment(e.target.value)} style={{width:'100%',padding:10}}/></label></div>
+      {resources.length?<div className="gt-time-grid">{resources.map(r=><button type="button" key={r.id} className={resourceId===r.id?'is-active':''} onClick={()=>setResourceId(r.id)}>{langText(r.name)}</button>)}</div>:<div className="gt-notice"><Info size={20}/><p><TouristText uk="Онлайн-бронювання ще не налаштоване цим партнером. Скористайтеся контактом у картці закладу."/></p></div>}
+      <SectionTitle title="Дата"/><input aria-label={touristInterfaceText(runtime.language,"Дата бронювання")} type="date" min={new Date().toISOString().slice(0,10)} value={date} onChange={e=>setDate(e.target.value)} style={{width:'100%',padding:'14px',borderRadius:12,border:'1px solid #dde3df'}}/>
+      <SectionTitle title="Вільний час"/><div className="gt-time-grid">{availableSlots.map(slot=><button key={slot} type="button" disabled={slotIsBusy(slot)} className={time===slot?'is-active':''} onClick={()=>setTime(slot)}>{slot}{slotIsBusy(slot)?` · ${langText('Зайнято')}`:''}</button>)}</div>
+      <div className="gt-booking-summary"><div><span><TouristText uk="Тривалість"/></span><strong>{resource?.duration_minutes||'—'} {langText('хв')}</strong></div><div><span><TouristText uk="Місткість"/></span><strong>{resource?.capacity||'—'} {langText('гостей')}</strong></div><div><span><TouristText uk="Вартість"/></span><strong>{resource?`${Number(resource.price).toLocaleString('uk-UA')} ₴`:langText('Уточнити')}</strong></div></div>
+      <div style={{display:'grid',gap:12,margin:'18px 0'}}><label><TouristText uk="Кількість осіб"/> <input type="number" min={1} max={resource?.capacity||20} value={people} onChange={e=>setPeople(Number(e.target.value))} style={{width:'100%',padding:10}}/></label><label><TouristText uk="Телефон для звʼязку"/> <input type="tel" placeholder="+380XXXXXXXXX" value={phone} onChange={e=>setPhone(e.target.value)} style={{width:'100%',padding:10}}/></label><label><TouristText uk="Коментар (необовʼязково)"/><textarea value={comment} onChange={e=>setComment(e.target.value)} style={{width:'100%',padding:10}}/></label></div>
       {error?<p role="alert" style={{color:'#a62424'}}>{error}</p>:null}
-      {confirmed?<div className="gt-success-card"><span><Check size={24}/></span><div><strong>Запит надіслано</strong><p>Бронювання очікує на підтвердження партнера.</p></div></div>:<button type="button" className="gt-primary-button" disabled={saving||!resource||slotIsBusy(time)} onClick={()=>void send()}>{saving?'Надсилаємо...':'Підтвердити бронювання'} <ChevronRight size={20}/></button>}
-      <button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={18}/> Усі мої бронювання</button>
-      <SectionTitle title="Мої бронювання"/>{existing.map(b=><div className="gt-booking-summary" key={b.id}><div><span>{b.place_name} · {b.resource_name}</span><strong>{new Date(b.starts_at).toLocaleString('uk-UA')}</strong></div><div><span>Статус</span><strong>{b.status}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void stage2Fetch(`/bookings/${b.id}/status`,{method:'PATCH',body:JSON.stringify({status:'cancelled_by_user'})}).then(()=>setExisting(curr=>curr.map(x=>x.id===b.id?{...x,status:'cancelled_by_user'}:x))).catch(e=>setError(String(e)))}>Скасувати</button>:null}</div>)}
-      <button type="button" className="gt-text-button" onClick={()=>navigate('tourist','plan')}>Переглянути мій план</button>
+      {confirmed?<div className="gt-success-card"><span><Check size={24}/></span><div><strong><TouristText uk="Запит надіслано"/></strong><p><TouristText uk="Бронювання очікує на підтвердження партнера."/></p></div></div>:<button type="button" className="gt-primary-button" disabled={saving||!resource||slotIsBusy(time)} onClick={()=>void send()}>{langText(saving?'Надсилаємо...':'Підтвердити бронювання')} <ChevronRight size={20}/></button>}
+      <button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={18}/> <TouristText uk="Усі мої бронювання"/></button>
+      <SectionTitle title="Мої бронювання"/>{existing.map(b=><div className="gt-booking-summary" key={b.id}><div><span>{b.place_name} · {b.resource_name}</span><strong>{new Date(b.starts_at).toLocaleString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA')}</strong></div><div><span><TouristText uk="Статус"/></span><strong>{langText(b.status)}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void stage2Fetch(`/bookings/${b.id}/status`,{method:'PATCH',body:JSON.stringify({status:'cancelled_by_user'})}).then(()=>setExisting(curr=>curr.map(x=>x.id===b.id?{...x,status:'cancelled_by_user'}:x))).catch(e=>setError(String(e)))}><TouristText uk="Скасувати"/></button>:null}</div>)}
+      <button type="button" className="gt-text-button" onClick={()=>navigate('tourist','plan')}><TouristText uk="Переглянути мій план"/></button>
     </main></div>
   );
 }
 
 function MyBookingsScreen({ navigate }: {navigate:Navigate}) {
+  const runtime=useTouristRuntime();
+  const langText=(text:string)=>touristInterfaceText(runtime.language,text);
   const [bookings,setBookings]=useState<BookingRecord[]>([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
   const refresh=async()=>{
     try { setBookings(await stage2Fetch<BookingRecord[]>('/bookings'));setError(''); }
-    catch(e){setError(e instanceof Error?e.message:'Не вдалося завантажити бронювання');}
+    catch(e){setError(e instanceof Error?e.message:langText('Не вдалося завантажити бронювання'));}
     finally{setLoading(false);}
   };
   useEffect(()=>{void refresh();},[]);
   const statuses:Record<string,string>={pending_partner:'Очікує підтвердження',confirmed:'Підтверджено',completed:'Завершено',cancelled_by_user:'Скасовано вами',cancelled_by_partner:'Відхилено закладом',no_show:'Не відвідано',new:'Нове'};
   const cancel=async(id:string)=>{
-    if(!window.confirm('Скасувати бронювання?'))return;
+    if(!window.confirm(langText('Скасувати бронювання?')))return;
     try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status:'cancelled_by_user'})});await refresh();}
-    catch(e){setError(e instanceof Error?e.message:'Не вдалося скасувати');}
+    catch(e){setError(e instanceof Error?e.message:langText('Не вдалося скасувати'));}
   };
   return <div className="tourist-screen gt-screen"><main className="gt-content gt-my-bookings">
-    <button type="button" className="gt-back-button" onClick={()=>navigate('tourist','profile')}><ArrowLeft size={19}/> До профілю</button>
-    <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1>Мої бронювання</h1><p>Історія заявок та їхній стан</p></div></div>
-    {loading?<div className="gt-stage2-empty">Завантаження…</div>:null}
+    <button type="button" className="gt-back-button" onClick={()=>navigate('tourist','profile')}><ArrowLeft size={19}/> <TouristText uk="До профілю"/></button>
+    <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1><TouristText uk="Мої бронювання"/></h1><p><TouristText uk="Історія заявок та їхній стан"/></p></div></div>
+    {loading?<div className="gt-stage2-empty"><TouristText uk="Завантаження…"/></div>:null}
     {error?<p role="alert" className="gt-booking-message">{error}</p>:null}
-    {!loading&&!bookings.length?<div className="gt-stage2-empty">Ви ще не створювали бронювань. Відкрийте заклад і оберіть «Забронювати».</div>:null}
-    {bookings.map(b=><article className="gt-booking-summary" key={b.id}><div><span>{b.place_name||'Заклад'} · {b.resource_name||'Ресурс'}</span><strong>{new Date(b.starts_at).toLocaleString('uk-UA',{dateStyle:'medium',timeStyle:'short'})}</strong></div><div><span>Статус</span><strong>{statuses[b.status]||b.status}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void cancel(b.id)}>Скасувати</button>:null}</article>)}
+    {!loading&&!bookings.length?<div className="gt-stage2-empty"><TouristText uk="Ви ще не створювали бронювань. Відкрийте заклад і оберіть «Забронювати»."/></div>:null}
+    {bookings.map(b=><article className="gt-booking-summary" key={b.id}><div><span>{b.place_name||langText('Заклад')} · {b.resource_name||langText('Ресурс')}</span><strong>{new Date(b.starts_at).toLocaleString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA',{dateStyle:'medium',timeStyle:'short'})}</strong></div><div><span><TouristText uk="Статус"/></span><strong>{langText(statuses[b.status]||b.status)}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void cancel(b.id)}><TouristText uk="Скасувати"/></button>:null}</article>)}
   </main></div>;
 }
 
@@ -2465,15 +2484,16 @@ function PlanSurveyHeader({
   total?: number;
   onBack: () => void;
 }) {
+  const {language}=useTouristRuntime();
   const hasProgress = step !== undefined && total !== undefined;
   const progress = hasProgress ? Math.max(0, Math.min(100, ((step - 1) / Math.max(1, total - 1)) * 100)) : 0;
   return (
     <header className="gt-plan-survey-header">
-      <button type="button" aria-label="Назад" onClick={onBack}><ArrowLeft size={22} /></button>
+      <button type="button" aria-label={touristInterfaceText(language,"Назад")} onClick={onBack}><ArrowLeft size={22} /></button>
       <span aria-hidden="true" />
       <span className="gt-plan-survey-info"><Info size={19} /></span>
       {hasProgress ? (
-        <div className="gt-plan-progress-steps" aria-label={`Крок ${step} із ${total}`}>
+        <div className="gt-plan-progress-steps" aria-label={`${touristInterfaceText(language,"Крок")} ${step} / ${total}`}>
           <i style={{ width: `${progress}%` }} />
           {Array.from({ length: total }).map((_, index) => (
             <span className={index + 1 < step ? "is-complete" : index + 1 === step ? "is-current" : ""} key={index}>
@@ -2482,7 +2502,7 @@ function PlanSurveyHeader({
           ))}
         </div>
       ) : null}
-      {hasProgress ? <small className="gt-plan-progress-label">Крок {step} із {total}</small> : null}
+      {hasProgress ? <small className="gt-plan-progress-label">{touristInterfaceText(language,"Крок")} {step} / {total}</small> : null}
     </header>
   );
 }
@@ -2496,11 +2516,12 @@ function PlanChoiceList({
   selected: string;
   onSelect: (value: string) => void;
 }) {
+  const {language}=useTouristRuntime();
   return (
     <div className="gt-plan-choice-list">
       {items.map(({ label, icon: Icon }) => (
         <button type="button" className={selected === label ? "is-selected" : ""} key={label} onClick={() => onSelect(label)}>
-          <Icon size={19} /><span>{label}</span>{selected === label ? <Check size={18} /> : null}
+          <Icon size={19} /><span>{touristInterfaceText(language,label)}</span>{selected === label ? <Check size={18} /> : null}
         </button>
       ))}
     </div>
@@ -2518,19 +2539,21 @@ function PlanChipGroup({
   onSelect: (value: string) => void;
   className?: string;
 }) {
+  const {language}=useTouristRuntime();
   return (
     <div className={`gt-plan-chip-group ${className}`.trim()}>
       {items.map((item) => (
-        <button type="button" className={selected === item ? "is-selected" : ""} key={item} onClick={() => onSelect(item)}>{item}</button>
+        <button type="button" className={selected === item ? "is-selected" : ""} key={item} onClick={() => onSelect(item)}>{touristInterfaceText(language,item)}</button>
       ))}
     </div>
   );
 }
 
 function PlanStepper({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  const {language}=useTouristRuntime();
   return (
     <div className="gt-plan-stepper">
-      <span>{label}</span>
+      <span>{touristInterfaceText(language,label)}</span>
       <div>
         <button type="button" onClick={() => onChange(Math.max(0, value - 1))}><Minus size={17} /></button>
         <strong>{value}</strong>
@@ -2543,8 +2566,8 @@ function PlanStepper({ label, value, onChange }: { label: string; value: number;
 function PlanDateRange() {
   return (
     <div className="gt-plan-date-cards">
-      <label><span>Початок</span><input type="date" defaultValue="2026-05-24" /><CalendarRange /></label>
-      <label><span>Завершення</span><input type="date" defaultValue="2026-05-26" /><CalendarRange /></label>
+      <label><span><TouristText uk="Початок"/></span><input type="date" defaultValue="2026-05-24" /><CalendarRange /></label>
+      <label><span><TouristText uk="Завершення"/></span><input type="date" defaultValue="2026-05-26" /><CalendarRange /></label>
     </div>
   );
 }
@@ -2560,15 +2583,18 @@ function PlanFooter({
   onSecondary?: () => void;
   onNext: () => void;
 }) {
+  const {language}=useTouristRuntime();
   return (
     <div className="gt-plan-flow-footer">
-      {secondary && onSecondary ? <button type="button" className="is-secondary" onClick={onSecondary}>{secondary}</button> : null}
-      <button type="button" className="is-primary" onClick={onNext}>{label}<ChevronRight size={19} /></button>
+      {secondary && onSecondary ? <button type="button" className="is-secondary" onClick={onSecondary}>{touristInterfaceText(language,secondary)}</button> : null}
+      <button type="button" className="is-primary" onClick={onNext}>{touristInterfaceText(language,label)}<ChevronRight size={19} /></button>
     </div>
   );
 }
 
 function PlanResult({ onOpenPlan, extended = false }: { onOpenPlan: () => void; extended?: boolean }) {
+  const {language}=useTouristRuntime();
+  const t=(v:string)=>touristInterfaceText(language,v);
   const days = [
     { day: "День 1", photo: "hotel" as PhotoName, title: "Заселення та вечір у Татарові", items: ["Поселення в готелі", "Вечеря з місцевою кухнею", "Легка вечірня прогулянка"] },
     { day: "День 2", photo: "jeep" as PhotoName, title: "Гори та карпатські враження", items: ["Маршрут до оглядового місця", "Обід у гірській колибі", "Відпочинок у чані"] },
@@ -2576,22 +2602,22 @@ function PlanResult({ onOpenPlan, extended = false }: { onOpenPlan: () => void; 
   ];
   return (
     <section className="gt-plan-result">
-      <div className="gt-plan-result-title"><span><Sparkles size={24} /></span><div><h1>{extended ? "Ваші варіанти готові" : "Ваш план готовий 🎉"}</h1><p>{extended ? "Ми підібрали три сценарії під ваші побажання" : "Персональний план на 3 дні"}</p></div></div>
+      <div className="gt-plan-result-title"><span><Sparkles size={24} /></span><div><h1>{t(extended ? "Ваші варіанти готові" : "Ваш план готовий 🎉")}</h1><p>{t(extended ? "Ми підібрали три сценарії під ваші побажання" : "Персональний план на 3 дні")}</p></div></div>
       {extended ? (
         <>
           <div className="gt-plan-extended-summary">
-            <span><UsersRound size={17} /> 2 дорослих · 1 дитина</span>
-            <span><CalendarDays size={17} /> 3 дні</span>
-            <span><TentTree size={17} /> Сімейний · природа · SPA</span>
-            <span><CarFront size={17} /> Власне авто</span>
+            <span><UsersRound size={17} /> <TouristText uk="2 дорослих · 1 дитина"/></span>
+            <span><CalendarDays size={17} /> <TouristText uk="3 дні"/></span>
+            <span><TentTree size={17} /> <TouristText uk="Сімейний · природа · SPA"/></span>
+            <span><CarFront size={17} /> <TouristText uk="Власне авто"/></span>
           </div>
-          <h2 className="gt-plan-variant-title">Ми підібрали 3 варіанти</h2>
+          <h2 className="gt-plan-variant-title"><TouristText uk="Ми підібрали 3 варіанти"/></h2>
           <div className="gt-plan-variant-row">
             {["Збалансований", "Більше активності", "Спокійний сімейний"].map((item, index) => (
               <article className={index === 0 ? "is-selected" : ""} key={item}>
                 <Thumb name={(index === 0 ? "jeep" : index === 1 ? "tub" : "hotel") as PhotoName} />
-                <strong>{item}</strong><small>{index === 0 ? "3 дні · рекомендовано" : "3 дні · альтернативний"}</small>
-                <button type="button">{index === 0 ? "Обрано" : "Обрати"}</button>
+                <strong>{t(item)}</strong><small>{t(index === 0 ? "3 дні · рекомендовано" : "3 дні · альтернативний")}</small>
+                <button type="button">{t(index === 0 ? "Обрано" : "Обрати")}</button>
               </article>
             ))}
           </div>
@@ -2601,15 +2627,15 @@ function PlanResult({ onOpenPlan, extended = false }: { onOpenPlan: () => void; 
         {days.map((item) => (
           <article key={item.day}>
             <Thumb name={item.photo} />
-            <div><small>{item.day}</small><strong>{item.title}</strong><ul>{item.items.map((entry) => <li key={entry}>{entry}</li>)}</ul></div>
+            <div><small>{t(item.day)}</small><strong>{t(item.title)}</strong><ul>{item.items.map((entry) => <li key={entry}>{t(entry)}</li>)}</ul></div>
             <ChevronRight size={18} />
           </article>
         ))}
       </div>
-      <button type="button" className="gt-plan-more"><Route size={19} /> Ще 2 варіанти плану <ChevronRight size={18} /></button>
+      <button type="button" className="gt-plan-more"><Route size={19} /> <TouristText uk="Ще 2 варіанти плану"/> <ChevronRight size={18} /></button>
       <div className="gt-plan-result-actions">
-        <button type="button"><Share2 size={18} /> Поділитися</button>
-        <button type="button" onClick={onOpenPlan}><Save size={18} /> Зберегти план</button>
+        <button type="button"><Share2 size={18} /> <TouristText uk="Поділитися"/></button>
+        <button type="button" onClick={onOpenPlan}><Save size={18} /> <TouristText uk="Зберегти план"/></button>
       </div>
     </section>
   );
@@ -2630,6 +2656,8 @@ const savedPlanPeriods = [
 ];
 
 function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
+  const runtime=useTouristRuntime();
+  const t=(v:string)=>touristInterfaceText(runtime.language,v);
   const [editing, setEditing] = useState(false);
   const [activeDay, setActiveDay] = useState(2);
   const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
@@ -2648,20 +2676,20 @@ function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
     <div className="tourist-screen gt-screen gt-saved-plan-screen">
       <main className="gt-saved-plan">
         <header className="gt-saved-plan-header">
-          <h1>Мій план</h1>
+          <h1><TouristText uk="Мій план"/></h1>
           <div>
-            {!editing ? <button type="button" aria-label="Редагувати план" onClick={() => setEditing(true)}><Pencil size={19} /></button> : null}
-            <button type="button" aria-label="Інформація"><Info size={21} /></button>
+            {!editing ? <button type="button" aria-label={t("Редагувати план")} onClick={() => setEditing(true)}><Pencil size={19} /></button> : null}
+            <button type="button" aria-label={t("Інформація")}><Info size={21} /></button>
           </div>
         </header>
 
         <div className="gt-saved-plan-days">
           {[{ day: 1, date: "24 травня" }, { day: 2, date: "25 травня" }, { day: 3, date: "26 травня" }].map((item) => (
             <button type="button" className={activeDay === item.day ? "is-active" : ""} key={item.day} onClick={() => setActiveDay(item.day)}>
-              <MountainSnow size={24} /><span><strong>День {item.day}</strong><small>{item.date}</small></span>
+              <MountainSnow size={24} /><span><strong>{t('День')} {item.day}</strong><small>{t(item.date)}</small></span>
             </button>
           ))}
-          <button type="button" className="gt-saved-plan-calendar" aria-label="Вибрати дату"><CalendarDays size={24} /></button>
+          <button type="button" className="gt-saved-plan-calendar" aria-label={t("Вибрати дату")}><CalendarDays size={24} /></button>
         </div>
 
         <div className="gt-saved-plan-timeline">
@@ -2670,7 +2698,7 @@ function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
             if (!periodStops.length) return null;
             return (
               <section key={key}>
-                <h2><PeriodIcon size={20} /> {label}</h2>
+                <h2><PeriodIcon size={20} /> {t(label)}</h2>
                 <div className="gt-saved-plan-period">
                   {periodStops.map((stop) => (
                     <div className={`gt-saved-plan-stop${editing ? " is-editing" : ""}`} key={stop.id}>
@@ -2682,15 +2710,15 @@ function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
                         <div>
                           {editingTitleId === stop.id ? (
                             <input value={stop.title} autoFocus onChange={(event) => updateTitle(stop.id, event.target.value)} onBlur={() => setEditingTitleId(null)} />
-                          ) : <strong>{stop.title}</strong>}
-                          <small><Check size={14} /> Відвідано</small>
+                          ) : <strong>{t(stop.title)}</strong>}
+                          <small><Check size={14} /> <TouristText uk="Відвідано"/></small>
                         </div>
                         {editing ? (
                           <span className="gt-saved-plan-edit-actions">
-                            <button type="button" aria-label="Змінити назву" onClick={() => setEditingTitleId(stop.id)}><Pencil size={18} /></button>
-                            <button type="button" aria-label="Видалити локацію" onClick={() => removeStop(stop.id)}><Trash2 size={18} /></button>
+                            <button type="button" aria-label={t("Змінити назву")} onClick={() => setEditingTitleId(stop.id)}><Pencil size={18} /></button>
+                            <button type="button" aria-label={t("Видалити локацію")} onClick={() => removeStop(stop.id)}><Trash2 size={18} /></button>
                           </span>
-                        ) : <button type="button" className="gt-saved-plan-more-button" aria-label="Дії"><MoreVertical size={21} /></button>}
+                        ) : <button type="button" className="gt-saved-plan-more-button" aria-label={t("Дії")}><MoreVertical size={21} /></button>}
                       </article>
                     </div>
                   ))}
@@ -2701,10 +2729,10 @@ function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
         </div>
 
         <button type="button" className="gt-saved-plan-tip" onClick={() => navigate("tourist", "nearby")}>
-          <span><Leaf size={21} /></span><div><strong>Порада дня</strong><small>Візьміть дощовик — у горах погода мінлива.</small></div><ChevronRight size={19} />
+          <span><Leaf size={21} /></span><div><strong><TouristText uk="Порада дня"/></strong><small><TouristText uk="Візьміть дощовик — у горах погода мінлива."/></small></div><ChevronRight size={19} />
         </button>
         <button type="button" className="gt-saved-plan-edit-button" onClick={() => editing ? finishEditing() : setEditing(true)}>
-          {editing ? <Check size={19} /> : <Pencil size={19} />}{editing ? "Готово" : "Редагувати"}
+          {editing ? <Check size={19} /> : <Pencil size={19} />}{t(editing ? 'Готово' : 'Редагувати')}
         </button>
       </main>
     </div>
@@ -2712,6 +2740,8 @@ function SavedPlanScreen({ navigate }: { navigate: Navigate }) {
 }
 
 function PlanScreen({ navigate }: { navigate: Navigate }) {
+  const runtime=useTouristRuntime();
+  const t=(v:string)=>touristInterfaceText(runtime.language,v);
   const [mode, setMode] = useState<"home" | PlanSurveyMode | "view">("home");
   const [selectedMode, setSelectedMode] = useState<PlanSurveyMode>("express");
   const [step, setStep] = useState(0);
@@ -2734,25 +2764,25 @@ function PlanScreen({ navigate }: { navigate: Navigate }) {
     return (
       <div className="tourist-screen gt-screen gt-plan-screen">
         <main className="gt-plan-home">
-          <header className="gt-plan-home-header"><h1>Мій план</h1><Info size={22} /></header>
+          <header className="gt-plan-home-header"><h1><TouristText uk="Мій план"/></h1><Info size={22} /></header>
           <section className="gt-plan-home-hero">
             <PlanArtIcon />
-            <h2>Створимо Ваш<br />оптимальний план відпочинку</h2>
-            <p>Відповідайте на кілька запитань і ми підберемо найкращий сценарій відпочинку для вас.</p>
+            <h2><TouristText uk="Створимо Ваш"/><br /><TouristText uk="оптимальний план відпочинку"/></h2>
+            <p><TouristText uk="Відповідайте на кілька запитань і ми підберемо найкращий сценарій відпочинку для вас."/></p>
           </section>
           <div className="gt-plan-mode-list">
             <button type="button" className={selectedMode === "express" ? "is-selected" : ""} onClick={() => setSelectedMode("express")}>
               <span><Timer size={38} /></span>
-              <div><strong>Експрес-опитування</strong><p>1–2 хв <i /> 6 коротких запитань</p><small><Check /> Швидко та зручно</small><small><Check /> Ідеально для швидкого планування</small></div>
+              <div><strong><TouristText uk="Експрес-опитування"/></strong><p><TouristText uk="1–2 хв"/> <i /> <TouristText uk="6 коротких запитань"/></p><small><Check /> <TouristText uk="Швидко та зручно"/></small><small><Check /> <TouristText uk="Ідеально для швидкого планування"/></small></div>
               <ChevronRight />
             </button>
             <button type="button" className={selectedMode === "extended" ? "is-selected" : ""} onClick={() => setSelectedMode("extended")}>
               <span><ListChecks size={38} /></span>
-              <div><strong>Розширене опитування</strong><p>3–5 хв <i /> більше деталей і точніший план</p><small><Check /> Глибше розуміння ваших побажань</small><small><Check /> Точніший план під ваш стиль відпочинку</small></div>
+              <div><strong><TouristText uk="Розширене опитування"/></strong><p><TouristText uk="3–5 хв"/> <i /> <TouristText uk="більше деталей і точніший план"/></p><small><Check /> <TouristText uk="Глибше розуміння ваших побажань"/></small><small><Check /> <TouristText uk="Точніший план під ваш стиль відпочинку"/></small></div>
               <ChevronRight />
             </button>
           </div>
-          <button type="button" className="gt-plan-start-button" onClick={startSurvey}>Почати</button>
+          <button type="button" className="gt-plan-start-button" onClick={startSurvey}><TouristText uk="Почати"/></button>
         </main>
       </div>
     );
@@ -2767,41 +2797,41 @@ function PlanScreen({ navigate }: { navigate: Navigate }) {
           <PlanSurveyHeader step={step} total={5} onBack={goBack} />
           {step === 1 ? (
             <section className="gt-plan-question">
-              <h1>Хто подорожує?</h1><p>Оберіть склад вашої компанії</p>
+              <h1><TouristText uk="Хто подорожує?"/></h1><p><TouristText uk="Оберіть склад вашої компанії"/></p>
               <PlanChoiceList items={expressTravelers} selected={traveler} onSelect={setTraveler} />
               <div className="gt-plan-steppers"><PlanStepper label="Дорослі" value={adults} onChange={setAdults} /><PlanStepper label="Діти" value={children} onChange={setChildren} /></div>
               <PlanFooter onNext={() => setStep(2)} />
             </section>
           ) : step === 2 ? (
             <section className="gt-plan-question gt-plan-question--express-days">
-              <h1>На скільки днів?</h1><p>Тривалість вашої подорожі</p>
+              <h1><TouristText uk="На скільки днів?"/></h1><p><TouristText uk="Тривалість вашої подорожі"/></p>
               <PlanChipGroup className="gt-plan-chip-group--choice-list" items={["1 день", "2 дні", "3 дні", "4–5 днів", "Вказати дати"]} selected={days} onSelect={setDays} />
               {days === "Вказати дати" ? <PlanDateRange /> : null}
-              <h2>Де ви зупинились?</h2>
-              <article className="gt-plan-hotel-card"><Thumb name="hotel" /><div><strong>Гірський затишок</strong><small>вул. Незалежності, 15Б, Татарів</small><button type="button">Змінити</button></div><BadgeCheck size={22} /></article>
+              <h2><TouristText uk="Де ви зупинились?"/></h2>
+              <article className="gt-plan-hotel-card"><Thumb name="hotel" /><div><strong><TouristText uk="Гірський затишок"/></strong><small><TouristText uk="вул. Незалежності, 15Б, Татарів"/></small><button type="button"><TouristText uk="Змінити"/></button></div><BadgeCheck size={22} /></article>
               <PlanFooter onNext={() => setStep(3)} />
             </section>
           ) : step === 3 ? (
             <section className="gt-plan-question">
-              <h1>Який відпочинок вам підходить?</h1><p>Оберіть головний настрій подорожі</p>
-              <div className="gt-plan-activity-grid">{activityChoices.map(({ label, icon: Icon }) => <button type="button" className={style === label ? "is-selected" : ""} key={label} onClick={() => setStyle(label)}><Icon size={22} /><span>{label}</span></button>)}</div>
-              <h2>Як ви пересуваєтесь?</h2>
-              <div className="gt-plan-transport-row">{[{ label: "Власне авто", icon: CarFront }, { label: "Таксі / трансфер", icon: Navigation }, { label: "Пішки", icon: Footprints }].map(({ label, icon: Icon }) => <button type="button" className={transport === label ? "is-selected" : ""} key={label} onClick={() => setTransport(label)}><Icon size={20} />{label}</button>)}</div>
+              <h1><TouristText uk="Який відпочинок вам підходить?"/></h1><p><TouristText uk="Оберіть головний настрій подорожі"/></p>
+              <div className="gt-plan-activity-grid">{activityChoices.map(({ label, icon: Icon }) => <button type="button" className={style === label ? "is-selected" : ""} key={label} onClick={() => setStyle(label)}><Icon size={22} /><span>{t(label)}</span></button>)}</div>
+              <h2><TouristText uk="Як ви пересуваєтесь?"/></h2>
+              <div className="gt-plan-transport-row">{[{ label: "Власне авто", icon: CarFront }, { label: "Таксі / трансфер", icon: Navigation }, { label: "Пішки", icon: Footprints }].map(({ label, icon: Icon }) => <button type="button" className={transport === label ? "is-selected" : ""} key={label} onClick={() => setTransport(label)}><Icon size={20} />{t(label)}</button>)}</div>
               <PlanFooter onNext={() => setStep(4)} />
             </section>
           ) : step === 4 ? (
             <section className="gt-plan-question">
-              <h1>Підсумок побажань</h1><p>Перевірте дані перед створенням плану</p>
+              <h1><TouristText uk="Підсумок побажань"/></h1><p><TouristText uk="Перевірте дані перед створенням плану"/></p>
               <div className="gt-plan-summary-list">
-                <div><UsersRound /><span><small>Компанія</small><strong>{adults} дорослих · {children} дитина</strong></span></div>
-                <div><CalendarDays /><span><small>Тривалість</small><strong>{days}</strong></span></div>
-                <div><TentTree /><span><small>Відпочинок</small><strong>{style} · SPA · природа</strong></span></div>
-                <div><CarFront /><span><small>Пересування</small><strong>{transport}</strong></span></div>
-                <div><Banknote /><span><small>Бюджет</small><strong>до 5 000 ₴ / день</strong></span></div>
+                <div><UsersRound /><span><small><TouristText uk="Компанія"/></small><strong>{adults} {t('дорослих')} · {children} {t('дитина')}</strong></span></div>
+                <div><CalendarDays /><span><small><TouristText uk="Тривалість"/></small><strong>{t(days)}</strong></span></div>
+                <div><TentTree /><span><small><TouristText uk="Відпочинок"/></small><strong>{t(style)} · SPA · {t('природа')}</strong></span></div>
+                <div><CarFront /><span><small><TouristText uk="Пересування"/></small><strong>{t(transport)}</strong></span></div>
+                <div><Banknote /><span><small><TouristText uk="Бюджет"/></small><strong><TouristText uk="до 5 000 ₴ / день"/></strong></span></div>
               </div>
-              <button type="button" className="gt-plan-change"><Pencil size={17} /> Змінити відповіді</button>
+              <button type="button" className="gt-plan-change"><Pencil size={17} /> <TouristText uk="Змінити відповіді"/></button>
               <PlanFooter label="Підібрати план" onNext={() => setStep(5)} />
-              <button type="button" className="gt-plan-cancel" onClick={goHome}>Скасувати</button>
+              <button type="button" className="gt-plan-cancel" onClick={goHome}><TouristText uk="Скасувати"/></button>
             </section>
           ) : <PlanResult onOpenPlan={() => setMode("view")} />}
         </main>
@@ -2815,55 +2845,55 @@ function PlanScreen({ navigate }: { navigate: Navigate }) {
         <PlanSurveyHeader step={step} total={7} onBack={goBack} />
         {step === 1 ? (
           <section className="gt-plan-question">
-            <h1>Хто подорожує?</h1><p>Розкажіть про вашу компанію</p>
+            <h1><TouristText uk="Хто подорожує?"/></h1><p><TouristText uk="Розкажіть про вашу компанію"/></p>
             <PlanChoiceList items={expressTravelers} selected={traveler} onSelect={setTraveler} />
             <div className="gt-plan-steppers"><PlanStepper label="Дорослі" value={adults} onChange={setAdults} /><PlanStepper label="Діти" value={children} onChange={setChildren} /></div>
-            <h2>Вік дітей</h2><div className="gt-plan-age-row"><button type="button">4 роки</button><button type="button">10 років</button><button type="button"><Plus size={15} /> Додати вік</button></div>
+            <h2><TouristText uk="Вік дітей"/></h2><div className="gt-plan-age-row"><button type="button"><TouristText uk="4 роки"/></button><button type="button"><TouristText uk="10 років"/></button><button type="button"><Plus size={15} /> <TouristText uk="Додати вік"/></button></div>
             <PlanFooter onNext={() => setStep(2)} />
           </section>
         ) : step === 2 ? (
           <section className="gt-plan-question gt-plan-question--period">
-            <h1>На який період створити план?</h1><p>Оберіть тривалість та зручний час</p>
+            <h1><TouristText uk="На який період створити план?"/></h1><p><TouristText uk="Оберіть тривалість та зручний час"/></p>
             <PlanChipGroup className="gt-plan-chip-group--choice-list" items={["1 день", "2 дні", "3 дні", "4–5 днів", "Інші дати"]} selected={days} onSelect={setDays} />
             {days === "Інші дати" ? <PlanDateRange /> : null}
-            <h2>Час доби, який вам зручний</h2><PlanChipGroup items={["Ранок", "День", "Вечір"]} selected="День" onSelect={() => undefined} />
+            <h2><TouristText uk="Час доби, який вам зручний"/></h2><PlanChipGroup items={["Ранок", "День", "Вечір"]} selected="День" onSelect={() => undefined} />
             <PlanFooter onNext={() => setStep(3)} />
           </section>
         ) : step === 3 ? (
           <section className="gt-plan-question">
-            <h1>Де ви перебуваєте?</h1><p>Вкажіть точку для пошуку місць поруч</p>
-            <div className="gt-plan-location"><MapPin size={22} /><span><small>Поточне місце (за QR)</small><strong>Готель «Гірський затишок»</strong><em>Татарів, вул. Незалежності, 15Б</em></span><Check size={18} /></div>
-            <h2>Радіус для пошуку локацій</h2><PlanChipGroup items={["5 км", "15 км", "30 км", "50 км"]} selected={radius} onSelect={setRadius} />
-            <div className="gt-plan-distance-list"><span>Татарів <b>1 км</b></span><span>Яремче <b>12 км</b></span><span>Ворохта <b>18 км</b></span><span>Микуличин <b>22 км</b></span></div>
+            <h1><TouristText uk="Де ви перебуваєте?"/></h1><p><TouristText uk="Вкажіть точку для пошуку місць поруч"/></p>
+            <div className="gt-plan-location"><MapPin size={22} /><span><small><TouristText uk="Поточне місце (за QR)"/></small><strong><TouristText uk="Готель «Гірський затишок»"/></strong><em><TouristText uk="Татарів, вул. Незалежності, 15Б"/></em></span><Check size={18} /></div>
+            <h2><TouristText uk="Радіус для пошуку локацій"/></h2><PlanChipGroup items={["5 км", "15 км", "30 км", "50 км"]} selected={radius} onSelect={setRadius} />
+            <div className="gt-plan-distance-list"><span>{tr(runtime.language,"Татарів","Tatariv","Tatarów")} <b><TouristText uk="1 км"/></b></span><span>{tr(runtime.language,"Яремче","Yaremche","Jaremcze")} <b><TouristText uk="12 км"/></b></span><span>{tr(runtime.language,"Ворохта","Vorokhta","Worochta")} <b><TouristText uk="18 км"/></b></span><span>{tr(runtime.language,"Микуличин","Mykulychyn","Mikuliczyn")} <b><TouristText uk="22 км"/></b></span></div>
             <PlanFooter onNext={() => setStep(4)} />
           </section>
         ) : step === 4 ? (
           <section className="gt-plan-question">
-            <h1>Який відпочинок вам подобається?</h1><p>Можна обрати декілька напрямів</p>
+            <h1><TouristText uk="Який відпочинок вам подобається?"/></h1><p><TouristText uk="Можна обрати декілька напрямів"/></p>
             <div className="gt-plan-activity-grid gt-plan-activity-grid--wide">{activityChoices.concat([{ label: "Велопрогулянки", icon: Bike }, { label: "Їжа", icon: Utensils }, { label: "Екстрим", icon: Flame }]).map(({ label, icon: Icon }, index) => <button type="button" className={index === 2 || index === 3 || index === 4 ? "is-selected" : ""} key={label}><Icon size={21} /><span>{label}</span></button>)}</div>
-            <h2>Що вам не подобається?</h2><div className="gt-plan-toggle-list"><label><span>Перепади висоти</span><input type="checkbox" /></label><label><span>Багатолюдні місця</span><input type="checkbox" /></label><label><span>Довгі переїзди</span><input type="checkbox" /></label></div>
+            <h2><TouristText uk="Що вам не подобається?"/></h2><div className="gt-plan-toggle-list"><label><span><TouristText uk="Перепади висоти"/></span><input type="checkbox" /></label><label><span><TouristText uk="Багатолюдні місця"/></span><input type="checkbox" /></label><label><span><TouristText uk="Довгі переїзди"/></span><input type="checkbox" /></label></div>
             <PlanFooter onNext={() => setStep(5)} />
           </section>
         ) : step === 5 ? (
           <section className="gt-plan-question">
-            <h1>Темп і активність</h1><p>Оберіть комфортний ритм подорожі</p>
+            <h1><TouristText uk="Темп і активність"/></h1><p><TouristText uk="Оберіть комфортний ритм подорожі"/></p>
             <PlanChoiceList items={[{ label: "Розслаблений", icon: Flower2 }, { label: "Збалансований", icon: Gauge }, { label: "Динамічний", icon: MountainSnow }]} selected={pace} onSelect={setPace} />
-            <h2>Фізичне навантаження</h2><PlanChipGroup items={["Легке", "Помірне", "Інтенсивне"]} selected={load} onSelect={setLoad} />
-            <h2>Обмеження та побажання</h2><div className="gt-plan-tag-cloud"><button type="button" className="is-selected">Маленькі діти</button><button type="button">Без крутих підйомів</button><button type="button">Без дощу</button><button type="button"><Plus size={14} /> Додати</button></div>
+            <h2><TouristText uk="Фізичне навантаження"/></h2><PlanChipGroup items={["Легке", "Помірне", "Інтенсивне"]} selected={load} onSelect={setLoad} />
+            <h2><TouristText uk="Обмеження та побажання"/></h2><div className="gt-plan-tag-cloud"><button type="button" className="is-selected"><TouristText uk="Маленькі діти"/></button><button type="button"><TouristText uk="Без крутих підйомів"/></button><button type="button"><TouristText uk="Без дощу"/></button><button type="button"><Plus size={14} /> <TouristText uk="Додати"/></button></div>
             <PlanFooter onNext={() => setStep(6)} />
           </section>
         ) : step === 6 ? (
           <section className="gt-plan-question">
-            <h1>Транспорт і бюджет</h1><p>Останні деталі для точного підбору</p>
-            <h2>Як пересуваєтесь?</h2><div className="gt-plan-transport-row gt-plan-transport-row--compact">{[{ label: "Пішки", icon: Footprints }, { label: "Авто", icon: CarFront }, { label: "Таксі", icon: Navigation }].map(({ label, icon: Icon }) => <button type="button" className={(label === "Авто" ? transport.toLowerCase().includes("авто") : transport.includes(label)) ? "is-selected" : ""} key={label} onClick={() => setTransport(label)}><Icon size={20} />{label}</button>)}</div>
-            <h2>Максимальний час у дорозі</h2><PlanChipGroup className="gt-plan-chip-group--single-row" items={["до 1 год", "1–3 год", "3–5 год", "Більше 5 год"]} selected="1–3 год" onSelect={() => undefined} />
-            <h2>Бюджет на день (орієнтовно)</h2>
+            <h1><TouristText uk="Транспорт і бюджет"/></h1><p><TouristText uk="Останні деталі для точного підбору"/></p>
+            <h2><TouristText uk="Як пересуваєтесь?"/></h2><div className="gt-plan-transport-row gt-plan-transport-row--compact">{[{ label: "Пішки", icon: Footprints }, { label: "Авто", icon: CarFront }, { label: "Таксі", icon: Navigation }].map(({ label, icon: Icon }) => <button type="button" className={(label === "Авто" ? transport.toLowerCase().includes("авто") : transport.includes(label)) ? "is-selected" : ""} key={label} onClick={() => setTransport(label)}><Icon size={20} />{t(label)}</button>)}</div>
+            <h2><TouristText uk="Максимальний час у дорозі"/></h2><PlanChipGroup className="gt-plan-chip-group--single-row" items={["до 1 год", "1–3 год", "3–5 год", "Більше 5 год"]} selected="1–3 год" onSelect={() => undefined} />
+            <h2><TouristText uk="Бюджет на день (орієнтовно)"/></h2>
             <div className="gt-plan-budget-grid">
               {[{ label: "Економний", value: "до 1 500 ₴" }, { label: "Середній", value: "1 500–3 500 ₴" }, { label: "Комфорт", value: "від 3 500 ₴" }].map((item) => (
-                <button type="button" className={budget === item.label ? "is-selected" : ""} key={item.label} onClick={() => setBudget(item.label)}><strong>{item.label}</strong><small>{item.value}</small></button>
+                <button type="button" className={budget === item.label ? "is-selected" : ""} key={item.label} onClick={() => setBudget(item.label)}><strong>{t(item.label)}</strong><small>{t(item.value)}</small></button>
               ))}
             </div>
-            <h2>Харчування</h2><div className="gt-plan-tag-cloud gt-plan-tag-cloud--single-row"><button type="button" className="is-selected">Місцева кухня</button><button type="button">Вегетаріанське</button><button type="button">Без обмежень</button></div>
+            <h2><TouristText uk="Харчування"/></h2><div className="gt-plan-tag-cloud gt-plan-tag-cloud--single-row"><button type="button" className="is-selected"><TouristText uk="Місцева кухня"/></button><button type="button"><TouristText uk="Вегетаріанське"/></button><button type="button"><TouristText uk="Без обмежень"/></button></div>
             <PlanFooter label="Показати варіанти" onNext={() => setStep(7)} />
           </section>
         ) : <PlanResult onOpenPlan={() => setMode("view")} extended />}
@@ -2874,18 +2904,19 @@ function PlanScreen({ navigate }: { navigate: Navigate }) {
 
 type WalletData = {balance:number; entries:Array<{id:string;amount:number;entry_type:string;status:string;place_name?:string;created_at:string;expires_at?:string}>};
 function WalletScreen() {
+  const runtime=useTouristRuntime();
   const [wallet,setWallet]=useState<WalletData|null>(null);
   const [filter,setFilter]=useState<'all'|'earn'|'spent'>('all');
   const [error,setError]=useState('');
   useEffect(()=>{void stage2Fetch<WalletData>('/wallet').then(setWallet).catch(e=>setError(e instanceof Error?e.message:'Баланс недоступний'));},[]);
   const transactions=(wallet?.entries||[]).filter(item=>filter==='all'||(filter==='earn'?Number(item.amount)>0:Number(item.amount)<0));
   return <div className="tourist-screen gt-screen gt-wallet-screen"><main className="gt-wallet-ledger">
-    <section className="gt-wallet-balance"><Gift size={34}/><small>Ваші бонуси</small><strong>{wallet?wallet.balance.toLocaleString('uk-UA'):'—'}</strong><span>балів</span></section>
-    <div className="gt-wallet-actions"><button type="button" onClick={()=>setFilter(filter==='earn'?'all':'earn')}><ArrowDownToLine size={24}/><span>Нарахування</span></button><button type="button" onClick={()=>setFilter(filter==='spent'?'all':'spent')}><ArrowUpFromLine size={24}/><span>Списання</span></button></div>
-    <section className="gt-wallet-history"><h1>Історія операцій</h1>{error?<p role="alert">{error}</p>:null}<div className="gt-wallet-transactions">
-      {transactions.map(item=><article className={Number(item.amount)<0?'is-spent':'is-earned'} key={item.id}><span className="gt-wallet-transaction-icon">{Number(item.amount)<0?<Minus size={23}/>:<Gift size={22}/>}</span><div><strong>{Number(item.amount)<0?'Списано бонусів':'Нараховано бонусів'}</strong><small>{item.place_name||item.entry_type}</small></div><span className="gt-wallet-transaction-value"><b>{Number(item.amount)>0?'+':''}{Number(item.amount)}</b><small>{new Date(item.created_at).toLocaleDateString('uk-UA')}</small></span></article>)}
-      {wallet&&!transactions.length?<p>Операцій поки немає</p>:null}</div></section>
-    <div className="gt-notice"><ShieldCheck size={20}/><p>1 бонус = 1 грн знижки. Бонуси не передаються між користувачами та не виводяться грошима.</p></div>
+    <section className="gt-wallet-balance"><Gift size={34}/><small><TouristText uk="Ваші бонуси"/></small><strong>{wallet?wallet.balance.toLocaleString('uk-UA'):'—'}</strong><span><TouristText uk="балів"/></span></section>
+    <div className="gt-wallet-actions"><button type="button" onClick={()=>setFilter(filter==='earn'?'all':'earn')}><ArrowDownToLine size={24}/><span><TouristText uk="Нарахування"/></span></button><button type="button" onClick={()=>setFilter(filter==='spent'?'all':'spent')}><ArrowUpFromLine size={24}/><span><TouristText uk="Списання"/></span></button></div>
+    <section className="gt-wallet-history"><h1><TouristText uk="Історія операцій"/></h1>{error?<p role="alert">{error}</p>:null}<div className="gt-wallet-transactions">
+      {transactions.map(item=><article className={Number(item.amount)<0?'is-spent':'is-earned'} key={item.id}><span className="gt-wallet-transaction-icon">{Number(item.amount)<0?<Minus size={23}/>:<Gift size={22}/>}</span><div><strong>{touristInterfaceText(runtime.language,Number(item.amount)<0?'Списано бонусів':'Нараховано бонусів')}</strong><small>{item.place_name||item.entry_type}</small></div><span className="gt-wallet-transaction-value"><b>{Number(item.amount)>0?'+':''}{Number(item.amount)}</b><small>{new Date(item.created_at).toLocaleDateString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA')}</small></span></article>)}
+      {wallet&&!transactions.length?<p><TouristText uk="Операцій поки немає"/></p>:null}</div></section>
+    <div className="gt-notice"><ShieldCheck size={20}/><p><TouristText uk="1 бонус = 1 грн знижки. Бонуси не передаються між користувачами та не виводяться грошима."/></p></div>
   </main></div>;
 }
 
@@ -2901,10 +2932,11 @@ function CustomerQrSvg({token}:{token:string}) {
     if(!tag){tag=document.createElement('script');tag.dataset.gidQr='1';tag.src='/vendor/qr-code.js';document.head.appendChild(tag);}
     tag.addEventListener('load',update);return()=>{cancelled=true;tag?.removeEventListener('load',update);};
   },[token]);
-  return svg?<span className="gt-live-customer-qr" style={{display:'block',width:'min(230px,100%)',margin:'15px auto',padding:12,background:'#fff'}} dangerouslySetInnerHTML={{__html:svg}}/>:<div className="gt-stage2-empty">Створюємо QR...</div>;
+  return svg?<span className="gt-live-customer-qr" style={{display:'block',width:'min(230px,100%)',margin:'15px auto',padding:12,background:'#fff'}} dangerouslySetInnerHTML={{__html:svg}}/>:<div className="gt-stage2-empty"><TouristText uk="Створюємо QR..."/></div>;
 }
 
 function QrScreen({ navigate }: { navigate: Navigate }) {
+  const runtime=useTouristRuntime();
   const [qr,setQr]=useState<{token:string;expires_at:string}|null>(null);
   const [seconds,setSeconds]=useState(0);
   const [error,setError]=useState('');
@@ -2917,17 +2949,18 @@ function QrScreen({ navigate }: { navigate: Navigate }) {
   },[]);
   useEffect(()=>{const run=()=>setSeconds(Math.max(0,Math.ceil(((qr?new Date(qr.expires_at).getTime():Date.now())-Date.now())/1000)));run();const interval=setInterval(run,1000);return()=>clearInterval(interval);},[qr]);
   return <div className="tourist-screen gt-screen"><main className="gt-content gt-qr-screen">
-    <div className="gt-page-heading gt-page-heading--center"><span className="gt-tone--green"><QrCode size={25}/></span><div><h1>Мій QR</h1><p>Для нарахування або списання бонусів</p></div></div>
-    <div className="gt-qr-panel"><span className="gt-pill gt-pill--success"><span/>{seconds?'QR активний':'Оновлення QR'}</span>{qr&&seconds>0?<CustomerQrSvg token={qr.token}/>:<div className="gt-stage2-empty">Оновлюємо код…</div>}
-      <strong>Покажіть код працівнику закладу</strong><p>Код одноразовий і оновлюється автоматично</p><div className="gt-qr-timer"><Clock3 size={18}/><span>Діє ще</span><strong>00:{String(seconds).padStart(2,'0')}</strong></div></div>
+    <div className="gt-page-heading gt-page-heading--center"><span className="gt-tone--green"><QrCode size={25}/></span><div><h1><TouristText uk="Мій QR"/></h1><p><TouristText uk="Для нарахування або списання бонусів"/></p></div></div>
+    <div className="gt-qr-panel"><span className="gt-pill gt-pill--success"><span/>{touristInterfaceText(runtime.language,seconds?'QR активний':'Оновлення QR')}</span>{qr&&seconds>0?<CustomerQrSvg token={qr.token}/>:<div className="gt-stage2-empty"><TouristText uk="Оновлюємо код…"/></div>}
+      <strong><TouristText uk="Покажіть код працівнику закладу"/></strong><p><TouristText uk="Код одноразовий і оновлюється автоматично"/></p><div className="gt-qr-timer"><Clock3 size={18}/><span><TouristText uk="Діє ще"/></span><strong>00:{String(seconds).padStart(2,'0')}</strong></div></div>
     {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}
-    <div className="gt-notice"><ShieldCheck size={21}/><p>Не передавайте QR іншим. Операцію потрібно підтвердити на цьому пристрої.</p></div>
-    <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','purchase-confirmation')}>Перевірити підтвердження <ChevronRight size={20}/></button>
+    <div className="gt-notice"><ShieldCheck size={21}/><p><TouristText uk="Не передавайте QR іншим. Операцію потрібно підтвердити на цьому пристрої."/></p></div>
+    <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','purchase-confirmation')}><TouristText uk="Перевірити підтвердження"/> <ChevronRight size={20}/></button>
   </main></div>;
 }
 
 type PendingPurchase = {id:string;place_name:string;amount:number;spent:number;earned:number;cash_due:number;expires_at:string};
 function PurchaseConfirmationScreen({ navigate }: { navigate: Navigate }) {
+  const runtime=useTouristRuntime();
   const [items,setItems]=useState<PendingPurchase[]>([]);
   const [confirmed,setConfirmed]=useState(false);
   const [loading,setLoading]=useState(false);
@@ -2935,14 +2968,15 @@ function PurchaseConfirmationScreen({ navigate }: { navigate: Navigate }) {
   useEffect(()=>{let active=true;const load=()=>void stage2Fetch<PendingPurchase[]>('/transactions/pending').then(list=>{if(active)setItems(list);}).catch(e=>{if(active)setError(e instanceof Error?e.message:'Помилка');});load();const timer=setInterval(load,4000);return()=>{active=false;clearInterval(timer);};},[]);
   const item=items[0];
   const action=async(approve:boolean)=>{if(!item)return;setLoading(true);setError('');try{await stage2Fetch(`/transactions/${approve?'confirm':'decline'}`,{method:'POST',body:JSON.stringify({id:item.id})});setItems(items.slice(1));setConfirmed(approve);}catch(e){setError(e instanceof Error?e.message:'Операція не вдалася');}finally{setLoading(false);}};
-  return <div className="tourist-screen gt-screen"><main className="gt-content"><div className="gt-page-heading"><span className="gt-tone--green"><ReceiptText size={23}/></span><div><h1>Підтвердження</h1><p>Перевірте деталі операції</p></div></div>
-    {item?<div className="gt-purchase-card"><Thumb name="restaurant"/><strong>{item.place_name}</strong><small>Запит на підтвердження покупки</small><div><span>Сума покупки</span><b>{Number(item.amount)} ₴</b></div><div><span>Списання бонусів</span><b>−{Number(item.spent)}</b></div><div><span>До сплати грошима</span><b>{Number(item.cash_due)} ₴</b></div><div className="is-green"><span>Буде нараховано</span><b>+{Number(item.earned)} бонусів</b></div></div>:<div className="gt-notice"><ShieldCheck size={21}/><p>{confirmed?'Операцію підтверджено. Баланс оновлено.':'Поки немає операцій на підтвердження. Цей екран перевіряється автоматично.'}</p></div>}
+  return <div className="tourist-screen gt-screen"><main className="gt-content"><div className="gt-page-heading"><span className="gt-tone--green"><ReceiptText size={23}/></span><div><h1><TouristText uk="Підтвердження"/></h1><p><TouristText uk="Перевірте деталі операції"/></p></div></div>
+    {item?<div className="gt-purchase-card"><Thumb name="restaurant"/><strong>{item.place_name}</strong><small><TouristText uk="Запит на підтвердження покупки"/></small><div><span><TouristText uk="Сума покупки"/></span><b>{Number(item.amount)} ₴</b></div><div><span><TouristText uk="Списання бонусів"/></span><b>−{Number(item.spent)}</b></div><div><span><TouristText uk="До сплати грошима"/></span><b>{Number(item.cash_due)} ₴</b></div><div className="is-green"><span><TouristText uk="Буде нараховано"/></span><b>+{Number(item.earned)} {touristInterfaceText(runtime.language,'бонусів')}</b></div></div>:<div className="gt-notice"><ShieldCheck size={21}/><p>{touristInterfaceText(runtime.language,confirmed?'Операцію підтверджено. Баланс оновлено.':'Поки немає операцій на підтвердження. Цей екран перевіряється автоматично.')}</p></div>}
     {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}
-    {item?<><button type="button" disabled={loading} className="gt-primary-button" onClick={()=>void action(true)}>Підтвердити операцію <Check size={20}/></button><button type="button" disabled={loading} className="gt-outline-button" onClick={()=>void action(false)}>Відхилити</button></>:<button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','wallet')}>Перейти до бонусів</button>}
+    {item?<><button type="button" disabled={loading} className="gt-primary-button" onClick={()=>void action(true)}><TouristText uk="Підтвердити операцію"/> <Check size={20}/></button><button type="button" disabled={loading} className="gt-outline-button" onClick={()=>void action(false)}><TouristText uk="Відхилити"/></button></>:<button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','wallet')}><TouristText uk="Перейти до бонусів"/></button>}
   </main></div>;
 }
 
 function ReviewScreen() {
+  const runtime=useTouristRuntime();
   const [rating,setRating]=useState(5);
   const [comment,setComment]=useState('');
   const [events,setEvents]=useState<Array<{id:string;place_name:string;verification:string;visited_at:string;type:string}>>([]);
@@ -2952,11 +2986,11 @@ function ReviewScreen() {
   useEffect(()=>{void stage2Fetch<{bookings:Array<{id:string;place_name:string;visited_at:string}>;transactions:Array<{id:string;place_name:string;visited_at:string}>}>('/reviews/eligibility').then(data=>{const list=[...data.bookings.map(x=>({...x,type:'booking',verification:'Підтверджене відвідування'})),...data.transactions.map(x=>({...x,type:'transaction',verification:'Підтверджена покупка'}))];setEvents(list);if(list[0])setSelected(list[0].id);}).catch(e=>setError(String(e)));},[]);
   const current=events.find(x=>x.id===selected);
   const submit=async()=>{if(!current)return;setError('');try{await stage2Fetch('/reviews',{method:'POST',body:JSON.stringify({rating,text:comment,[current.type==='booking'?'booking_id':'transaction_id']:current.id})});setSuccess(true);}catch(e){setError(e instanceof Error?e.message:'Помилка відгуку');}};
-  return <div className="tourist-screen gt-screen"><main className="gt-content"><div className="gt-page-heading"><span className="gt-tone--yellow"><Star size={23}/></span><div><h1>Ваш відгук</h1><p>Після підтвердженого візиту</p></div></div>
-    {current?<div className="gt-booking-place"><Thumb name="restaurant"/><div><strong>{current.place_name}</strong><small>{current.verification}</small><span><BadgeCheck size={14}/> Перевірений візит</span></div></div>:<div className="gt-notice"><Info size={20}/><p>Відгук доступний лише після завершеного бронювання або підтвердженої QR-покупки.</p></div>}
-    {events.length>1?<select aria-label="Оберіть відвідування" value={selected} onChange={e=>setSelected(e.target.value)}>{events.map(x=><option key={x.id} value={x.id}>{x.place_name} · {new Date(x.visited_at).toLocaleDateString('uk-UA')}</option>)}</select>:null}
-    <section className="gt-review-card"><h2>Як вам заклад?</h2><div className="gt-stars">{[1,2,3,4,5].map(item=><button type="button" aria-label={`${item} зірок`} key={item} onClick={()=>setRating(item)}><Star size={34} fill={item<=rating?'currentColor':'none'}/></button>)}</div><label><span>Розкажіть про враження</span><textarea placeholder="Що сподобалось? Що можна покращити?" value={comment} onChange={e=>setComment(e.target.value)}/></label></section>
-    {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}{success?<div className="gt-success-card"><span><Check size={24}/></span><div><strong>Відгук відправлено на модерацію</strong></div></div>:<button type="button" disabled={!current} className="gt-primary-button" onClick={()=>void submit()}>Опублікувати відгук <Send size={19}/></button>}
+  return <div className="tourist-screen gt-screen"><main className="gt-content"><div className="gt-page-heading"><span className="gt-tone--yellow"><Star size={23}/></span><div><h1><TouristText uk="Ваш відгук"/></h1><p><TouristText uk="Після підтвердженого візиту"/></p></div></div>
+    {current?<div className="gt-booking-place"><Thumb name="restaurant"/><div><strong>{current.place_name}</strong><small>{touristInterfaceText(runtime.language,current.verification)}</small><span><BadgeCheck size={14}/> <TouristText uk="Перевірений візит"/></span></div></div>:<div className="gt-notice"><Info size={20}/><p><TouristText uk="Відгук доступний лише після завершеного бронювання або підтвердженої QR-покупки."/></p></div>}
+    {events.length>1?<select aria-label={touristInterfaceText(runtime.language,"Оберіть відвідування")} value={selected} onChange={e=>setSelected(e.target.value)}>{events.map(x=><option key={x.id} value={x.id}>{x.place_name} · {new Date(x.visited_at).toLocaleDateString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA')}</option>)}</select>:null}
+    <section className="gt-review-card"><h2><TouristText uk="Як вам заклад?"/></h2><div className="gt-stars">{[1,2,3,4,5].map(item=><button type="button" aria-label={`${item} ${touristInterfaceText(runtime.language,"зірок")}`} key={item} onClick={()=>setRating(item)}><Star size={34} fill={item<=rating?'currentColor':'none'}/></button>)}</div><label><span><TouristText uk="Розкажіть про враження"/></span><textarea placeholder={touristInterfaceText(runtime.language,"Що сподобалось? Що можна покращити?")} value={comment} onChange={e=>setComment(e.target.value)}/></label></section>
+    {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}{success?<div className="gt-success-card"><span><Check size={24}/></span><div><strong><TouristText uk="Відгук відправлено на модерацію"/></strong></div></div>:<button type="button" disabled={!current} className="gt-primary-button" onClick={()=>void submit()}><TouristText uk="Опублікувати відгук"/> <Send size={19}/></button>}
   </main></div>;
 }
 
@@ -2980,7 +3014,7 @@ const emergencyServiceIcons: Record<EmergencyService["icon"], LucideIcon> = {
 function EmergencyScreen() {
   const runtime = useTouristRuntime();
   const [services, setServices] = useState(DEFAULT_EMERGENCY_SERVICES);
-  const [remoteContacts, setRemoteContacts] = useState<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string }>>([]);
+  const [remoteContacts, setRemoteContacts] = useState<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string; translations?: Record<string,Record<string,string>> }>>([]);
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
   const [pageContent, setPageContent] = useState<Record<string, string>>({});
   const [servicePage, setServicePage] = useState(0);
@@ -2998,7 +3032,7 @@ function EmergencyScreen() {
     let cancelled = false;
     const loadEmergency = () => {
       void Promise.all([
-        stage2Fetch<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string }>>(`/emergency?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
+        stage2Fetch<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string; translations?: Record<string,Record<string,string>> }>>(`/emergency?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
         stage2Fetch<Stage2EmergencyServicesResponse>(`/emergency-services?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
         stage2Fetch<Stage2PageContentResponse>(`/page-content/emergency?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
       ]).then(([contacts, servicePayload, contentPayload]) => {
@@ -3041,20 +3075,20 @@ function EmergencyScreen() {
   });
   const contactRows = remoteContacts.length ? remoteContacts.map((contact) => ({
     icon: contact.type === "ambulance" ? Ambulance : contact.type === "police" ? ShieldCheck : contact.type === "rescue" ? MountainSnow : Cross,
-    title: contact.title, note: contact.note, phone: contact.phone || "", tone: contact.tone,
+    title: touristInterfaceText(runtime.language,localizedField(runtime.language,contact,"title")), note: touristInterfaceText(runtime.language,localizedField(runtime.language,contact,"note")), phone: contact.phone || "", tone: contact.tone,
   })) : fallbackContacts;
 
   const verifiedDateLabel = (() => {
-    if (!verifiedAt) return "14.07.2026";
+    if (!verifiedAt) return "—";
     const date = new Date(verifiedAt);
-    return Number.isFinite(date.getTime()) ? date.toLocaleDateString("uk-UA") : "14.07.2026";
+    return Number.isFinite(date.getTime()) ? date.toLocaleDateString(runtime.language==="en"?"en-GB":runtime.language==="pl"?"pl-PL":"uk-UA") : "—";
   })();
 
   const shareLocation = async () => {
     const point = await runtime.requestLocation();
     if (!point) return;
-    const text = `Моя геолокація: https://maps.google.com/?q=${point.lat},${point.lng}`;
-    if (navigator.share) await navigator.share({ title: "Моя геолокація", text });
+    const text = `${tr(runtime.language,"Моя геолокація","My location","Moja lokalizacja")}: https://maps.google.com/?q=${point.lat},${point.lng}`;
+    if (navigator.share) await navigator.share({ title: tr(runtime.language,"Моя геолокація","My location","Moja lokalizacja"), text });
     else await navigator.clipboard?.writeText(text);
   };
 
@@ -3074,15 +3108,15 @@ function EmergencyScreen() {
       <div className="gt-emergency-mountains" aria-hidden="true" />
       <main className="gt-content">
         <header className="gt-emergency-head">
-          <span className="gt-emergency-sos">{runtime.language === "uk" ? (pageContent.badge || "SOS") : "SOS"}</span>
+          <span className="gt-emergency-sos">{localizedPageField(runtime.language,pageContent,"badge",{uk:"SOS",en:"SOS",pl:"SOS"})}</span>
           <div>
-            <h1>{runtime.language === "uk" ? (pageContent.title || "Халепа?") : tr(runtime.language, "Халепа?", "Need help?", "Potrzebujesz pomocy?")}</h1>
-            <p>{runtime.language === "uk" ? (pageContent.subtitle || "Швидка допомога та корисні контакти") : tr(runtime.language, "Швидка допомога та корисні контакти", "Emergency help and useful contacts", "Pomoc awaryjna i przydatne kontakty")}</p>
+            <h1>{localizedPageField(runtime.language,pageContent,"title",{uk:"Халепа?",en:"Need help?",pl:"Potrzebujesz pomocy?"})}</h1>
+            <p>{localizedPageField(runtime.language,pageContent,"subtitle",{uk:"Швидка допомога та корисні контакти",en:"Emergency help and useful contacts",pl:"Pomoc w nagłych wypadkach i przydatne kontakty"})}</p>
           </div>
         </header>
         <section className="gt-help-hero">
           <span className="gt-help-hero__icon"><LifeBuoy size={39} /></span>
-          <div><small>{runtime.language === "uk" ? (pageContent.hero_kicker || "Не хвилюйтеся") : tr(runtime.language, "Не хвилюйтеся", "Help is nearby", "Pomoc jest blisko")}</small><h2>{runtime.language === "uk" ? (pageContent.hero_title || "Знайдемо допомогу") : tr(runtime.language, "Знайдемо допомогу", "We’ll find help", "Znajdziemy pomoc")}</h2><p>{runtime.language === "uk" ? (pageContent.hero_text || "Екстрені та перевірені контакти для вашої безпеки.") : tr(runtime.language, "Екстрені та перевірені контакти для вашої безпеки.", "Emergency and verified contacts for your safety.", "Alarmowe i sprawdzone kontakty dla Twojego bezpieczeństwa.")}</p></div>
+          <div><small>{localizedPageField(runtime.language,pageContent,"hero_kicker",{uk:"Не хвилюйтеся",en:"Help is nearby",pl:"Pomoc jest blisko"})}</small><h2>{localizedPageField(runtime.language,pageContent,"hero_title",{uk:"Знайдемо допомогу",en:"We’ll find help",pl:"Znajdziemy pomoc"})}</h2><p>{localizedPageField(runtime.language,pageContent,"hero_text",{uk:"Екстрені та перевірені контакти для вашої безпеки.",en:"Emergency and verified contacts for your safety.",pl:"Sprawdzone kontakty alarmowe dla Twojego bezpieczeństwa."})}</p></div>
         </section>
         <button type="button" className="gt-location-button" onClick={() => void shareLocation()}>
           <span className="gt-location-button__icon" aria-hidden="true">
@@ -3119,8 +3153,8 @@ function EmergencyScreen() {
             return (
               <button type="button" className={`is-${service.tone}`} key={service.id}>
                 <span className={`gt-tone--${service.tone}`}><ServiceIcon size={22} /></span>
-                <strong>{service.title}</strong>
-                <small>{service.note}</small>
+                <strong>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"title"))}</strong>
+                <small>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"note"))}</small>
               </button>
             );
           })}
@@ -3169,6 +3203,7 @@ async function touristLocationImageToDataUrl(file: File) {
 
 function AddLocationScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
+  const localText=(uk:string)=>touristInterfaceText(runtime.language,uk);
   const categories: Array<{ label: string; slug: string; icon: LucideIcon; tone: string }> = [
     { label: "Де поїсти", slug: "food", icon: Utensils, tone: "orange" },
     { label: "Де купити", slug: "shop", icon: ShoppingBag, tone: "blue" },
@@ -3277,11 +3312,11 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
           gallery: photos,
         }),
       });
-      setSuccess("Локацію надіслано на модерацію. Після перевірки вона зʼявиться у гіді.");
+      setSuccess(localText("Локацію надіслано на модерацію. Після перевірки вона зʼявиться у гіді."));
       setName(""); setDescription(""); setPhone(""); setWebsite(""); setPhotos([]);
       setSelectedPoint(null); setAddress(""); setCity(""); setRegionName("");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не вдалося надіслати локацію");
+      setError(reason instanceof Error ? reason.message : localText("Не вдалося надіслати локацію"));
     } finally {
       setSaving(false);
     }
@@ -3293,11 +3328,11 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
         <header className="gt-add-location-hero">
           <span className="gt-add-location-hero__icon"><MapPin size={28} /></span>
           <div>
-            <small>Нова локація</small>
-            <h1>Додати місце</h1>
-            <p>Поділіться корисним місцем — після перевірки воно зʼявиться у «Гід турист».</p>
+            <small><TouristText uk="Нова локація"/></small>
+            <h1><TouristText uk="Додати місце"/></h1>
+            <p><TouristText uk="Поділіться корисним місцем — після перевірки воно зʼявиться у «Гід турист»."/></p>
           </div>
-          <em><ShieldCheck size={15} /> Модерація</em>
+          <em><ShieldCheck size={15} /> <TouristText uk="Модерація"/></em>
         </header>
 
         {error ? <div className="gt-add-location-feedback is-error"><CircleHelp size={18} /><span>{error}</span></div> : null}
@@ -3306,16 +3341,16 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
         <section className="gt-add-location-section">
           <div className="gt-add-location-section__head">
             <span>1</span>
-            <div><strong>Основна інформація</strong><small>Назва та категорія місця</small></div>
+            <div><strong><TouristText uk="Основна інформація"/></strong><small><TouristText uk="Назва та категорія місця"/></small></div>
           </div>
 
           <label className="gt-add-location-field">
-            <span>Назва локації <b>*</b></span>
-            <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Наприклад, оглядовий майданчик Ягідна" />
+            <span><TouristText uk="Назва локації"/> <b>*</b></span>
+            <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder={localText("Наприклад, оглядовий майданчик Ягідна")} />
           </label>
 
           <div className="gt-add-location-field">
-            <span>Категорія <b>*</b></span>
+            <span><TouristText uk="Категорія"/> <b>*</b></span>
             <div className="gt-add-location-categories">
               {categories.map((item) => {
                 const Icon = item.icon;
@@ -3339,7 +3374,7 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
         <section className="gt-add-location-section">
           <div className="gt-add-location-section__head">
             <span>2</span>
-            <div><strong>Де знаходиться</strong><small>Вкажіть точку та адресу</small></div>
+            <div><strong><TouristText uk="Де знаходиться"/></strong><small><TouristText uk="Вкажіть точку та адресу"/></small></div>
           </div>
 
           <div className={`gt-add-location-map-card ${selectedPoint ? "has-point" : ""}`}>
@@ -3353,35 +3388,35 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
               <small>{selectedPoint ? `${selectedPoint.lat.toFixed(5)}, ${selectedPoint.lng.toFixed(5)}` : "Оберіть свою геолокацію або поставте точку на чистій мапі."}</small>
               <div>
                 <button type="button" disabled={locating} onClick={() => void useMyLocation()}><LocateFixed size={17} /> {locating ? "Визначаємо…" : "Моє місце"}</button>
-                <button type="button" onClick={() => { setMapDraft(selectedPoint || initialCenter); setMapOpen(true); }}><Map size={17} /> Обрати на мапі</button>
+                <button type="button" onClick={() => { setMapDraft(selectedPoint || initialCenter); setMapOpen(true); }}><Map size={17} /> <TouristText uk="Обрати на мапі"/></button>
               </div>
             </div>
           </div>
 
           <label className="gt-add-location-field gt-add-location-field--icon">
             <MapPin size={18} />
-            <span>Адреса</span>
-            <input type="text" value={address} onChange={(event) => setAddress(event.target.value)} placeholder="вул., номер, населений пункт" />
+            <span><TouristText uk="Адреса"/></span>
+            <input type="text" value={address} onChange={(event) => setAddress(event.target.value)} placeholder={localText("вул., номер, населений пункт")} />
           </label>
         </section>
 
         <section className="gt-add-location-section">
           <div className="gt-add-location-section__head">
             <span>3</span>
-            <div><strong>Фото та опис</strong><small>Допоможіть туристам зрозуміти, що тут цікавого</small></div>
+            <div><strong><TouristText uk="Фото та опис"/></strong><small><TouristText uk="Допоможіть туристам зрозуміти, що тут цікавого"/></small></div>
           </div>
 
           <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => void choosePhotos(event.target.files)} />
           <button type="button" className="gt-add-location-upload" onClick={() => photoInput.current?.click()}>
             <i><Plus size={24} /></i>
-            <span><strong>{photos.length ? `Додано фото: ${photos.length}/6` : "Додати фотографії"}</strong><small>До 6 фото · JPG, PNG або WEBP</small></span>
+            <span><strong>{photos.length ? `Додано фото: ${photos.length}/6` : "Додати фотографії"}</strong><small><TouristText uk="До 6 фото · JPG, PNG або WEBP"/></small></span>
             <ChevronRight size={19} />
           </button>
-          {photos.length ? <div className="gt-add-location-photo-grid">{photos.map((src, index) => <figure key={`${src.slice(0, 32)}-${index}`}><img src={src} alt={`Фото локації ${index + 1}`} /><button type="button" aria-label="Видалити фото" onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></figure>)}</div> : null}
+          {photos.length ? <div className="gt-add-location-photo-grid">{photos.map((src, index) => <figure key={`${src.slice(0, 32)}-${index}`}><img src={src} alt={`Фото локації ${index + 1}`} /><button type="button" aria-label={localText("Видалити фото")} onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></figure>)}</div> : null}
 
           <label className="gt-add-location-field">
-            <span>Короткий опис</span>
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} placeholder="Що варто знати про це місце, чим воно цікаве, коли краще відвідати..." />
+            <span><TouristText uk="Короткий опис"/></span>
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} placeholder={localText("Що варто знати про це місце, чим воно цікаве, коли краще відвідати...")} />
             <small className="gt-add-location-counter">{description.length}/500</small>
           </label>
         </section>
@@ -3389,30 +3424,30 @@ function AddLocationScreen({ navigate }: { navigate: Navigate }) {
         <section className="gt-add-location-section gt-add-location-section--optional">
           <div className="gt-add-location-section__head">
             <span><Plus size={16} /></span>
-            <div><strong>Контакти <em>необовʼязково</em></strong><small>Якщо місце має контакти або сайт</small></div>
+            <div><strong><TouristText uk="Контакти"/> <em><TouristText uk="необовʼязково"/></em></strong><small><TouristText uk="Якщо місце має контакти або сайт"/></small></div>
           </div>
           <div className="gt-add-location-contact-grid">
-            <label><Phone size={18} /><input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" placeholder="Телефон" /></label>
-            <label><Globe size={18} /><input value={website} onChange={(event) => setWebsite(event.target.value)} type="url" placeholder="Сайт або соцмережа" /></label>
+            <label><Phone size={18} /><input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" placeholder={localText("Телефон")} /></label>
+            <label><Globe size={18} /><input value={website} onChange={(event) => setWebsite(event.target.value)} type="url" placeholder={localText("Сайт або соцмережа")} /></label>
           </div>
         </section>
 
         <div className="gt-add-location-note">
           <Info size={18} />
-          <p><strong>Перед публікацією ми перевіримо локацію.</strong><span>Це допомагає уникати дублів та некоректних місць.</span></p>
+          <p><strong><TouristText uk="Перед публікацією ми перевіримо локацію."/></strong><span><TouristText uk="Це допомагає уникати дублів та некоректних місць."/></span></p>
         </div>
 
         <button type="button" disabled={saving} className="gt-primary-button gt-add-location-submit" onClick={() => void submit()}>
           <Send size={19} /> {saving ? "Надсилаємо…" : "Надіслати на модерацію"}
         </button>
-        <button type="button" className="gt-outline-button" onClick={() => navigate("tourist", "profile")}><ArrowLeft size={18} /> Назад до профілю</button>
+        <button type="button" className="gt-outline-button" onClick={() => navigate("tourist", "profile")}><ArrowLeft size={18} /> <TouristText uk="Назад до профілю"/></button>
       </main>
 
-      {mapOpen ? <div className="gt-add-location-map-modal" role="dialog" aria-modal="true" aria-label="Вибір точки на мапі">
+      {mapOpen ? <div className="gt-add-location-map-modal" role="dialog" aria-modal="true" aria-label={localText("Вибір точки на мапі")}>
         <div className="gt-add-location-map-modal__sheet">
-          <header><div><strong>Оберіть точку</strong><small>На цій мапі немає закладів поруч — лише карта і ваша обрана точка.</small></div><button type="button" onClick={() => setMapOpen(false)}><X size={22} /></button></header>
+          <header><div><strong><TouristText uk="Оберіть точку"/></strong><small><TouristText uk="На цій мапі немає закладів поруч — лише карта і ваша обрана точка."/></small></div><button type="button" onClick={() => setMapOpen(false)}><X size={22} /></button></header>
           <RealMap center={mapDraft} places={[]} radius={0} pickable preferLeaflet showCenterMarker={false} showRadius={false} onPick={setMapDraft} />
-          <footer><span><MapPin size={16} /> {mapDraft.lat.toFixed(6)}, {mapDraft.lng.toFixed(6)}</span><div><button type="button" onClick={() => setMapOpen(false)}>Скасувати</button><button type="button" onClick={() => void resolvePoint(mapDraft, true)}>Обрати цю точку</button></div></footer>
+          <footer><span><MapPin size={16} /> {mapDraft.lat.toFixed(6)}, {mapDraft.lng.toFixed(6)}</span><div><button type="button" onClick={() => setMapOpen(false)}><TouristText uk="Скасувати"/></button><button type="button" onClick={() => void resolvePoint(mapDraft, true)}><TouristText uk="Обрати цю точку"/></button></div></footer>
         </div>
       </div> : null}
     </div>
@@ -3441,7 +3476,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" className="gt-profile-row--location" onClick={() => void runtime.requestLocation()}><LocateFixed size={27} /><span>{runtime.location?.source === "gps" ? tr(runtime.language, "Геолокація дозволена", "Location enabled", "Lokalizacja włączona") : tr(runtime.language, "Надати доступ до геолокації", "Enable location", "Włącz lokalizację")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--add-location" onClick={() => navigate("tourist", "add-location")}><MapPin size={27} /><span>{tr(runtime.language, "Додати локацію", "Add place", "Dodaj miejsce")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--reviews" onClick={() => navigate("tourist", "review")}><MessageSquareMore size={27} /><span>{tr(runtime.language, "Мої відгуки", "My reviews", "Moje opinie")}</span><ChevronRight size={20} /></button>
-          <button type="button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={27}/><span>Мої бронювання</span><ChevronRight size={20}/></button>
+          <button type="button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={27}/><span>{tr(runtime.language,"Мої бронювання","My bookings","Moje rezerwacje")}</span><ChevronRight size={20}/></button>
           <button type="button" className="gt-profile-row--favorites" onClick={() => navigate("tourist", "favorites")}><Heart size={27} /><span>{tr(runtime.language, "Улюблені", "Favorites", "Ulubione")}</span><ChevronRight size={20} /></button>
           <button type="button" onClick={() => navigate("tourist", "activity")}><Clock3 size={27} /><span>{tr(runtime.language, "Історія активності", "Activity history", "Historia aktywności")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--bonuses" onClick={() => navigate("tourist", "wallet")}><Gift size={27} /><span>{tr(runtime.language, "Бонуси", "Bonuses", "Bonusy")}</span><ChevronRight size={20} /></button>
@@ -3452,7 +3487,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" className="gt-profile-row--support" onClick={() => navigate("tourist", "community")}><Headset size={27} /><span>{tr(runtime.language, "Підтримка / спільнота", "Support / community", "Wsparcie / społeczność")}</span><ChevronRight size={20} /></button>
         </div>
         <div className="gt-profile-list gt-profile-list--reference">
-          <button type="button" onClick={() => { if(window.confirm('Видалити обліковий запис? Особисті дані будуть знеособлені, а фінансові записи збережено згідно зі строками обліку.')) void stage2Fetch('/me/account',{method:'DELETE'}).then(()=>{window.alert('Обліковий запис знеособлено.');window.location.assign('/tourist/welcome');}).catch(e=>window.alert(e instanceof Error?e.message:'Не вдалося видалити профіль')); }}><LogOut size={25}/><span>Видалити мій обліковий запис</span><ChevronRight size={20}/></button>
+          <button type="button" onClick={() => { if(window.confirm(tr(runtime.language,"Видалити обліковий запис? Особисті дані будуть знеособлені, а фінансові записи збережено згідно зі строками обліку.","Delete your account? Personal data will be anonymized, while financial records will be retained as required.","Usunąć konto? Dane osobowe zostaną zanonimizowane, a zapisy finansowe przechowane zgodnie z przepisami."))) void stage2Fetch('/me/account',{method:'DELETE'}).then(()=>{window.alert(tr(runtime.language,"Обліковий запис знеособлено.","Account anonymized.","Konto zanonimizowano."));window.location.assign('/tourist/welcome');}).catch(e=>window.alert(e instanceof Error?e.message:'Не вдалося видалити профіль')); }}><LogOut size={25}/><span>{tr(runtime.language,"Видалити мій обліковий запис","Delete my account","Usuń moje konto")}</span><ChevronRight size={20}/></button>
         </div>
         {!runtime.user ? <div className="gt-notice"><Info size={20} /><p>{tr(runtime.language, "Профіль автоматично активується після відкриття Mini App у Telegram.", "Your profile is activated automatically when the Mini App opens in Telegram.", "Profil aktywuje się automatycznie po otwarciu Mini App w Telegramie.")}</p></div> : null}
         <button type="button" className="gt-logout gt-profile-logout"><LogOut size={25} /> {tr(runtime.language, "Вийти", "Log out", "Wyloguj")}</button>
@@ -3476,7 +3511,7 @@ function FavoritesScreen({ navigate }: { navigate: Navigate }) {
       <main className="gt-content">
         <div className="gt-page-heading"><span className="gt-tone--red"><Heart size={23} /></span><div><h1>{tr(runtime.language, "Улюблені", "Favorites", "Ulubione")}</h1><p>{tr(runtime.language, "Збережені місця", "Saved places", "Zapisane miejsca")}</p></div></div>
         <div className="gt-place-list">
-          {places.map((place) => <PlaceRow key={place.id} photo={placePhotoFallback(place)} imageUrl={place.image_url} google={place.source === "google" || place.attributes?.google === true} googlePlaceId={googlePlaceId(place)} title={place.name} subtitle={place.subcategory ? translateKnownLabel(runtime.language, place.subcategory) : (place.category_name || tr(runtime.language, "Локація", "Place", "Miejsce"))} rating={placeRatingLabel(place)} distance="" walk="" tags={visiblePlaceTags(place)} onClick={() => { runtime.setSelectedPlace(place); navigate("tourist", "place"); }} />)}
+          {places.map((place) => <PlaceRow key={place.id} photo={placePhotoFallback(place)} imageUrl={place.image_url} google={place.source === "google" || place.attributes?.google === true} googlePlaceId={googlePlaceId(place)} title={localizedField(runtime.language,place,"name")} subtitle={place.subcategory ? translateKnownLabel(runtime.language, place.subcategory) : (localizedField(runtime.language,place,"category_name") || tr(runtime.language, "Локація", "Place", "Miejsce"))} rating={placeRatingLabel(place)} distance="" walk="" tags={visiblePlaceTags(place)} onClick={() => { runtime.setSelectedPlace(place); navigate("tourist", "place"); }} />)}
           {!places.length ? <div className="gt-stage2-empty">{tr(runtime.language, "Ще немає збережених місць. Відкрийте картку закладу та натисніть «Зберегти».", "No saved places yet. Open a place and tap Save.", "Nie ma jeszcze zapisanych miejsc. Otwórz miejsce i wybierz Zapisz.")}</div> : null}
         </div>
       </main>

@@ -47,6 +47,8 @@ type PlaceRow = {
   region_id: string;
   category_slug: string;
   category_name: string;
+  category_name_en?: string | null;
+  category_name_pl?: string | null;
   subcategory: string | null;
   name: string;
   description: string;
@@ -507,14 +509,14 @@ export class Stage2Service {
 
   async categories() {
     const result = await this.db.query(
-      "SELECT slug,name,name_en,name_pl,sort_order,subcategories,filter_config FROM categories WHERE active=true ORDER BY sort_order,name",
+      "SELECT slug,name,name_en,name_pl,sort_order,subcategories,subcategories_i18n,filter_config FROM categories WHERE active=true ORDER BY sort_order,name",
     );
     return result.rows;
   }
 
   async placeTypeTemplates(category?: string) {
     const result = await this.db.query(
-      `SELECT id,category_slug,place_type,label,default_title,default_description,default_services,default_amenities,fields,sort_order,active
+      `SELECT id,category_slug,place_type,label,default_title,default_description,default_services,default_amenities,fields,sort_order,active,translations
        FROM place_type_templates WHERE active=true AND ($1::text IS NULL OR category_slug=$1) ORDER BY category_slug,sort_order,label`,
       [category || null],
     );
@@ -523,7 +525,7 @@ export class Stage2Service {
 
   private async rawPlaces(regionId?: string, includePending = false) {
     const result = await this.db.query<PlaceRow>(
-      `SELECT p.*,c.name category_name,
+      `SELECT p.*,c.name category_name,c.name_en category_name_en,c.name_pl category_name_pl,
         COALESCE((SELECT json_agg(t.tag ORDER BY t.tag) FROM place_tags t WHERE t.place_id=p.id),'[]'::json)::jsonb AS tags
        FROM places p JOIN categories c ON c.slug=p.category_slug
        WHERE ($1::text IS NULL OR p.region_id=$1) ${includePending ? "" : "AND p.status='approved'"}
@@ -1008,7 +1010,7 @@ export class Stage2Service {
 
   async favorites(user: AuthUser) {
     const local = await this.db.query(
-      `SELECT p.*,c.name category_name,COALESCE((SELECT json_agg(t.tag ORDER BY t.tag) FROM place_tags t WHERE t.place_id=p.id),'[]'::json)::jsonb AS tags,f.created_at AS favorite_created_at
+      `SELECT p.*,c.name category_name,c.name_en category_name_en,c.name_pl category_name_pl,COALESCE((SELECT json_agg(t.tag ORDER BY t.tag) FROM place_tags t WHERE t.place_id=p.id),'[]'::json)::jsonb AS tags,f.created_at AS favorite_created_at
        FROM favorites f JOIN places p ON p.id=f.place_id JOIN categories c ON c.slug=p.category_slug
        WHERE f.user_id=$1 AND p.status='approved'`, [user.id],
     );
@@ -1123,7 +1125,7 @@ export class Stage2Service {
 
   async emergency(regionId: string) {
     const result = await this.db.query(
-      "SELECT id,type,title,note,phone,lat,lng,tone,sort_order FROM emergency_contacts WHERE region_id=$1 AND active=true ORDER BY sort_order,title",
+      "SELECT id,type,title,note,phone,lat,lng,tone,sort_order,translations FROM emergency_contacts WHERE region_id=$1 AND active=true ORDER BY sort_order,title",
       [regionId],
     );
     return result.rows;
@@ -1132,7 +1134,7 @@ export class Stage2Service {
   async emergencyServices(regionId: string, includeInactive = false) {
     const [services, region] = await Promise.all([
       this.db.query(
-        `SELECT id,region_id,title,note,tone,icon,sort_order,active,updated_at
+        `SELECT id,region_id,title,note,tone,icon,sort_order,active,updated_at,translations
          FROM emergency_services
          WHERE region_id=$1 AND deleted_at IS NULL ${includeInactive ? "" : "AND active=true"}
          ORDER BY sort_order,title`,
@@ -1191,7 +1193,7 @@ export class Stage2Service {
   async hotOffers(regionId: string, includeInactive = false) {
     const result = await this.db.query(
       `SELECT o.id,o.region_id,o.place_id,o.category_slug,o.category_label,o.title,o.discount,o.description,o.detail,o.validity,
-              o.badge,o.badge_tone,o.image_url,o.valid_from,o.valid_until,o.sort_order,o.active,o.updated_at,
+              o.badge,o.badge_tone,o.image_url,o.valid_from,o.valid_until,o.sort_order,o.active,o.updated_at,o.translations,
               o.moderation_status,o.moderation_comment,o.terms,o.submitted_by_user_id,
               p.name AS place_name,p.image_url AS place_image_url,p.rating AS place_rating,p.review_count AS place_review_count
        FROM hot_offers o
@@ -1430,8 +1432,8 @@ export class Stage2Service {
     const nextCategory = await this.categoryForPlaceType(nextPlaceType, current.category_slug);
     await this.db.query(
       `UPDATE places SET region_id=$2,category_slug=$3,subcategory=$4,name=$5,description=$6,address=$7,lat=$8,lng=$9,phone=$10,telegram=$11,website=$12,image_url=$13,
-       price_level=$14,work_hours=$15::jsonb,attributes=$16::jsonb,details=$17::jsonb,status=CASE WHEN status='approved' THEN 'approved' ELSE 'pending' END,updated_at=now() WHERE id=$1`,
-      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(body.attributes ?? current.attributes ?? {}), JSON.stringify({ ...(current.details ?? {}), ...((body.details && typeof body.details === "object") ? body.details as Record<string, unknown> : {}) })],
+       price_level=$14,work_hours=$15::jsonb,attributes=$16::jsonb,details=$17::jsonb,translations=$18::jsonb,status=CASE WHEN status='approved' THEN 'approved' ELSE 'pending' END,updated_at=now() WHERE id=$1`,
+      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(body.attributes ?? current.attributes ?? {}), JSON.stringify({ ...(current.details ?? {}), ...((body.details && typeof body.details === "object") ? body.details as Record<string, unknown> : {}) }),JSON.stringify(body.translations ?? current.translations ?? {})],
     );
     return this.place(placeId, false);
   }
@@ -1510,10 +1512,10 @@ export class Stage2Service {
       await client.query("UPDATE organizations SET region_id=$2,name=$3,updated_at=now() WHERE id=$1", [organizationId, regionId, name]);
       await client.query(
         `UPDATE places SET region_id=$2,category_slug=$3,subcategory=$4,name=$5,description=$6,address=$7,lat=$8,lng=$9,phone=$10,image_url=$11,
-         work_hours=$12::jsonb,attributes=$13::jsonb,details=$14::jsonb,updated_at=now() WHERE id=$1`,
+         work_hours=$12::jsonb,attributes=$13::jsonb,details=$14::jsonb,translations=$15::jsonb,updated_at=now() WHERE id=$1`,
         [placeId, regionId, categorySlug, body.subcategory ?? current.subcategory ?? null, name, String(body.description ?? current.description ?? ""), address, lat, lng,
          body.phone === undefined ? current.phone : body.phone || null, body.image_url === undefined ? current.image_url : body.image_url || null,
-         JSON.stringify(workHours), JSON.stringify(attributes), JSON.stringify(details)],
+         JSON.stringify(workHours), JSON.stringify(attributes), JSON.stringify(details), JSON.stringify(body.translations ?? current.translations ?? {})],
       );
       await client.query("UPDATE organization_telegram_access SET active=false,updated_at=now() WHERE organization_id=$1", [organizationId]);
       for (const telegramId of telegramIds) {
@@ -1577,9 +1579,9 @@ export class Stage2Service {
         [organizationId, regionId, name, publish ? "approved" : "invited"],
       );
       await client.query(
-        `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,image_url,work_hours,attributes,details,status,approved_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,CASE WHEN $16='approved' THEN now() ELSE NULL END)`,
-        [placeId, organizationId, regionId, categorySlug, body.subcategory ?? null, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status],
+        `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,image_url,work_hours,attributes,details,status,approved_at,translations)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,CASE WHEN $16='approved' THEN now() ELSE NULL END,$17::jsonb)`,
+        [placeId, organizationId, regionId, categorySlug, body.subcategory ?? null, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
       );
       for (const telegramId of telegramIds) {
         await client.query(
@@ -1703,10 +1705,10 @@ export class Stage2Service {
     const defaultTitle = String(body.default_title ?? "").trim() || null;
     const defaultDescription = String(body.default_description ?? "").trim() || null;
     await this.db.query(
-      `INSERT INTO place_type_templates(id,category_slug,place_type,label,default_title,default_description,default_services,default_amenities,fields,sort_order,active)
-       VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,true)
-       ON CONFLICT (category_slug,place_type) DO UPDATE SET label=EXCLUDED.label,default_title=EXCLUDED.default_title,default_description=EXCLUDED.default_description,default_services=EXCLUDED.default_services,default_amenities=EXCLUDED.default_amenities,fields=EXCLUDED.fields,sort_order=EXCLUDED.sort_order,active=true,updated_at=now()`,
-      [id,categorySlug,placeType,label,defaultTitle,defaultDescription,JSON.stringify(body.default_services ?? []),JSON.stringify(body.default_amenities ?? []),JSON.stringify(body.fields ?? {}),num(body.sort_order,100)],
+      `INSERT INTO place_type_templates(id,category_slug,place_type,label,default_title,default_description,default_services,default_amenities,fields,sort_order,active,translations)
+       VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,true,$11::jsonb)
+       ON CONFLICT (category_slug,place_type) DO UPDATE SET label=EXCLUDED.label,default_title=EXCLUDED.default_title,default_description=EXCLUDED.default_description,default_services=EXCLUDED.default_services,default_amenities=EXCLUDED.default_amenities,fields=EXCLUDED.fields,sort_order=EXCLUDED.sort_order,active=true,translations=EXCLUDED.translations,updated_at=now()`,
+      [id,categorySlug,placeType,label,defaultTitle,defaultDescription,JSON.stringify(body.default_services ?? []),JSON.stringify(body.default_amenities ?? []),JSON.stringify(body.fields ?? {}),num(body.sort_order,100),JSON.stringify(body.translations ?? {})],
     );
     return { ok: true, id, category_slug: categorySlug, place_type: placeType };
   }
@@ -1720,19 +1722,20 @@ export class Stage2Service {
       : [];
     const hasFilterConfig = Boolean(body.filter_config && typeof body.filter_config === "object" && !Array.isArray(body.filter_config));
     await this.db.query(
-      `INSERT INTO categories(slug,name,name_en,name_pl,sort_order,subcategories,filter_config) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)
+      `INSERT INTO categories(slug,name,name_en,name_pl,sort_order,subcategories,filter_config,subcategories_i18n) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$9::jsonb)
        ON CONFLICT (slug) DO UPDATE SET
          name=EXCLUDED.name,
          name_en=EXCLUDED.name_en,
          name_pl=EXCLUDED.name_pl,
          subcategories=EXCLUDED.subcategories,
+         subcategories_i18n=EXCLUDED.subcategories_i18n,
          active=true,
          filter_config=CASE WHEN $8::boolean THEN EXCLUDED.filter_config ELSE categories.filter_config END,
          updated_at=now()`,
-      [slug,name,body.name_en ?? null,body.name_pl ?? null,num(body.sort_order,100),JSON.stringify(subcategories),JSON.stringify(hasFilterConfig ? body.filter_config : {}),hasFilterConfig],
+      [slug,name,body.name_en ?? null,body.name_pl ?? null,num(body.sort_order,100),JSON.stringify(subcategories),JSON.stringify(hasFilterConfig ? body.filter_config : {}),hasFilterConfig,JSON.stringify(body.subcategories_i18n ?? {})],
     );
     const saved = await this.db.query(
-      "SELECT slug,name,name_en,name_pl,sort_order,subcategories,filter_config FROM categories WHERE slug=$1 LIMIT 1",
+      "SELECT slug,name,name_en,name_pl,sort_order,subcategories,subcategories_i18n,filter_config FROM categories WHERE slug=$1 LIMIT 1",
       [slug],
     );
     return saved.rows[0] ?? { ok: true, slug };
@@ -1773,10 +1776,10 @@ export class Stage2Service {
     const title = String(body.title ?? "").trim();
     if (!title) throw new BadRequestException("title is required");
     await this.db.query(
-      `INSERT INTO emergency_contacts(id,region_id,type,title,note,phone,lat,lng,tone,sort_order,active)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true)
-       ON CONFLICT (id) DO UPDATE SET type=EXCLUDED.type,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,lat=EXCLUDED.lat,lng=EXCLUDED.lng,tone=EXCLUDED.tone,sort_order=EXCLUDED.sort_order,active=true,updated_at=now()`,
-      [id,regionId,body.type ?? "custom",title,body.note ?? "",body.phone ?? null,num(body.lat),num(body.lng),body.tone ?? "green",num(body.sort_order,100)],
+      `INSERT INTO emergency_contacts(id,region_id,type,title,note,phone,lat,lng,tone,sort_order,active,translations)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11::jsonb)
+       ON CONFLICT (id) DO UPDATE SET type=EXCLUDED.type,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,lat=EXCLUDED.lat,lng=EXCLUDED.lng,tone=EXCLUDED.tone,sort_order=EXCLUDED.sort_order,active=true,translations=EXCLUDED.translations,updated_at=now()`,
+      [id,regionId,body.type ?? "custom",title,body.note ?? "",body.phone ?? null,num(body.lat),num(body.lng),body.tone ?? "green",num(body.sort_order,100),JSON.stringify(body.translations ?? {})],
     );
     await this.touchEmergencyVerification(regionId);
     return { ok: true, id };
@@ -1796,10 +1799,10 @@ export class Stage2Service {
     if (!title) throw new BadRequestException("title is required");
     const active = body.active === undefined ? true : (body.active === true || String(body.active) === "true");
     await this.db.query(
-      `INSERT INTO emergency_services(id,region_id,title,note,tone,icon,sort_order,active)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,deleted_at=NULL,updated_at=now()`,
-      [id,regionId,title,String(body.note ?? ""),String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active],
+      `INSERT INTO emergency_services(id,region_id,title,note,tone,icon,sort_order,active,translations)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,deleted_at=NULL,updated_at=now()`,
+      [id,regionId,title,String(body.note ?? ""),String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {})],
     );
     await this.touchEmergencyVerification(regionId);
     return { ok: true, id };
@@ -1828,10 +1831,10 @@ export class Stage2Service {
       return clean ? clean : null;
     };
     await this.db.query(
-      `INSERT INTO hot_offers(id,region_id,place_id,category_slug,category_label,title,discount,description,detail,validity,badge,badge_tone,image_url,valid_from,valid_until,sort_order,active)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::timestamptz,$15::timestamptz,$16,$17)
-       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,place_id=EXCLUDED.place_id,category_slug=EXCLUDED.category_slug,category_label=EXCLUDED.category_label,title=EXCLUDED.title,discount=EXCLUDED.discount,description=EXCLUDED.description,detail=EXCLUDED.detail,validity=EXCLUDED.validity,badge=EXCLUDED.badge,badge_tone=EXCLUDED.badge_tone,image_url=EXCLUDED.image_url,valid_from=EXCLUDED.valid_from,valid_until=EXCLUDED.valid_until,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,updated_at=now()`,
-      [id,regionId,placeId,String(body.category_slug ?? ""),String(body.category_label ?? ""),title,String(body.discount ?? ""),String(body.description ?? ""),String(body.detail ?? ""),String(body.validity ?? ""),String(body.badge ?? ""),String(body.badge_tone ?? "green"),String(body.image_url ?? "").trim() || null,dateValue(body.valid_from),dateValue(body.valid_until),num(body.sort_order,100),active],
+      `INSERT INTO hot_offers(id,region_id,place_id,category_slug,category_label,title,discount,description,detail,validity,badge,badge_tone,image_url,valid_from,valid_until,sort_order,active,translations)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::timestamptz,$15::timestamptz,$16,$17,$18::jsonb)
+       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,place_id=EXCLUDED.place_id,category_slug=EXCLUDED.category_slug,category_label=EXCLUDED.category_label,title=EXCLUDED.title,discount=EXCLUDED.discount,description=EXCLUDED.description,detail=EXCLUDED.detail,validity=EXCLUDED.validity,badge=EXCLUDED.badge,badge_tone=EXCLUDED.badge_tone,image_url=EXCLUDED.image_url,valid_from=EXCLUDED.valid_from,valid_until=EXCLUDED.valid_until,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,updated_at=now()`,
+      [id,regionId,placeId,String(body.category_slug ?? ""),String(body.category_label ?? ""),title,String(body.discount ?? ""),String(body.description ?? ""),String(body.detail ?? ""),String(body.validity ?? ""),String(body.badge ?? ""),String(body.badge_tone ?? "green"),String(body.image_url ?? "").trim() || null,dateValue(body.valid_from),dateValue(body.valid_until),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {})],
     );
     await this.db.query("UPDATE hot_offers SET moderation_status='approved',moderation_comment='' WHERE id=$1",[id]);
     const saved = (await this.hotOffers(regionId, true)).find((offer: Record<string, unknown>) => String(offer.id) === id);

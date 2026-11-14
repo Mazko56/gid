@@ -17,6 +17,8 @@ export type Stage2Place = {
   region_id: string;
   category_slug: string;
   category_name?: string;
+  category_name_en?: string | null;
+  category_name_pl?: string | null;
   subcategory?: string | null;
   name: string;
   description: string;
@@ -49,11 +51,13 @@ export type Stage2Category = {
   name_en?: string | null;
   name_pl?: string | null;
   subcategories?: string[];
+  subcategories_i18n?: Record<string, string[]>;
   filter_config?: Record<string, boolean>;
 };
 
 export type Stage2PlaceTypeTemplate = {
   id: string;
+  translations?: Record<string,Record<string,string>>;
   category_slug: string;
   place_type: string;
   label: string;
@@ -75,6 +79,7 @@ export type Stage2EmergencyService = {
   sort_order: number;
   active: boolean;
   updated_at?: string;
+  translations?: Record<string, Record<string,string>>;
 };
 
 export type Stage2EmergencyServicesResponse = {
@@ -103,6 +108,7 @@ export type Stage2HotOffer = {
   badge?: string | null;
   badge_tone?: "gold" | "green" | "red" | null;
   image_url?: string | null;
+  translations?: Record<string, Record<string,string>>;
   valid_from?: string | null;
   valid_until?: string | null;
   sort_order?: number;
@@ -120,6 +126,7 @@ export type Stage2Offer = {
   id: string;
   title: string;
   discount_label: string;
+  translations?: Record<"en"|"pl",Record<string,string>>;
   short_description?: string | null;
   description?: string | null;
   terms?: string | null;

@@ -145,6 +145,7 @@ type PartnerService = {
   name: string;
   category: string;
   description: string;
+  translations?: Record<"en"|"pl", Record<string,string>>;
   audience: PartnerServiceAudience;
   active: boolean;
   hidden: boolean;
@@ -174,6 +175,7 @@ const emptyServiceDraft: PartnerService = {
   name: "",
   category: "",
   description: "",
+  translations: {en:{},pl:{}},
   audience: "hotel",
   active: true,
   hidden: false,
@@ -2348,6 +2350,7 @@ function PartnerOffersScreen({ navigate }: { navigate: Navigate }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [editingId, setEditingId] = useState("");
+  const [offerTranslations,setOfferTranslations]=useState<Record<"en"|"pl",Record<string,string>>>({en:{},pl:{}});
   const [title, setTitle] = useState("");
   const [discount, setDiscount] = useState("");
   const [shortDescription, setShortDescription] = useState("");
@@ -2365,10 +2368,10 @@ function PartnerOffersScreen({ navigate }: { navigate: Navigate }) {
   useEffect(() => { void load(); }, []);
 
   const reset = () => {
-    setEditingId(""); setTitle(""); setDiscount(""); setShortDescription(""); setDescription(""); setValidUntil(""); setTerms(""); setImageUrl("");
+    setEditingId(""); setTitle(""); setDiscount(""); setShortDescription(""); setDescription(""); setValidUntil(""); setTerms(""); setImageUrl("");setOfferTranslations({en:{},pl:{}});
   };
   const edit = (offer: Stage2Offer) => {
-    setEditingId(offer.id); setTitle(offer.title); setDiscount(offer.discount_label); setShortDescription(offer.short_description || ""); setDescription(offer.description || ""); setTerms(offer.terms || ""); setImageUrl(offer.image_url || "");
+    setOfferTranslations({en:{...(offer.translations?.en||{})},pl:{...(offer.translations?.pl||{})}});setEditingId(offer.id); setTitle(offer.title); setDiscount(offer.discount_label); setShortDescription(offer.short_description || ""); setDescription(offer.description || ""); setTerms(offer.terms || ""); setImageUrl(offer.image_url || "");
     setValidUntil(offer.valid_until ? new Date(offer.valid_until).toISOString().slice(0, 10) : "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -2378,7 +2381,7 @@ function PartnerOffersScreen({ navigate }: { navigate: Navigate }) {
     try {
       const placeId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "" : "";
       if (!placeId) throw new Error("Спочатку відкрийте свій заклад у кабінеті партнера");
-      const body = JSON.stringify({ place_id: placeId, title: title.trim(), discount_label: discount.trim(), short_description: shortDescription.trim(), description: description.trim(), valid_until: validUntil ? `${validUntil}T23:59:59+03:00` : null, terms: terms.trim(), image_url: imageUrl, badge: "Партнер", badge_tone: "green" });
+      const body = JSON.stringify({ place_id: placeId, title: title.trim(), discount_label: discount.trim(), short_description: shortDescription.trim(), description: description.trim(), valid_until: validUntil ? `${validUntil}T23:59:59+03:00` : null, terms: terms.trim(),translations:offerTranslations, image_url: imageUrl, badge: "Партнер", badge_tone: "green" });
       if (editingId) await stage2Fetch(`/partner/offers/${encodeURIComponent(editingId)}`, { method: "PATCH", body });
       else await stage2Fetch("/partner/offers", { method: "POST", body });
       setMessage("Пропозицію збережено та відправлено адміністрації на модерацію.");
@@ -2401,6 +2404,14 @@ function PartnerOffersScreen({ navigate }: { navigate: Navigate }) {
         <label><span>Знижка / умова</span><input value={discount} onChange={(event)=>setDiscount(event.target.value)} placeholder="-20%, 2 за 1, Подарунок" /></label>
         <label><span>Короткий опис</span><input value={shortDescription} onChange={(event)=>setShortDescription(event.target.value)} placeholder="Коротко для картки пропозиції" /></label>
         <label><span>Повний опис</span><textarea rows={4} value={description} onChange={(event)=>setDescription(event.target.value)} placeholder="Що саме отримує турист" /></label>
+        <section className="gt-service-translations">
+          <h3 className="gt-service-section-title">Переклади пропозиції для туристів (EN / PL)</h3>
+          {(["en","pl"] as const).map(lang=><div key={lang} className="gt-service-translation-group"><strong>{lang==="en"?"English":"Polski"}</strong>
+            {([{key:"title",label:"Назва"},{key:"discount",label:"Знижка / умова"},{key:"description",label:"Короткий опис"},{key:"detail",label:"Повний опис"},{key:"terms",label:"Умови"}] as const).map(field=><label key={`${lang}-${field.key}`}><span>{field.label} · {lang.toUpperCase()}</span>
+              <input lang={lang} value={offerTranslations[lang]?.[field.key]||""} onChange={e=>setOfferTranslations(curr=>({...curr,[lang]:{...curr[lang],[field.key]:e.target.value}}))}/>
+            </label>)}
+          </div>)}
+        </section>
         <label><span>Діє до</span><input type="date" value={validUntil} onChange={(event)=>setValidUntil(event.target.value)} /></label>
         <label><span>Умови</span><textarea rows={3} value={terms} onChange={(event)=>setTerms(event.target.value)} placeholder="Мінімальна сума, години дії, винятки тощо" /></label>
         <label className="gt-partner-offer-photo"><span>Фото пропозиції</span>{imageUrl ? <img src={imageUrl} alt="Фото пропозиції"/> : <span className="gt-partner-offer-photo__empty"><ImagePlus size={25}/> Додати фото</span>}<input type="file" accept="image/*" onChange={(event)=>{ const file=event.target.files?.[0]; if(file) void resizePartnerImage(file).then(setImageUrl); event.currentTarget.value=""; }} /></label>
@@ -2644,6 +2655,19 @@ function ServiceSelectRow({ label, value, placeholder, onClick }: { label: strin
   );
 }
 
+function PartnerServiceTranslationFields({service,onChange}:{service:PartnerService;onChange:(value:PartnerService)=>void}) {
+  const fields=[{key:"name",label:"Назва"},{key:"description",label:"Опис"},{key:"bookingNote",label:"Як забронювати"},{key:"additionalInfo",label:"Додаткова інформація"}] as const;
+  return <section className="gt-service-translations">
+    <h3 className="gt-service-section-title">Переклади послуги для туристів</h3>
+    {(["en","pl"] as const).map(lang=><div key={lang} className="gt-service-translation-group">
+      <strong>{lang==="en"?"English (EN)":"Polski (PL)"}</strong>
+      {fields.map(field=><ServiceField key={`${lang}-${field.key}`} label={`${field.label} · ${lang.toUpperCase()}`}
+        value={service.translations?.[lang]?.[field.key] || ""} multiline={field.key!=="name"} counter={field.key==="name"?100:500}
+        onChange={(value)=>onChange({...service,translations:{en:{...(service.translations?.en||{})},pl:{...(service.translations?.pl||{})},[lang]:{...(service.translations?.[lang]||{}),[field.key]:value}}})}/>)}
+    </div>)}
+  </section>;
+}
+
 function AddServiceScreen({ navigate }: { navigate: Navigate }) {
   const [draft, setDraft] = useState<PartnerService>(emptyServiceDraft);
   const [preview, setPreview] = useState<string>("");
@@ -2708,6 +2732,7 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
         <ServiceField label="Назва послуги" value={draft.name} counter={100} onChange={(name) => setDraft((current) => ({ ...current, name }))} />
         <ServiceSelectRow label="Категорія" value={draft.category} placeholder="Оберіть категорію" onClick={() => navigate("partner", "partner-service-category")} />
         <ServiceField label="Опис послуги" value={draft.description} counter={500} multiline onChange={(description) => setDraft((current) => ({ ...current, description }))} />
+        <PartnerServiceTranslationFields service={draft} onChange={setDraft} />
 
         <h3 className="gt-service-section-title">Тип послуги</h3>
         <div className="gt-service-radio-stack">
@@ -2889,6 +2914,7 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
           navigate("partner", "partner-service-edit-category");
         }} />
         <ServiceField label="Опис послуги" value={service.description} multiline counter={500} onChange={(description) => setService((current) => ({ ...current, description }))} />
+        <PartnerServiceTranslationFields service={service} onChange={setService} />
 
         <h3 className="gt-service-section-title">Тип послуги</h3>
         <div className="gt-service-radio-stack">

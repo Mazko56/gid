@@ -358,7 +358,7 @@ export class PlatformService {
 
   async partnerOffers(user: AuthUser) {
     const result = await this.db.query(`SELECT o.id,o.place_id,o.title,o.discount AS discount_label,
-      o.description AS short_description,o.detail AS description,o.terms,o.image_url,o.valid_until,
+      o.description AS short_description,o.detail AS description,o.terms,o.translations,o.image_url,o.valid_until,
       o.moderation_status AS status,o.moderation_comment,p.image_url AS place_image_url
       FROM hot_offers o JOIN places p ON p.id=o.place_id JOIN organizations org ON org.id=p.organization_id
       LEFT JOIN organization_telegram_access a ON a.organization_id=org.id AND a.active=true AND a.telegram_id::text=$2
@@ -394,13 +394,13 @@ export class PlatformService {
     const category=(await this.db.query('SELECT category_slug,subcategory FROM places WHERE id=$1',[place.id])).rows[0];
     const result=offerId
       ? await this.db.query(`UPDATE hot_offers SET title=$3,discount=$4,description=$5,detail=$6,terms=$7,
-         image_url=$8,valid_until=$9,moderation_status='pending',moderation_comment='',updated_at=now()
+         image_url=$8,valid_until=$9,translations=$10::jsonb,moderation_status='pending',moderation_comment='',updated_at=now()
          WHERE id=$1 AND place_id=$2 AND submitted_by_user_id IS NOT NULL AND active=true RETURNING id`,
-        [id,place.id,title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil])
+        [id,place.id,title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil,JSON.stringify(body.translations ?? {})])
       : await this.db.query(`INSERT INTO hot_offers(id,region_id,place_id,category_slug,category_label,title,discount,
-          description,detail,terms,image_url,valid_until,badge,badge_tone,active,moderation_status,submitted_by_user_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Партнер','green',true,'pending',$13) RETURNING id`,
-        [id,place.region_id,place.id,category?.category_slug||'',category?.subcategory||'',title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil,user.id]);
+          description,detail,terms,image_url,valid_until,badge,badge_tone,active,moderation_status,submitted_by_user_id,translations)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'Партнер','green',true,'pending',$13,$14::jsonb) RETURNING id`,
+        [id,place.region_id,place.id,category?.category_slug||'',category?.subcategory||'',title,discount,shortDescription,fullDescription,terms,imageUrl,validUntil,user.id,JSON.stringify(body.translations ?? {})]);
     if(!result.rows[0]) throw new NotFoundException('Пропозицію не знайдено');
     await this.audit(user.id,place.region_id,'hot_offer',id,offerId?'partner_resubmitted':'partner_submitted');
     return {id,status:'pending'};

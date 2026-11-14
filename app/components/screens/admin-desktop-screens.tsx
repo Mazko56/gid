@@ -56,6 +56,40 @@ import {
 import type { RoleKey } from "../../lib/navigation";
 import { adminStage2Fetch, stage2Fetch, type Stage2Category, type Stage2EmergencyService, type Stage2EmergencyServicesResponse, type Stage2GeoDetails, type Stage2GeoSuggestion, type Stage2HotOffer, type Stage2PageContentResponse, type Stage2PlaceTypeTemplate } from "../../lib/stage2-api";
 import { RealMap } from "../real-map";
+import { translateKnownLabel } from "../../lib/tourist-i18n";
+
+type EditableTranslations = Record<string, Record<string, string>>;
+const emptyTranslations = (): EditableTranslations => ({ en: {}, pl: {} });
+const readTranslations = (source: unknown): EditableTranslations => {
+  const obj = source && typeof source === "object" ? source as EditableTranslations : {};
+  return { en: { ...(obj.en || {}) }, pl: { ...(obj.pl || {}) } };
+};
+function TranslationInputs({ fields, values, onChange }: {
+  fields: Array<{ key: string; label: string; multiline?: boolean }>;
+  values: EditableTranslations;
+  onChange: (value: EditableTranslations) => void;
+}) {
+  return <div className="ad-page-editor-form-grid ad-i18n-fields">
+    {(["en", "pl"] as const).flatMap((lang) => fields.map((field) => <label key={`${lang}-${field.key}`} className={field.multiline ? "is-wide" : ""}>
+      <span>{field.label} · {lang.toUpperCase()}</span>
+      {field.multiline ? <textarea rows={2} lang={lang} value={values[lang]?.[field.key] || ""} onChange={(e)=>onChange({...values,[lang]:{...(values[lang]||{}),[field.key]:e.target.value}})} />
+        : <input lang={lang} value={values[lang]?.[field.key] || ""} onChange={(e)=>onChange({...values,[lang]:{...(values[lang]||{}),[field.key]:e.target.value}})} />}
+    </label>))}
+  </div>;
+}
+function TranslatedPageInputs({ fields, content, onField }: {
+  fields: Array<{ key: string; label: string; multiline?: boolean }>;
+  content: Record<string,string>;
+  onField: (key: string,value: string) => void;
+}) {
+  return <div className="ad-page-editor-form-grid ad-i18n-fields">
+    {(["en","pl"] as const).flatMap((language)=>fields.map(({key,label,multiline})=><label key={`${language}-${key}`} className={multiline ? "is-wide" : ""}>
+      <span>{label} · {language.toUpperCase()}</span>
+      {multiline ? <textarea rows={2} lang={language} value={content[`${key}_${language}`] || ""} onChange={(e)=>onField(`${key}_${language}`,e.target.value)}/>
+        : <input lang={language} value={content[`${key}_${language}`] || ""} onChange={(e)=>onField(`${key}_${language}`,e.target.value)}/>}
+    </label>))}
+  </div>;
+}
 
 type Navigate = (role: RoleKey, slug: string) => void;
 type AdminProps = { navigate: Navigate };
@@ -101,6 +135,7 @@ type AdminPartnerDetail = {
   work_hours?: Record<string, any>;
   attributes?: Record<string, any>;
   details?: Record<string, any>;
+  translations?: EditableTranslations;
   status: string;
   moderation_comment?: string | null;
   created_at?: string;
@@ -550,6 +585,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [workFrom, setWorkFrom] = useState("09:00");
   const [workTo, setWorkTo] = useState("18:00");
   const [description, setDescription] = useState("");
+  const [partnerTranslations,setPartnerTranslations]=useState<EditableTranslations>(emptyTranslations);
   const [photos, setPhotos] = useState<string[]>([]);
   const [telegramIds, setTelegramIds] = useState("");
   const [modules, setModules] = useState<string[]>([...ADMIN_CABINET_MODULES]);
@@ -589,6 +625,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       setCity(String(details.city || "")); setRegionName(String(details.region_name || row.region_name || "")); setStreet(String(details.street || "")); setHouse(String(details.house || ""));
       setAddress(row.address || ""); setLat(Number(row.lat)); setLng(Number(row.lng)); setMapDraft({ lat: Number(row.lat), lng: Number(row.lng) }); setMapSelected(true);
       setPhone(String(row.phone || "")); setDescription(String(row.description || ""));
+      setPartnerTranslations(readTranslations(row.translations));
       setAlwaysOpen(work.always_open === true); setWorkFrom(String(daily.from || "09:00")); setWorkTo(String(daily.to || "18:00"));
       setPhotos(gallery.length ? gallery : row.image_url ? [String(row.image_url)] : []);
       setTelegramIds(Array.isArray(row.telegram_ids) ? row.telegram_ids.join(", ") : "");
@@ -685,7 +722,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       const requestBody = {
         name: name.trim(), category_slug: categorySlug, placement_type: placement, rate_percent: Number(rate) || 0,
         city, region_name: regionName, street, house, address, lat, lng, map_selected: mapSelected,
-        phone, description, image_url: photos[0] || null, telegram_ids: ids, publish,
+        phone, description, translations:partnerTranslations, image_url: photos[0] || null, telegram_ids: ids, publish,
         work_hours: alwaysOpen ? { always_open: true } : { daily: { from: workFrom, to: workTo } },
         attributes: { partner: true, placement_type: placement, rate_percent: Number(rate) || 0 },
         subcategory: ({ hotel: "Готель", food: "Ресторан", shop: "Магазин", rest: "SPA / сауна", entertainment: "Активний відпочинок", transfer: "Трансфер / таксі" } as Record<string,string>)[categorySlug] || null,
@@ -758,6 +795,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
         <div className="ad-create-row ad-create-row--6"><div className="ad-create-row__label"><span>6</span><strong>Телефон</strong></div><div className="ad-create-row__control"><input value={phone} onChange={(e)=>setPhone(e.target.value)} placeholder="+380 (___) ___-__-__" /></div></div>
         <div className="ad-create-row ad-create-row--7"><div className="ad-create-row__label"><span>7</span><strong>Графік роботи</strong></div><div className="ad-create-row__control"><div className="ad-placement-options ad-placement-options--schedule"><label className={alwaysOpen?'is-selected':''} onClick={()=>setAlwaysOpen(true)}><i>{alwaysOpen?<Check size={14}/>:null}</i><span><strong>Цілодобово</strong></span></label><label className={!alwaysOpen?'is-selected':''} onClick={()=>setAlwaysOpen(false)}><i>{!alwaysOpen?<Check size={14}/>:null}</i><span><strong>За графіком</strong></span><input type="time" value={workFrom} onChange={(e)=>setWorkFrom(e.target.value)} onClick={(e)=>e.stopPropagation()} /><em>–</em><input type="time" value={workTo} onChange={(e)=>setWorkTo(e.target.value)} onClick={(e)=>e.stopPropagation()} /></label></div></div></div>
         <div className="ad-create-row ad-create-row--8"><div className="ad-create-row__label"><span>8</span><strong>Короткий опис</strong></div><div className="ad-create-row__control"><textarea value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Опишіть партнера, послуги, особливості тощо..." rows={3} /></div></div>
+        <div className="ad-create-row"><div className="ad-create-row__label"><strong>Переклади для туристів</strong></div><div className="ad-create-row__control"><TranslationInputs fields={[{key:"name",label:"Назва"},{key:"description",label:"Опис",multiline:true}]} values={partnerTranslations} onChange={setPartnerTranslations}/></div></div>
         <div className="ad-create-row ad-create-row--9"><div className="ad-create-row__label"><span>9</span><strong>Фото</strong></div><div className="ad-create-row__control"><input ref={photoInput} type="file" accept="image/*" multiple hidden onChange={(e)=>void handlePhotos(e.target.files)} /><button type="button" className="ad-upload-box" onClick={()=>photoInput.current?.click()}><ImagePlus size={23}/><span><strong>{photos.length ? `Завантажено фото: ${photos.length}` : "Завантажте до 3 фото партнера"}</strong><small>JPG/PNG, фото стискаються перед збереженням у БД</small></span></button>{photos.length ? <div className="ad-admin-photo-preview">{photos.map((src,i)=><div key={i}><img src={src} alt={`Фото ${i+1}`} /><button type="button" onClick={()=>setPhotos((current)=>current.filter((_,index)=>index!==i))}><Trash2 size={14}/></button></div>)}</div>:null}</div></div>
         <div className="ad-create-row ad-create-row--10"><div className="ad-create-row__label"><span>10</span><strong>Telegram ID</strong></div><div className="ad-create-row__control"><textarea value={telegramIds} onChange={(e)=>setTelegramIds(e.target.value)} rows={2} placeholder="Наприклад: 123456789, 987654321" /><small className="ad-field-note">Можна вказати декілька ID через кому, пробіл або з нового рядка. Лише ці акаунти зможуть відкрити партнерський QR.</small></div></div>
         <div className="ad-create-row ad-create-row--11"><div className="ad-create-row__label"><span>11</span><strong>Структура кабінету партнера</strong></div><div className="ad-create-row__control"><div className="ad-module-grid"><div className="ad-module-preview"><strong>Каркас</strong><small>Вмикайте/вимикайте потрібні пункти кабінету</small><span>{modules.length} модулів увімкнено</span><div className="ad-checkin-times"><label>Заїзд <input type="time" value={checkIn} onChange={(e)=>setCheckIn(e.target.value)} /></label><label>Виїзд <input type="time" value={checkOut} onChange={(e)=>setCheckOut(e.target.value)} /></label></div></div>{Array.from(new Set([...ADMIN_CABINET_MODULES,...modules])).map((m)=><label key={m} className={modules.includes(m)?'is-selected':''} onClick={()=>toggleModule(m)}><i>{modules.includes(m)?<Check size={13}/>:null}</i>{m}</label>)}<button type="button" className="ad-module-add" onClick={addModule}><Plus size={15}/> Додати пункт</button></div></div></div>
@@ -1764,6 +1802,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const [templateType, setTemplateType] = useState("Готель");
   const [creatingTemplateType, setCreatingTemplateType] = useState(false);
   const [templateTitle, setTemplateTitle] = useState("Новий готель");
+  const [templateTranslations,setTemplateTranslations]=useState<EditableTranslations>(emptyTranslations());
   const [templateDescription, setTemplateDescription] = useState("Комфортний готель для відпочинку гостей.");
   const [templateAmenities, setTemplateAmenities] = useState("Номери, Паркінг, Wi‑Fi, Сніданок");
   const [templateServices, setTemplateServices] = useState("Сніданок, Прибирання, Сауна, Басейн, Трансфер");
@@ -1782,12 +1821,14 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const [emergencyServices, setEmergencyServices] = useState<Stage2EmergencyService[]>([]);
   const [emergencyVerifiedAt, setEmergencyVerifiedAt] = useState<string | null>(null);
   const [serviceId, setServiceId] = useState("");
+  const [legacyServiceTranslations,setLegacyServiceTranslations]=useState<EditableTranslations>(emptyTranslations());
   const [serviceTitle, setServiceTitle] = useState("");
   const [serviceNote, setServiceNote] = useState("");
   const [serviceTone, setServiceTone] = useState<Stage2EmergencyService["tone"]>("green");
   const [serviceIcon, setServiceIcon] = useState<Stage2EmergencyService["icon"]>("custom");
   const [serviceActive, setServiceActive] = useState(true);
   const [hotOfferRows, setHotOfferRows] = useState<Stage2HotOffer[]>([]);
+  const [legacyOfferTranslations,setLegacyOfferTranslations]=useState<EditableTranslations>(emptyTranslations());
   const [offerId, setOfferId] = useState("");
   const [offerPlaceId, setOfferPlaceId] = useState("");
   const [offerTitle, setOfferTitle] = useState("");
@@ -1907,11 +1948,12 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   };
 
   const resetEmergencyServiceForm = () => {
-    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true);
+    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true);setLegacyServiceTranslations(emptyTranslations());
   };
 
   const editEmergencyService = (service: Stage2EmergencyService) => {
     setServiceId(service.id);
+    setLegacyServiceTranslations(readTranslations(service.translations));
     setServiceTitle(service.title);
     setServiceNote(service.note);
     setServiceTone(service.tone);
@@ -1923,7 +1965,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
     if (!serviceTitle.trim()) { setMessage("Вкажіть назву корисного сервісу."); return; }
     await adminStage2Fetch("/admin/stage2/emergency-services", adminKey, {
       method: "POST",
-      body: JSON.stringify({ id: serviceId || undefined, region_id: "region-tatariv", title: serviceTitle.trim(), note: serviceNote.trim(), tone: serviceTone, icon: serviceIcon, active: serviceActive }),
+      body: JSON.stringify({ id: serviceId || undefined, region_id: "region-tatariv", title: serviceTitle.trim(), note: serviceNote.trim(), tone: serviceTone, icon: serviceIcon, active: serviceActive, translations:legacyServiceTranslations }),
     });
     setMessage(serviceId ? "Корисний сервіс оновлено." : "Корисний сервіс додано.");
     resetEmergencyServiceForm();
@@ -1941,7 +1983,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const toggleEmergencyService = async (service: Stage2EmergencyService) => {
     await adminStage2Fetch("/admin/stage2/emergency-services", adminKey, {
       method: "POST",
-      body: JSON.stringify({ ...service, region_id: "region-tatariv", active: !service.active }),
+      body: JSON.stringify({ ...service, region_id: "region-tatariv", active: !service.active,translations:service.translations ?? {} }),
     });
     setMessage(!service.active ? "Сервіс увімкнено." : "Сервіс вимкнено.");
     await load();
@@ -1949,11 +1991,12 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
 
   const resetOfferForm = () => {
     setOfferId(""); setOfferPlaceId(""); setOfferTitle(""); setOfferDiscount(""); setOfferDescription(""); setOfferDetail("");
-    setOfferValidity(""); setOfferBadge("Актуально"); setOfferBadgeTone("green"); setOfferValidFrom(""); setOfferValidUntil(""); setOfferActive(true);
+    setOfferValidity(""); setOfferBadge("Актуально"); setOfferBadgeTone("green"); setOfferValidFrom(""); setOfferValidUntil(""); setOfferActive(true);setLegacyOfferTranslations(emptyTranslations());
   };
 
   const editOffer = (offer: Stage2HotOffer) => {
     setOfferId(offer.id);
+    setLegacyOfferTranslations(readTranslations(offer.translations));
     setOfferPlaceId(offer.place_id || "");
     setOfferTitle(offer.title);
     setOfferDiscount(offer.discount || "");
@@ -1986,6 +2029,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
         validity: offerValidity.trim(),
         badge: offerBadge.trim(),
         badge_tone: offerBadgeTone,
+        translations:legacyOfferTranslations,
         valid_from: offerValidFrom || null,
         valid_until: offerValidUntil || null,
         active: offerActive,
@@ -2160,6 +2204,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
                 } else {
                   setTemplateType("");
                   setTemplateTitle("");
+                  setTemplateTranslations(emptyTranslations());
                   setTemplateDescription("");
                   setTemplateAmenities("");
                   setTemplateServices("");
@@ -2178,6 +2223,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
                   setCreatingTemplateType(true);
                   setTemplateType("");
                   setTemplateTitle("");
+                  setTemplateTranslations(emptyTranslations());
                   setTemplateDescription("");
                   setTemplateAmenities("");
                   setTemplateServices("");
@@ -2189,6 +2235,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
                 const current=placeTemplates.find((item)=>item.category_slug===templateCategory&&item.place_type===value);
                 if(current){
                   setTemplateTitle(current.default_title || "");
+                  setTemplateTranslations(readTranslations(current.translations));
                   setTemplateDescription(current.default_description || "");
                   setTemplateAmenities((current.default_amenities || []).join(", "));
                   setTemplateServices(current.default_services.join(", "));
@@ -2218,6 +2265,8 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
               <textarea value={templateDescription} onChange={(e)=>setTemplateDescription(e.target.value)} placeholder="Коротка підказка для партнера, що написати про заклад" rows={3} />
             </label>
 
+            <TranslationInputs fields={[{key:"label",label:"Тип закладу"},{key:"default_title",label:"Назва за замовчуванням"},{key:"default_description",label:"Опис за замовчуванням",multiline:true}]} values={templateTranslations} onChange={setTemplateTranslations}/>
+
             <AdminTemplateMultiSelect
               label="Зручності / основні характеристики"
               value={templateAmenities}
@@ -2234,7 +2283,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
 
             <AdminTemplateFieldsSelect value={templateFields} onChange={setTemplateFields} />
 
-            <PrimaryButton disabled={!templateType.trim()} onClick={() => void adminStage2Fetch("/admin/stage2/place-type-templates", adminKey,{method:"POST",body:JSON.stringify({category_slug:templateCategory,place_type:templateType.trim(),label:templateType.trim(),default_title:templateTitle,default_description:templateDescription,default_amenities:commaList(templateAmenities),default_services:commaList(templateServices),fields:Object.fromEntries(templateFieldEntries(templateFields))})}).then(()=>{setMessage("Шаблон типу закладу збережено");setCreatingTemplateType(false);return load();})}><Plus size={16}/> Зберегти шаблон</PrimaryButton>
+            <PrimaryButton disabled={!templateType.trim()} onClick={() => void adminStage2Fetch("/admin/stage2/place-type-templates", adminKey,{method:"POST",body:JSON.stringify({category_slug:templateCategory,place_type:templateType.trim(),label:templateType.trim(),default_title:templateTitle,default_description:templateDescription,translations:templateTranslations,default_amenities:commaList(templateAmenities),default_services:commaList(templateServices),fields:Object.fromEntries(templateFieldEntries(templateFields))})}).then(()=>{setMessage("Шаблон типу закладу збережено");setCreatingTemplateType(false);return load();})}><Plus size={16}/> Зберегти шаблон</PrimaryButton>
           </div>
         </div>
       </section>
@@ -2338,6 +2387,7 @@ type EmergencyAdminContact = {
   note: string;
   phone?: string | null;
   tone: string;
+  translations?: EditableTranslations;
 };
 
 const DEFAULT_EMERGENCY_PAGE_CONTENT: Record<string, string> = {
@@ -2347,6 +2397,12 @@ const DEFAULT_EMERGENCY_PAGE_CONTENT: Record<string, string> = {
   hero_kicker: "Не хвилюйтеся",
   hero_title: "Знайдемо допомогу",
   hero_text: "Екстрені та перевірені контакти для вашої безпеки.",
+  badge_en:"SOS",badge_pl:"SOS",
+  title_en:"Need help?",title_pl:"Potrzebujesz pomocy?",
+  subtitle_en:"Emergency help and useful contacts",subtitle_pl:"Pomoc w nagłych wypadkach i przydatne kontakty",
+  hero_kicker_en:"Help is nearby",hero_kicker_pl:"Pomoc jest blisko",
+  hero_title_en:"We'll find help",hero_title_pl:"Znajdziemy pomoc",
+  hero_text_en:"Emergency and verified contacts for your safety.",hero_text_pl:"Sprawdzone kontakty alarmowe dla Twojego bezpieczeństwa.",
 };
 
 function EmergencyPageEditorScreen({ navigate }: AdminProps) {
@@ -2370,11 +2426,13 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   const [contactPhone, setContactPhone] = useState("");
   const [contactType, setContactType] = useState("custom");
   const [contactTone, setContactTone] = useState("green");
+  const [contactTranslations,setContactTranslations]=useState<EditableTranslations>(emptyTranslations);
 
   const [serviceId, setServiceId] = useState("");
   const [serviceTitle, setServiceTitle] = useState("");
   const [serviceNote, setServiceNote] = useState("");
   const [serviceTone, setServiceTone] = useState<Stage2EmergencyService["tone"]>("green");
+  const [serviceTranslations,setServiceTranslations]=useState<EditableTranslations>(emptyTranslations);
   const [serviceIcon, setServiceIcon] = useState<Stage2EmergencyService["icon"]>("custom");
   const [serviceActive, setServiceActive] = useState(true);
 
@@ -2420,13 +2478,14 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetContactForm = () => {
-    setContactId(""); setContactTitle(""); setContactNote(""); setContactPhone(""); setContactType("custom"); setContactTone("green");
+    setContactId(""); setContactTitle(""); setContactNote(""); setContactPhone(""); setContactType("custom"); setContactTone("green"); setContactTranslations(emptyTranslations());
   };
 
   const editContact = (contact: EmergencyAdminContact) => {
     setContactId(contact.id);
     setContactTitle(contact.title);
     setContactNote(contact.note || "");
+    setContactTranslations(readTranslations(contact.translations));
     setContactPhone(contact.phone || "");
     setContactType(contact.type || "custom");
     setContactTone(contact.tone || "green");
@@ -2448,6 +2507,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           phone: contactPhone.trim() || null,
           type: contactType,
           tone: contactTone,
+          translations: contactTranslations,
         }),
       });
       setMessage(contactId ? "Екстрений контакт оновлено." : "Екстрений контакт додано.");
@@ -2471,7 +2531,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetServiceForm = () => {
-    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true);
+    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true); setServiceTranslations(emptyTranslations());
   };
 
   const editService = (service: Stage2EmergencyService) => {
@@ -2480,6 +2540,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     setServiceNote(service.note);
     setServiceTone(service.tone);
     setServiceIcon(service.icon);
+    setServiceTranslations(readTranslations(service.translations));
     setServiceActive(service.active);
   };
 
@@ -2496,6 +2557,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           tone: serviceTone,
           icon: serviceIcon,
           active: serviceActive,
+          translations: serviceTranslations,
         }),
       });
       setMessage(serviceId ? "Корисний сервіс оновлено." : "Корисний сервіс додано.");
@@ -2510,7 +2572,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     try {
       await adminStage2Fetch("/admin/stage2/emergency-services", adminKey, {
         method: "POST",
-        body: JSON.stringify({ ...service, region_id: regionId, active: !service.active }),
+        body: JSON.stringify({ ...service, region_id: regionId, active: !service.active, translations: service.translations || {} }),
       });
       setMessage(service.active ? "Сервіс вимкнено." : "Сервіс увімкнено.");
       await load();
@@ -2570,6 +2632,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           <label className="is-wide"><span>Опис hero</span><textarea rows={3} value={pageContent.hero_text || ""} onChange={(e)=>setPageField("hero_text",e.target.value)} /></label>
         </div>
         <label className="ad-page-editor-global-option"><input type="checkbox" checked={applyPageToAllRegions} onChange={(e)=>setApplyPageToAllRegions(e.target.checked)}/><span><strong>Застосувати оформлення до всіх регіонів</strong><small>Тексти цієї сторінки оновляться в усіх активних регіонах. Номери екстрених служб і корисні сервіси залишаються окремими для кожного регіону.</small></span></label>
+        <TranslatedPageInputs content={pageContent} onField={setPageField} fields={[{key:"badge",label:"Позначка"},{key:"title",label:"Заголовок"},{key:"subtitle",label:"Підзаголовок",multiline:true},{key:"hero_kicker",label:"Малий текст"},{key:"hero_title",label:"Заголовок hero"},{key:"hero_text",label:"Опис hero",multiline:true}]}/>
         <PrimaryButton onClick={() => void savePageContent()} disabled={saving}><Check size={15}/> {saving ? "Збереження..." : applyPageToAllRegions ? "Зберегти для всіх регіонів" : "Зберегти оформлення сторінки"}</PrimaryButton>
       </section>
 
@@ -2579,6 +2642,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Назва</span><input ref={contactTitleInput} value={contactTitle} onChange={(e)=>setContactTitle(e.target.value)} placeholder="Назва служби" /></label>
           <label><span>Телефон</span><input value={contactPhone} onChange={(e)=>setContactPhone(e.target.value)} placeholder="+380..." /></label>
           <label className="is-wide"><span>Опис</span><input value={contactNote} onChange={(e)=>setContactNote(e.target.value)} placeholder="Короткий опис" /></label>
+          <TranslationInputs fields={[{key:"title",label:"Назва"},{key:"note",label:"Опис"}]} values={contactTranslations} onChange={setContactTranslations}/>
           <label><span>Тип</span><select value={contactType} onChange={(e)=>setContactType(e.target.value)}><option value="custom">Інше</option><option value="emergency">Єдиний номер</option><option value="ambulance">Швидка</option><option value="police">Поліція</option><option value="rescue">Рятувальники</option></select></label>
           <label><span>Колір</span><select value={contactTone} onChange={(e)=>setContactTone(e.target.value)}><option value="green">Зелений</option><option value="red">Червоний</option><option value="blue">Синій</option><option value="orange">Помаранчевий</option></select></label>
         </div>
@@ -2596,6 +2660,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
         <div className="ad-page-editor-form-grid">
           <label><span>Назва</span><input value={serviceTitle} onChange={(e)=>setServiceTitle(e.target.value)} /></label>
           <label><span>Короткий опис</span><input value={serviceNote} onChange={(e)=>setServiceNote(e.target.value)} /></label>
+          <TranslationInputs fields={[{key:"title",label:"Назва"},{key:"note",label:"Опис"}]} values={serviceTranslations} onChange={setServiceTranslations}/>
           <label><span>Іконка</span><select value={serviceIcon} onChange={(e)=>setServiceIcon(e.target.value as Stage2EmergencyService["icon"])}><option value="doctor">Лікар</option><option value="pharmacy">Аптека</option><option value="repair">СТО</option><option value="tow">Евакуатор</option><option value="vet">Ветеринар</option><option value="custom">Інше</option></select></label>
           <label><span>Колір</span><select value={serviceTone} onChange={(e)=>setServiceTone(e.target.value as Stage2EmergencyService["tone"])}><option value="green">Зелений</option><option value="purple">Фіолетовий</option><option value="orange">Помаранчевий</option><option value="blue">Синій</option></select></label>
         </div>
@@ -2619,6 +2684,11 @@ const DEFAULT_HOT_OFFERS_PAGE_CONTENT: Record<string, string> = {
   search_placeholder: "Пошук місць, маршрутів, активностей...",
   section_title: "Пропозиції поруч",
   banner_image_url: "",
+  discount_label_en:"up to",discount_label_pl:"do",
+  title_en:"Great deals\nfor your holiday",title_pl:"Korzystne oferty\nna Twój wypoczynek",
+  subtitle_en:"Special discounts\nfrom verified partners 💚",subtitle_pl:"Wyjątkowe zniżki\nod sprawdzonych partnerów 💚",
+  search_placeholder_en:"Search places, routes and activities...",search_placeholder_pl:"Szukaj miejsc, tras i atrakcji...",
+  section_title_en:"Offers nearby",section_title_pl:"Oferty w pobliżu",
 };
 
 function HotOffersPageEditorScreen({ navigate }: AdminProps) {
@@ -2646,6 +2716,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   const offerPhotoInput = useRef<HTMLInputElement>(null);
   const [offerValidity, setOfferValidity] = useState("");
   const [offerBadge, setOfferBadge] = useState("Актуально");
+  const [offerTranslations,setOfferTranslations]=useState<EditableTranslations>(emptyTranslations);
   const [offerBadgeTone, setOfferBadgeTone] = useState<"gold"|"green"|"red">("green");
   const [offerValidFrom, setOfferValidFrom] = useState("");
   const [offerValidUntil, setOfferValidUntil] = useState("");
@@ -2689,10 +2760,10 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
   };
 
   const resetOffer = () => {
-    setOfferId("");setOfferPlaceId("");setOfferCategorySlug("");setOfferTitle("");setOfferDiscount("");setOfferDescription("");setOfferDetail("");setOfferValidity("");setOfferBadge("Актуально");setOfferBadgeTone("green");setOfferValidFrom("");setOfferValidUntil("");setOfferActive(true);setOfferImageUrl("");
+    setOfferId("");setOfferPlaceId("");setOfferCategorySlug("");setOfferTitle("");setOfferDiscount("");setOfferDescription("");setOfferDetail("");setOfferValidity("");setOfferBadge("Актуально");setOfferBadgeTone("green");setOfferValidFrom("");setOfferValidUntil("");setOfferActive(true);setOfferImageUrl("");setOfferTranslations(emptyTranslations());
   };
   const editOffer = (offer:Stage2HotOffer) => {
-    setOfferId(offer.id);setOfferPlaceId(offer.place_id||"");setOfferCategorySlug(offer.category_slug||"");setOfferTitle(offer.title);setOfferDiscount(offer.discount||"");setOfferDescription(offer.description||"");setOfferDetail(offer.detail||"");setOfferValidity(offer.validity||"");setOfferBadge(offer.badge||"Актуально");setOfferBadgeTone(offer.badge_tone==="gold"||offer.badge_tone==="red"?offer.badge_tone:"green");setOfferValidFrom(offer.valid_from?offer.valid_from.slice(0,16):"");setOfferValidUntil(offer.valid_until?offer.valid_until.slice(0,16):"");setOfferActive(offer.active!==false);setOfferImageUrl(offer.image_url||"");
+    setOfferTranslations(readTranslations(offer.translations));setOfferId(offer.id);setOfferPlaceId(offer.place_id||"");setOfferCategorySlug(offer.category_slug||"");setOfferTitle(offer.title);setOfferDiscount(offer.discount||"");setOfferDescription(offer.description||"");setOfferDetail(offer.detail||"");setOfferValidity(offer.validity||"");setOfferBadge(offer.badge||"Актуально");setOfferBadgeTone(offer.badge_tone==="gold"||offer.badge_tone==="red"?offer.badge_tone:"green");setOfferValidFrom(offer.valid_from?offer.valid_from.slice(0,16):"");setOfferValidUntil(offer.valid_until?offer.valid_until.slice(0,16):"");setOfferActive(offer.active!==false);setOfferImageUrl(offer.image_url||"");
   };
   const saveOffer = async () => {
     if (offerPhotoUploading) { setMessage("Дочекайтеся завершення обробки фото."); return; }
@@ -2702,7 +2773,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
       const place=places.find((item)=>item.id===offerPlaceId);
       const categorySlug = place?.category_slug || offerCategorySlug;
       const category=categories.find((item)=>item.slug===categorySlug);
-      const saved = await adminStage2Fetch<Stage2HotOffer>("/admin/stage2/offers",adminKey,{method:"POST",body:JSON.stringify({id:offerId||undefined,region_id:regionId,place_id:offerPlaceId||null,category_slug:categorySlug||"",category_label:category?.name||categorySlug||"Пропозиція",title:offerTitle.trim(),discount:offerDiscount.trim(),description:offerDescription.trim(),detail:offerDetail.trim(),validity:offerValidity.trim(),image_url:offerImageUrl||null,badge:offerBadge.trim(),badge_tone:offerBadgeTone,valid_from:offerValidFrom||null,valid_until:offerValidUntil||null,active:offerActive})});
+      const saved = await adminStage2Fetch<Stage2HotOffer>("/admin/stage2/offers",adminKey,{method:"POST",body:JSON.stringify({id:offerId||undefined,region_id:regionId,place_id:offerPlaceId||null,category_slug:categorySlug||"",category_label:category?.name||categorySlug||"Пропозиція",title:offerTitle.trim(),discount:offerDiscount.trim(),description:offerDescription.trim(),detail:offerDetail.trim(),validity:offerValidity.trim(),image_url:offerImageUrl||null,badge:offerBadge.trim(),badge_tone:offerBadgeTone,translations:offerTranslations,valid_from:offerValidFrom||null,valid_until:offerValidUntil||null,active:offerActive})});
       setMessage(offerId?`Пропозицію «${saved.title || offerTitle}» оновлено.`:`Пропозицію «${saved.title || offerTitle}» створено.`);
       resetOffer();
       await load();
@@ -2768,6 +2839,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
           <label><span>Плейсхолдер пошуку</span><input value={pageContent.search_placeholder||""} onChange={(e)=>setPageField("search_placeholder",e.target.value)} /></label>
           <label><span>Заголовок списку</span><input value={pageContent.section_title||""} onChange={(e)=>setPageField("section_title",e.target.value)} /></label>
         </div>
+        <TranslatedPageInputs content={pageContent} onField={setPageField} fields={[{key:"discount_label",label:"Підпис знижки"},{key:"title",label:"Заголовок",multiline:true},{key:"subtitle",label:"Підзаголовок",multiline:true},{key:"search_placeholder",label:"Пошук"},{key:"section_title",label:"Заголовок списку"}]}/>
         <label className="ad-page-editor-global-option"><input type="checkbox" checked={applyPageToAllRegions} onChange={(e)=>setApplyPageToAllRegions(e.target.checked)}/><span><strong>Застосувати оформлення до всіх регіонів</strong><small>Банер, заголовки та пошук оновляться в усіх активних регіонах. Самі акції залишаться прив’язаними до своїх регіонів.</small></span></label>
         <PrimaryButton onClick={()=>void savePage()} disabled={savingPage}><Check size={15}/> {savingPage ? "Збереження..." : applyPageToAllRegions ? "Зберегти для всіх регіонів" : "Зберегти оформлення сторінки"}</PrimaryButton>
       </section>
@@ -2789,6 +2861,7 @@ function HotOffersPageEditorScreen({ navigate }: AdminProps) {
             <small>JPG, PNG або WebP до 8 МБ. Фото збережеться в PostgreSQL і не зникне після redeploy.</small>
           </div>
           <label><span>Підпис терміну</span><input value={offerValidity} onChange={(e)=>setOfferValidity(e.target.value)} /></label>
+          <TranslationInputs fields={[{key:"title",label:"Назва"},{key:"category_label",label:"Категорія"},{key:"discount",label:"Знижка"},{key:"description",label:"Короткий опис",multiline:true},{key:"detail",label:"Детальний опис",multiline:true},{key:"validity",label:"Термін дії"},{key:"badge",label:"Бейдж"}]} values={offerTranslations} onChange={setOfferTranslations}/>
           <label><span>Бейдж</span><input value={offerBadge} onChange={(e)=>setOfferBadge(e.target.value)} /></label>
           <label><span>Колір бейджа</span><select value={offerBadgeTone} onChange={(e)=>setOfferBadgeTone(e.target.value as "gold"|"green"|"red")}><option value="green">Зелений</option><option value="gold">Золотий</option><option value="red">Червоний</option></select></label>
           <label><span>Початок</span><input type="datetime-local" value={offerValidFrom} onChange={(e)=>setOfferValidFrom(e.target.value)} /></label>
@@ -2819,6 +2892,8 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
   const [nameEn,setNameEn]=useState("");
   const [namePl,setNamePl]=useState("");
   const [subs,setSubs]=useState<string[]>([]);
+  const [subsEn,setSubsEn]=useState<string[]>([]);
+  const [subsPl,setSubsPl]=useState<string[]>([]);
   const [newSub,setNewSub]=useState("");
   const [message,setMessage]=useState("");
   const [saving,setSaving]=useState(false);
@@ -2828,15 +2903,21 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
     catch(error){setMessage(error instanceof Error?error.message:"Не вдалося завантажити категорії");}
   };
   useEffect(()=>{void load();},[]);
-  const select=(item:Stage2Category)=>{setSlug(item.slug);setName(item.name);setNameEn(item.name_en||"");setNamePl(item.name_pl||"");setSubs([...(item.subcategories||[])]);setNewSub("");};
-  const reset=()=>{setSlug("");setName("");setNameEn("");setNamePl("");setSubs([]);setNewSub("");};
+  const select=(item:Stage2Category)=>{setSlug(item.slug);setName(item.name);setNameEn(item.name_en||"");setNamePl(item.name_pl||"");setSubs([...(item.subcategories||[])]);setSubsEn([...(item.subcategories_i18n?.en||[])]);setSubsPl([...(item.subcategories_i18n?.pl||[])]);setNewSub("");};
+  const reset=()=>{setSlug("");setName("");setNameEn("");setNamePl("");setSubs([]);setSubsEn([]);setSubsPl([]);setNewSub("");};
   const updateSub=(index:number,value:string)=>setSubs((current)=>current.map((item,itemIndex)=>itemIndex===index?value:item));
-  const removeSub=(index:number)=>setSubs((current)=>current.filter((_,itemIndex)=>itemIndex!==index));
+  const removeSub=(index:number)=>{setSubs((current)=>current.filter((_,i)=>i!==index));setSubsEn(c=>c.filter((_,i)=>i!==index));setSubsPl(c=>c.filter((_,i)=>i!==index));};
+  const updateSubLanguage=(lang:"en"|"pl",index:number,value:string)=>{
+    const setter=lang==="en"?setSubsEn:setSubsPl;
+    setter(c=>subs.map((_,i)=>i===index?value:c[i]||""));
+  };
   const addSub=()=>{
     const clean=newSub.trim();
     if(!clean){setMessage("Вкажіть назву підрозділу.");return;}
     if(subs.some((item)=>item.trim().toLocaleLowerCase("uk")===clean.toLocaleLowerCase("uk"))){setMessage("Такий підрозділ уже є.");return;}
     setSubs((current)=>[...current,clean]);
+    setSubsEn(c=>[...subs.map((_,i)=>c[i]||translateKnownLabel("en",subs[i])),translateKnownLabel("en",clean)===clean?"":translateKnownLabel("en",clean)]);
+    setSubsPl(c=>[...subs.map((_,i)=>c[i]||translateKnownLabel("pl",subs[i])),translateKnownLabel("pl",clean)===clean?"":translateKnownLabel("pl",clean)]);
     setNewSub("");
     setMessage("");
   };
@@ -2859,9 +2940,11 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
     setSaving(true);
     try{
       const cleanSubs=subs.map((item)=>item.trim()).filter(Boolean);
-      const saved=await adminStage2Fetch<Stage2Category>("/admin/stage2/categories",adminKey,{method:"POST",body:JSON.stringify({slug:slug.trim(),name:name.trim(),name_en:nameEn.trim()||null,name_pl:namePl.trim()||null,subcategories:cleanSubs})});
+      const saved=await adminStage2Fetch<Stage2Category>("/admin/stage2/categories",adminKey,{method:"POST",body:JSON.stringify({slug:slug.trim(),name:name.trim(),name_en:nameEn.trim()||null,name_pl:namePl.trim()||null,subcategories:cleanSubs,subcategories_i18n:{en:subsEn.map(x=>x.trim()),pl:subsPl.map(x=>x.trim())}})});
       setMessage(`Розділ «${saved.name || name.trim()}» і ${cleanSubs.length} підрозділів збережено.`);
       setSubs([...(saved.subcategories||cleanSubs)]);
+      setSubsEn([...(saved.subcategories_i18n?.en||subsEn)]);
+      setSubsPl([...(saved.subcategories_i18n?.pl||subsPl)]);
       await load();
     }catch(error){setMessage(error instanceof Error?`Помилка збереження: ${error.message}`:"Не вдалося зберегти розділ");}
     finally{setSaving(false);}
@@ -2894,7 +2977,7 @@ function CategoriesPageEditorScreen({ navigate }: AdminProps) {
           <div className="ad-page-editor-subcategories">
             <header><div><strong>Підрозділи</strong><small>Кожен пункт редагується окремо — без списку через кому.</small></div></header>
             <div className="ad-page-editor-subcategory-list">
-              {subs.map((item,index)=><div key={`subcategory-${index}`} className="ad-page-editor-subcategory-row"><input value={item} onChange={(e)=>updateSub(index,e.target.value)} placeholder={`Підрозділ ${index+1}`} /><button type="button" className="is-delete" onClick={()=>removeSub(index)} aria-label="Видалити підрозділ"><Trash2 size={14}/></button></div>)}
+              {subs.map((item,index)=><div key={`subcategory-${index}`} className="ad-page-editor-subcategory-row ad-page-editor-subcategory-row--localized"><input lang="uk" value={item} onChange={(e)=>updateSub(index,e.target.value)} placeholder={`UA · підрозділ ${index+1}`} /><input lang="en" value={subsEn[index]||""} onChange={(e)=>updateSubLanguage("en",index,e.target.value)} placeholder="EN · назва"/><input lang="pl" value={subsPl[index]||""} onChange={(e)=>updateSubLanguage("pl",index,e.target.value)} placeholder="PL · nazwa"/><button type="button" className="is-delete" onClick={()=>removeSub(index)} aria-label="Видалити підрозділ"><Trash2 size={14}/></button></div>)}
               {!subs.length?<small className="ad-page-editor-subcategory-empty">Підрозділів ще немає.</small>:null}
             </div>
             <div className="ad-page-editor-subcategory-add"><input value={newSub} onChange={(e)=>setNewSub(e.target.value)} onKeyDown={(e)=>{if(e.key==="Enter"){e.preventDefault();addSub();}}} placeholder="Назва нового підрозділу" /><button type="button" onClick={addSub}><Plus size={14}/> Додати підрозділ</button></div>

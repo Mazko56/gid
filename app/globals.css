@@ -30671,3 +30671,10 @@ button.gt-amenities-row {
   padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px;
   background: #fff; color: var(--ink-soft); font-size: 12px;
 }
+
+/* Multilingual editor fields. Existing form sizing and admin typography are inherited. */
+.ad-i18n-fields { width:100%; grid-column:1/-1; margin-block:8px; }
+.ad-i18n-fields label { min-width:0; }
+.ad-page-editor-subcategory-row--localized {display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;}
+.ad-page-editor-subcategory-row--localized input {min-width:0;}
+@media(max-width:780px){.ad-page-editor-subcategory-row--localized{grid-template-columns:1fr 1fr}.ad-page-editor-subcategory-row--localized .is-delete{justify-self:end;}}
