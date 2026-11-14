@@ -1497,6 +1497,7 @@ const hotelServices: HotelService[] = [
 ];
 
 function HotelServiceDetail({ service, onBack }: { service: HotelService; onBack: () => void }) {
+  const runtime = useTouristRuntime();
   return (
     <main className="tourist-screen gt-screen gt-hotel-service-detail">
       <header className="gt-hotel-services-header">
