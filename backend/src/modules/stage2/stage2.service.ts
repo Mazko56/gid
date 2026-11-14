@@ -1269,6 +1269,7 @@ export class Stage2Service {
       `SELECT DISTINCT p.*,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='place_viewed'),0) AS views,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='qr_scanned'),0) AS qr_scans,
+              COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='partner_customer_qr_scanned'),0) AS customer_qr_scans,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='route_clicked'),0) AS route_clicks,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='call_clicked'),0) AS call_clicks,
               COALESCE((SELECT COUNT(*)::int FROM review_entries v WHERE v.place_id=p.id AND v.status='pending'),0) AS reviews_pending_moderation,

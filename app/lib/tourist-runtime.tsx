@@ -48,6 +48,8 @@ type TouristRuntimeValue = {
 };
 
 const TouristRuntimeContext = createContext<TouristRuntimeValue | null>(null);
+// Count each QR link opening once per actual page launch, not once per sessionStorage lifetime.
+const trackedLaunchContexts = new Set<string>();
 
 function contextCacheKey(startParam: string) {
   return `gid-tourist-stage2-context:${startParam}`;
@@ -125,14 +127,14 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
           void stage2Fetch('/ambassador/attribute',{method:'POST',body:JSON.stringify({start_param:startParam})}).catch(()=>undefined);
         }
         setUser(auth.user);
-        const trackKey = `gid-tourist-stage2-opened:${startParam}`;
-        const alreadyTracked = typeof window !== "undefined" && window.sessionStorage.getItem(trackKey) === "1";
+        const trackKey = `${auth.user.id}:${startParam}`;
+        const alreadyTracked = trackedLaunchContexts.has(trackKey);
         if (!alreadyTracked) {
           void trackEvent("app_opened", { regionId: resolvedContext?.region.id, placeId: resolvedContext?.place?.id, payload: startParam ? { start_param: startParam } : {} });
           if (startParam && resolvedContext?.qr) {
             void trackEvent("qr_scanned", { regionId: resolvedContext.region.id, placeId: resolvedContext.place?.id, payload: { start_param: startParam, source: resolvedContext.qr.source } });
           }
-          if (typeof window !== "undefined") window.sessionStorage.setItem(trackKey, "1");
+          trackedLaunchContexts.add(trackKey);
         }
       }
       if (!cancelled) setLoading(false);

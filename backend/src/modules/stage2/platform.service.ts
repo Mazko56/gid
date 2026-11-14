@@ -79,13 +79,39 @@ export class PlatformService {
     return { balance: Math.max(0,balance), entries: entries.rows, currency: 'bonus', exchange_note: '1 бонус = 1 грн знижки; не обмінюється на гроші' };
   }
 
-  async customerQr(user: AuthUser) {
+  /** A launch QR is context only, not proof of GPS presence. The restriction is
+   *  enforced on the server at scan resolution AND when creating a quote. */
+  async customerQr(user: AuthUser, startParam?: string) {
+    let regionId: string | null = null;
+    let placeId: string | null = null;
+    const requestedContext = txt(startParam, 180);
+    if (requestedContext) {
+      const qrContext = await this.db.query<{region_id:string;place_id:string|null}>(
+        `SELECT q.region_id,q.place_id FROM qr_points q
+         WHERE q.start_param=$1 AND q.active=true AND q.type NOT IN ('partner_access','ambassador')`,
+        [requestedContext],
+      );
+      if (qrContext.rows[0]) {
+        regionId = qrContext.rows[0].region_id;
+        placeId = qrContext.rows[0].place_id;
+      } else if (requestedContext.startsWith('amb_')) {
+        // Referral contexts are region-level; no venue is asserted.
+        const ambassador = await this.db.query<{region_id:string}>(
+          `SELECT COALESCE(a.region_id,'region-tatariv') AS region_id
+           FROM ambassadors a WHERE a.code=$1 AND a.active=true`, [requestedContext],
+        );
+        if (!ambassador.rows[0]) throw new BadRequestException('QR-контекст недійсний');
+        regionId = ambassador.rows[0].region_id;
+      } else throw new BadRequestException('QR-контекст закладу або регіону недійсний');
+    }
     const token = `gt_${randomBytes(24).toString('base64url')}`;
     const hash = createHash('sha256').update(token).digest('hex');
     await this.db.query('DELETE FROM customer_qr_tokens q WHERE q.user_id=$1 AND (q.expires_at<now() OR q.consumed_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM purchase_transactions t WHERE t.qr_token_hash=q.token_hash)', [user.id]);
-    await this.db.query('INSERT INTO customer_qr_tokens(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval \'45 seconds\')', [hash,user.id]);
-    await this.audit(user.id,null,'customer_qr',hash.slice(0,12),'created');
-    return { token, expires_at: new Date(Date.now()+45_000).toISOString(), lifetime_seconds:45 };
+    await this.db.query(`INSERT INTO customer_qr_tokens(token_hash,user_id,expires_at,context_region_id,context_place_id)
+      VALUES($1,$2,now()+interval '45 seconds',$3,$4)`, [hash,user.id,regionId,placeId]);
+    await this.audit(user.id,regionId,'customer_qr',hash.slice(0,12),'created',{place_id:placeId});
+    return { token, expires_at: new Date(Date.now()+45_000).toISOString(), lifetime_seconds:45,
+      scope: placeId ? 'place' : regionId ? 'region' : 'unrestricted' };
   }
 
   private async customerForToken(token: string) {
@@ -94,13 +120,25 @@ export class PlatformService {
       user_id: string;
       expires_at: Date;
       consumed_at: Date | null;
+      context_region_id: string | null;
+      context_place_id: string | null;
       first_name: string | null;
       last_name: string | null;
-    }>(`SELECT q.user_id,q.expires_at,q.consumed_at,u.first_name,u.last_name
+    }>(`SELECT q.user_id,q.expires_at,q.consumed_at,q.context_region_id,q.context_place_id,u.first_name,u.last_name
       FROM customer_qr_tokens q JOIN users u ON u.id=q.user_id WHERE q.token_hash=$1`,[hash]);
     const row = result.rows[0];
     if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) throw new BadRequestException('QR недійсний або строк дії минув');
     return { ...row, hash };
+  }
+
+  private assertQrForPlace(
+    qr: {context_region_id:string|null;context_place_id:string|null},
+    place: {id:string;region_id:string},
+  ) {
+    if (qr.context_region_id && qr.context_region_id !== place.region_id)
+      throw new ForbiddenException('QR відкрито для іншого регіону. Відкрийте QR відповідного закладу або регіону.');
+    if (qr.context_place_id && qr.context_place_id !== place.id)
+      throw new ForbiddenException('QR відкрито для іншого закладу. Провести покупку тут не можна.');
   }
 
   async resolveScan(user: AuthUser, body: Record<string, unknown>) {
@@ -108,6 +146,10 @@ export class PlatformService {
     if(place.status !== 'approved') throw new ForbiddenException('Заклад не опубліковано');
     const qr = await this.customerForToken(txt(body.token,200));
     if(qr.user_id === user.id) throw new ForbiddenException('Власні операції заборонені');
+    this.assertQrForPlace(qr,place);
+    await this.db.query(`INSERT INTO activity_events(id,user_id,region_id,place_id,event_type,payload)
+      VALUES($1,$2,$3,$4,'partner_customer_qr_scanned',$5::jsonb) ON CONFLICT DO NOTHING`,
+      [makeId('evt'),qr.user_id,place.region_id,place.id,json({token_hash:qr.hash})]);
     return { place_id: place.id, place_name:place.name, customer_name: `${qr.first_name || ''} ${qr.last_name || ''}`.trim() || 'Гість', qr_valid: true, expires_at: qr.expires_at, balance: Math.max(0,await this.activeBalance(qr.user_id)) };
   }
 
@@ -116,6 +158,7 @@ export class PlatformService {
     if(place.status !== 'approved') throw new ForbiddenException('Операції доступні після модерації');
     const qr = await this.customerForToken(txt(body.token,200));
     if(qr.user_id === user.id) throw new ForbiddenException('Самостійні операції заборонені');
+    this.assertQrForPlace(qr,place);
     const total = amount(body.amount);
     const idempotency = txt(body.idempotency_key || makeId('quote'),120);
     const existing = await this.db.query('SELECT * FROM purchase_transactions WHERE cashier_user_id=$1 AND idempotency_key=$2', [user.id,idempotency]);

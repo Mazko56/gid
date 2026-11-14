@@ -1643,6 +1643,8 @@ type PartnerStatisticsData = {
   placeName: string;
   period?: PartnerStatsPeriod;
   totalViews: number;
+  totalQrScans: number;
+  customerQrScans: number;
   realClients: number;
   operations: number;
   turnover: number;
@@ -1666,6 +1668,8 @@ const EMPTY_PARTNER_STATS: PartnerStatisticsData = {
   error: "",
   placeName: "",
   totalViews: 0,
+  totalQrScans: 0,
+  customerQrScans: 0,
   realClients: 0,
   operations: 0,
   turnover: 0,
@@ -1769,6 +1773,7 @@ function buildPartnerStatistics(
 
   const totalViews = partnerStatsNumber(place?.views);
   const totalQrScans = partnerStatsNumber(place?.qr_scans);
+  const customerQrScans = partnerStatsNumber(place?.customer_qr_scans);
   const turnover = confirmedTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.amount), 0);
   const commission = confirmedTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.commission), 0);
   const previousTurnover = previousTransactions.reduce((sum, item) => sum + partnerStatsNumber(item.amount), 0);
@@ -1862,6 +1867,8 @@ function buildPartnerStatistics(
     placeName: String(place?.name || ""),
     period,
     totalViews,
+    totalQrScans,
+    customerQrScans,
     realClients,
     operations: confirmedTransactions.length,
     turnover,
@@ -1999,6 +2006,8 @@ function StatisticsGeneralTab({ stats }: { stats: PartnerStatisticsData }) {
       <h3 className="gt-stat-section-heading">Ключові показники</h3>
       <section className="gt-stat-metric-grid">
         <StatisticMetricCard title="Перегляди сторінки (за весь час)" value={partnerStatsCount(stats.totalViews)} />
+        <StatisticMetricCard title="Відкриття QR закладу (за весь час)" value={partnerStatsCount(stats.totalQrScans)} />
+        <StatisticMetricCard title="Сканування QR клієнтів (за весь час)" value={partnerStatsCount(stats.customerQrScans)} />
         <StatisticMetricCard title="Реальні клієнти" value={partnerStatsCount(stats.realClients)} />
         <StatisticMetricCard title="Підтверджені операції" value={partnerStatsCount(stats.operations)} change={stats.period==='all'?undefined:partnerStatsChange(stats.operations, stats.previousOperations, true)} />
         <StatisticMetricCard title="Сума операцій" value={partnerStatsMoney(stats.turnover)} change={stats.period==='all'?undefined:partnerStatsChange(stats.turnover, stats.previousTurnover, true)} />
@@ -2014,6 +2023,8 @@ function StatisticsGeneralTab({ stats }: { stats: PartnerStatisticsData }) {
         <h3 className="gt-stat-section-heading">Підсумки</h3>
         <div className="gt-stat-summary-list">
           <div><Search size={16} /><span>Перегляди (за весь час)</span><strong>{partnerStatsCount(stats.totalViews)}</strong></div>
+          <div><QrCode size={16} /><span>Відкриття QR закладу</span><strong>{partnerStatsCount(stats.totalQrScans)}</strong></div>
+          <div><QrCode size={16} /><span>Сканування QR клієнтів</span><strong>{partnerStatsCount(stats.customerQrScans)}</strong></div>
           <div><Users size={16} /><span>Реальні клієнти</span><strong>{partnerStatsCount(stats.realClients)}</strong></div>
           <div><QrCode size={16} /><span>Підтверджені операції</span><strong>{partnerStatsCount(stats.operations)}</strong></div>
           <div><WalletCards size={16} /><span>Загальна сума операцій</span><strong>{partnerStatsMoney(stats.turnover)}</strong></div>
@@ -3291,108 +3302,296 @@ function CheckInScreen({ navigate }: { navigate: Navigate }) {
 type ScannedCustomer = {customer_name:string;place_name:string;balance:number;expires_at:string};
 type PendingPartnerPurchase = {id:string;amount:number;spent:number;earned:number;cash_due:number;status:string};
 function ScannerScreen({ navigate }: { navigate: Navigate }) {
-  const videoRef=useRef<HTMLVideoElement|null>(null);
-  const [cameraReady,setCameraReady]=useState(false);
-  const [cameraMessage,setCameraMessage]=useState('');
-  const [token,setToken]=useState('');
-  const [customer,setCustomer]=useState<ScannedCustomer|null>(null);
-  const [purchase,setPurchase]=useState<PendingPartnerPurchase|null>(null);
-  const [amount,setAmount]=useState('');
-  const [spend,setSpend]=useState('0');
-  const [error,setError]=useState('');
-  const [busy,setBusy]=useState(false);
-  const placeId=typeof window!=='undefined'?window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'':'';
-  useEffect(()=>{
-    let stream:MediaStream|null=null,cancelled=false;
-    const open=async()=>{try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('Камера недоступна у цьому браузері');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(cancelled){stream.getTracks().forEach(t=>t.stop());return;}if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();setCameraReady(true);setCameraMessage('');}}catch(e){setCameraReady(false);setCameraMessage(e instanceof Error?e.message:'Не вдалося відкрити камеру');}};
-    void open();return()=>{cancelled=true;stream?.getTracks().forEach(t=>t.stop());};
-  },[]);
-  useEffect(()=>{
-    if(!cameraReady||customer)return;
-    let stopped=false;
-    let timer:ReturnType<typeof setInterval>|null=null;
-    const browser=window as Window & {BarcodeDetector?:new(options:{formats:string[]})=>{detect:(source:HTMLVideoElement)=>Promise<Array<{rawValue:string}>>};jsQR?:(pixels:Uint8ClampedArray,width:number,height:number,options?:Record<string,string>)=>{data:string}|null};
-    const accept=(value:string)=>{if(value.startsWith('gt_')&&!stopped){setToken(value);setCameraMessage('QR-код розпізнано');if(timer)clearInterval(timer);}};
-    const start=async()=>{
-      const video=videoRef.current;
-      if(!video)return;
-      if(browser.BarcodeDetector){
-        const detector=new browser.BarcodeDetector({formats:['qr_code']});let busy=false;
-        timer=setInterval(()=>{if(stopped||busy||!video.videoWidth)return;busy=true;
-          void detector.detect(video).then(codes=>accept(codes[0]?.rawValue||'')).catch(()=>undefined).finally(()=>{busy=false;});
-        },250);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraMessage, setCameraMessage] = useState('Запускаємо камеру…');
+  const [token, setToken] = useState('');
+  const [customer, setCustomer] = useState<ScannedCustomer | null>(null);
+  const [purchase, setPurchase] = useState<PendingPartnerPurchase | null>(null);
+  const [amount, setAmount] = useState('');
+  const [spend, setSpend] = useState('0');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [scanRevision, setScanRevision] = useState(0);
+  const placeId = typeof window !== 'undefined' ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || '' : '';
+  const isScannerStep = !customer;
+  const isFormStep = !!customer && !purchase;
+  const isResultStep = !!customer && !!purchase;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isScannerStep) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setCameraReady(false);
+      return;
+    }
+    const open = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Камера недоступна у цьому браузері');
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setCameraReady(true);
+          setCameraMessage('');
+        }
+      } catch (e) {
+        setCameraReady(false);
+        setCameraMessage(e instanceof Error ? e.message : 'Не вдалося відкрити камеру');
+      }
+    };
+    void open();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, [isScannerStep]);
+
+  useEffect(() => {
+    if (!isScannerStep || !cameraReady || customer) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const browser = window as Window & {
+      BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> };
+      jsQR?: (pixels: Uint8ClampedArray, width: number, height: number, options?: Record<string, string>) => { data: string } | null;
+    };
+    const accept = (value: string) => {
+      if (value.startsWith('gt_') && !stopped) {
+        setToken(value);
+        setCameraMessage('QR-код розпізнано');
+        if (timer) clearInterval(timer);
+      }
+    };
+    const start = async () => {
+      const video = videoRef.current;
+      if (!video) return;
+      if (browser.BarcodeDetector) {
+        const detector = new browser.BarcodeDetector({ formats: ['qr_code'] });
+        let frameBusy = false;
+        timer = setInterval(() => {
+          if (stopped || frameBusy || !video.videoWidth) return;
+          frameBusy = true;
+          void detector.detect(video).then((codes) => accept(codes[0]?.rawValue || '')).catch(() => undefined).finally(() => { frameBusy = false; });
+        }, 250);
         return;
       }
-      // Older Telegram WebViews lack BarcodeDetector. Keep the same in-page camera and decode frames.
-      if(!browser.jsQR){
-        const id='gt-qr-decoder-jsqr';
-        let script=document.getElementById(id) as HTMLScriptElement|null;
-        if(!script){script=document.createElement('script');script.id=id;script.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';script.async=true;document.head.appendChild(script);}
-        try{await new Promise<void>((resolve,reject)=>{if(browser.jsQR){resolve();return;}script!.addEventListener('load',()=>resolve(),{once:true});script!.addEventListener('error',()=>reject(new Error('QR-декодер недоступний. Перевірте інтернет-з’єднання')),{once:true});});}
-        catch(error){if(!stopped)setCameraMessage(error instanceof Error?error.message:'Не вдалося завантажити QR-декодер');return;}
+      if (!browser.jsQR) {
+        const id = 'gt-qr-decoder-jsqr';
+        let script = document.getElementById(id) as HTMLScriptElement | null;
+        if (!script) {
+          script = document.createElement('script');
+          script.id = id;
+          script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+          script.async = true;
+          document.head.appendChild(script);
+        }
+        try {
+          await new Promise<void>((resolve, reject) => {
+            if (browser.jsQR) { resolve(); return; }
+            script!.addEventListener('load', () => resolve(), { once: true });
+            script!.addEventListener('error', () => reject(new Error('QR-декодер недоступний. Перевірте інтернет-з’єднання')), { once: true });
+          });
+        } catch (loadError) {
+          if (!stopped) setCameraMessage(loadError instanceof Error ? loadError.message : 'Не вдалося завантажити QR-декодер');
+          return;
+        }
       }
-      if(stopped||!browser.jsQR)return;
-      const canvas=document.createElement('canvas');const context=canvas.getContext('2d',{willReadFrequently:true});
-      timer=setInterval(()=>{if(stopped||!context||!video.videoWidth||!video.videoHeight)return;
-        // Downscale to reduce battery use on phones while preserving QR patterns.
-        const scale=Math.min(1,640/video.videoWidth);canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
-        try{context.drawImage(video,0,0,canvas.width,canvas.height);const pixels=context.getImageData(0,0,canvas.width,canvas.height);
-          accept(browser.jsQR?.(pixels.data,canvas.width,canvas.height,{inversionAttempts:'attemptBoth'})?.data||'');}
-        catch{/* keep scanning */}
-      },240);
+      if (stopped || !browser.jsQR) return;
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      timer = setInterval(() => {
+        if (stopped || !context || !video.videoWidth || !video.videoHeight) return;
+        const scale = Math.min(1, 640 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        try {
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+          accept(browser.jsQR?.(pixels.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' })?.data || '');
+        } catch {
+          // keep scanning
+        }
+      }, 240);
     };
     void start();
-    return()=>{stopped=true;if(timer)clearInterval(timer);};
-  },[cameraReady,customer]);
-  useEffect(()=>{if(!token.startsWith('gt_')||!placeId||customer)return;let cancelled=false;
-    void stage2Fetch<ScannedCustomer>('/partner/scan/resolve',{method:'POST',body:JSON.stringify({place_id:placeId,token})})
-      .then(x=>{if(!cancelled){setCustomer(x);setError('');}}).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:'QR недійсний');});
-    return()=>{cancelled=true;};
-  },[token,placeId,customer]);
-  const sendQuote=async()=>{if(!customer||!placeId)return;setBusy(true);setError('');try{
-    const result=await stage2Fetch<PendingPartnerPurchase>('/transactions/quote',{method:'POST',body:JSON.stringify({place_id:placeId,token,amount:Number(amount),spend:Number(spend),idempotency_key:`${token.slice(0,18)}-${amount}-${spend}`})});setPurchase(result);
-  }catch(e){setError(e instanceof Error?e.message:'Не вдалося створити операцію');}finally{setBusy(false);}};
-  const checkStatus=async()=>{if(!purchase)return;try{const list=await stage2Fetch<PendingPartnerPurchase[]>(`/transactions?place_id=${encodeURIComponent(placeId)}`);const match=list.find(x=>x.id===purchase.id);if(match)setPurchase(match);}catch(e){setError(String(e));}};
-  const reset=()=>{setToken('');setCustomer(null);setPurchase(null);setAmount('');setSpend('0');setError('');};
-  return <div className="gt-qr-scanner-screen">
-    <video ref={videoRef} className={`gt-qr-scanner-video ${cameraReady ? 'is-ready' : ''}`} muted playsInline />
-    <div className="gt-qr-scanner-shade" />
-    <header className="gt-qr-scanner-screen__header"><button type="button" onClick={() => navigate('partner', 'partner-dashboard')} aria-label="Закрити"><X size={22} /></button><strong>Сканувати QR-код</strong><span /></header>
-    <main className="gt-qr-scanner-screen__content">
-      <div className="gt-qr-scanner-focus">
-        <div className="gt-qr-viewfinder"><span className="gt-qr-corner top-left" /><span className="gt-qr-corner top-right" /><span className="gt-qr-corner bottom-left" /><span className="gt-qr-corner bottom-right" /><div className="gt-qr-scan-line" /></div>
-        <p>Наведіть камеру на QR-код клієнта для надання знижки або бонусу</p>
-      </div>
+    return () => {
+      stopped = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [isScannerStep, cameraReady, customer, scanRevision]);
 
-      <section className="gt-qr-scanner-card">
-        {!customer ? <>
+  useEffect(() => {
+    if (!token.startsWith('gt_') || !placeId || customer) return;
+    let cancelled = false;
+    void stage2Fetch<ScannedCustomer>('/partner/scan/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ place_id: placeId, token }),
+    })
+      .then((data) => {
+        if (!cancelled) {
+          setCustomer(data);
+          setError('');
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'QR недійсний');
+      });
+    return () => { cancelled = true; };
+  }, [token, placeId, customer]);
+
+  const sendQuote = async () => {
+    if (!customer || !placeId) return;
+    const numericAmount = Number(amount);
+    const numericSpend = Number(spend || 0);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError('Вкажіть коректну суму покупки');
+      return;
+    }
+    if (!Number.isFinite(numericSpend) || numericSpend < 0) {
+      setError('Некоректна кількість бонусів до списання');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await stage2Fetch<PendingPartnerPurchase>('/transactions/quote', {
+        method: 'POST',
+        body: JSON.stringify({
+          place_id: placeId,
+          token,
+          amount: numericAmount,
+          spend: numericSpend,
+          idempotency_key: `${token.slice(0, 18)}-${amount}-${spend}`,
+        }),
+      });
+      setPurchase(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не вдалося створити операцію');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!purchase || purchase.status !== 'pending_customer' || !placeId) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const list = await stage2Fetch<PendingPartnerPurchase[]>(`/transactions?place_id=${encodeURIComponent(placeId)}`);
+        const updated = list.find((item) => item.id === purchase.id);
+        if (!stopped && updated) setPurchase(updated);
+      } catch { /* Network interruptions must not reset or duplicate an existing purchase. */ }
+    };
+    const interval = setInterval(() => void poll(), 3000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, [purchase?.id, purchase?.status, placeId]);
+
+  const reset = () => {
+    setToken('');
+    setCustomer(null);
+    setPurchase(null);
+    setAmount('');
+    setSpend('0');
+    setError('');
+    setCameraMessage('Запускаємо камеру…');
+  };
+
+  const resultStatusLabel = purchase?.status === 'confirmed'
+    ? 'Підтверджено клієнтом'
+    : purchase?.status === 'pending_customer'
+      ? 'Очікує підтвердження клієнта'
+      : purchase?.status === 'declined' ? 'Клієнт відхилив операцію'
+      : purchase?.status === 'expired' ? 'Строк підтвердження минув'
+      : purchase?.status || 'Створено';
+
+  return <div className={`gt-qr-scanner-screen ${isScannerStep ? 'is-live' : 'is-overlay'}`}>
+    {isScannerStep ? <>
+      <video ref={videoRef} className={`gt-qr-scanner-video ${cameraReady ? 'is-ready' : ''}`} muted playsInline />
+      <div className="gt-qr-scanner-shade" />
+      <header className="gt-qr-scanner-screen__header"><button type="button" onClick={() => navigate('partner', 'partner-dashboard')} aria-label="Закрити"><X size={22} /></button><strong>Сканувати QR-код</strong><span /></header>
+      <main className="gt-qr-scanner-screen__content">
+        <div className="gt-qr-scanner-focus">
+          <div className="gt-qr-viewfinder"><span className="gt-qr-corner top-left" /><span className="gt-qr-corner top-right" /><span className="gt-qr-corner bottom-left" /><span className="gt-qr-corner bottom-right" /><div className="gt-qr-scan-line" /></div>
+          <p>Наведіть камеру на QR-код клієнта для надання знижки або бонусу</p>
+        </div>
+
+        <section className="gt-qr-scanner-card">
           <div className="gt-qr-scanner-card__header"><strong>Сканування клієнта</strong><small>{cameraMessage || (cameraReady ? 'Сканер активний. Наведіть камеру на QR клієнта.' : 'Запускаємо камеру…')}</small></div>
           <details className="gt-qr-scanner-manual">
             <summary>Ввести код вручну</summary>
             <label className="gt-qr-field"><span>Код клієнта</span><input aria-label="Код QR" placeholder="gt_..." value={token} onChange={(e) => setToken(e.target.value.trim())} /></label>
           </details>
-        </> : <>
-          <div className="gt-qr-scanner-card__header"><strong>{customer.customer_name}</strong><small>{customer.place_name}</small></div>
-          <div className="gt-qr-scanner-status"><span>Доступно бонусів</span><b>{partnerStatsCount(customer.balance)}</b></div>
-          {!purchase ? <>
-            <label className="gt-qr-field"><span>Сума покупки, ₴</span><input inputMode="decimal" type="number" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-            <label className="gt-qr-field"><span>Списати бонусів (максимум 20% чека)</span><input type="number" min="0" value={spend} onChange={(e) => setSpend(e.target.value)} /></label>
-            <button type="button" disabled={busy} className="gt-partner-secondary-button" onClick={() => void sendQuote()}>{busy ? 'Надсилаємо…' : 'Надіслати покупку клієнту'}</button>
-          </> : <>
-            <div className="gt-qr-scanner-result-grid">
+          {error ? <><p role="alert" className="gt-qr-scanner-error">{error}</p><button type="button" className="gt-qr-scanner-reset" onClick={() => { setToken(''); setError(''); setScanRevision((value) => value + 1); }}>Сканувати ще раз</button></> : null}
+        </section>
+      </main>
+    </> : <>
+      <div className="gt-qr-flow-backdrop" />
+      <header className="gt-qr-scanner-screen__header gt-qr-scanner-screen__header--solid">
+        <button type="button" onClick={() => (isResultStep ? navigate('partner', 'partner-dashboard') : reset())} aria-label={isResultStep ? 'Закрити' : 'Скасувати'}>
+          {isResultStep ? <X size={22} /> : <ArrowLeft size={22} />}
+        </button>
+        <strong>{isFormStep ? 'Оформлення покупки' : purchase?.status === 'confirmed' ? 'Операцію підтверджено' : 'Очікуємо підтвердження'}</strong>
+        <span />
+      </header>
+      <main className="gt-qr-scanner-screen__content gt-qr-scanner-screen__content--sheet">
+        <section className="gt-qr-flow-sheet">
+          <div className="gt-qr-flow-hero">
+            <div className="gt-qr-flow-hero__badge">{isFormStep ? <ReceiptText size={20} /> : purchase?.status === 'confirmed' ? <Check size={20} /> : <Clock3 size={20} />}</div>
+            <div>
+              <small>{customer?.place_name}</small>
+              <h2>{customer?.customer_name}</h2>
+              <p>{isFormStep ? 'Заповніть суму покупки та підтвердьте операцію для клієнта.' : purchase?.status === 'confirmed' ? 'Клієнт підтвердив операцію. Сума та бонуси зафіксовані.' : 'Запит надіслано клієнту. Остаточне нарахування буде лише після його підтвердження.'}</p>
+            </div>
+          </div>
+
+          <div className="gt-qr-flow-summary">
+            <article>
+              <span>Доступно бонусів</span>
+              <strong>{partnerStatsCount(customer?.balance || 0)}</strong>
+            </article>
+            <article>
+              <span>Статус</span>
+              <strong>{isFormStep ? 'Нова операція' : resultStatusLabel}</strong>
+            </article>
+          </div>
+
+          {isFormStep ? <>
+            <div className="gt-qr-flow-form">
+              <label className="gt-qr-field"><span>Сума покупки, ₴</span><input inputMode="decimal" type="number" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Наприклад, 1200" /></label>
+              <label className="gt-qr-field"><span>Списати бонусів (максимум 20% чека)</span><input type="number" min="0" value={spend} onChange={(e) => setSpend(e.target.value)} placeholder="0" /></label>
+            </div>
+            <div className="gt-qr-flow-note"><Sparkles size={18} /><p>Після підтвердження клієнт отримає запит у своєму застосунку. Суму та бонуси можна буде перевірити перед завершенням операції.</p></div>
+            {error ? <p role="alert" className="gt-qr-scanner-error gt-qr-scanner-error--boxed">{error}</p> : null}
+            <div className="gt-qr-flow-actions">
+              <button type="button" className="gt-qr-flow-button gt-qr-flow-button--ghost" onClick={reset}>Відхилити</button>
+              <button type="button" disabled={busy} className="gt-qr-flow-button gt-qr-flow-button--primary" onClick={() => void sendQuote()}>{busy ? 'Підтверджуємо…' : 'Підтвердити'}</button>
+            </div>
+          </> : purchase ? <>
+            <div className="gt-qr-flow-result-grid">
               <div><span>Сума покупки</span><b>{partnerStatsMoney(Number(purchase.amount))}</b></div>
               <div><span>До сплати</span><b>{partnerStatsMoney(Number(purchase.cash_due))}</b></div>
               <div><span>Списання бонусів</span><b>{partnerStatsCount(Number(purchase.spent))}</b></div>
               <div><span>Нарахування</span><b>+{partnerStatsCount(Number(purchase.earned))}</b></div>
             </div>
-            <p className="gt-qr-scanner-status-text">Статус: {purchase.status === 'confirmed' ? 'Підтверджено клієнтом' : purchase.status === 'pending_customer' ? 'Очікує підтвердження клієнта' : purchase.status}</p>
-            <button type="button" className="gt-partner-secondary-button" onClick={() => void checkStatus()}>Оновити статус</button>
-          </>}
-        </>}
-        {error ? <p role="alert" className="gt-qr-scanner-error">{error}</p> : null}
-        <button type="button" className="gt-qr-scanner-reset" onClick={reset}>Сканувати наступний код</button>
-      </section>
-    </main>
+            <div className="gt-qr-flow-status-pill">{resultStatusLabel}</div>
+            <p className="gt-qr-scanner-status-text gt-qr-scanner-status-text--center">{purchase.status === 'confirmed' ? 'Клієнт уже підтвердив покупку. Операцію можна завершити і перейти до наступного сканування.' : 'Запит створено. Після підтвердження клієнтом баланс та бонуси оновляться автоматично.'}</p>
+            <div className="gt-qr-flow-actions">
+              <button type="button" className="gt-qr-flow-button gt-qr-flow-button--ghost" onClick={() => navigate('partner', 'partner-dashboard')}>Закрити</button>
+              <button type="button" className="gt-qr-flow-button gt-qr-flow-button--primary" onClick={reset}>Сканувати наступний</button>
+            </div>
+          </> : null}
+        </section>
+      </main>
+    </>}
   </div>;
 }
 

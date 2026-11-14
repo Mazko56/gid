@@ -2943,17 +2943,19 @@ function QrScreen({ navigate }: { navigate: Navigate }) {
   const [error,setError]=useState('');
   useEffect(()=>{
     let cancelled=false;let busy=false;
-    const refresh=async()=>{if(busy)return;busy=true;try{const result=await stage2Fetch<{token:string;expires_at:string}>('/qr/customer-token',{method:'POST'});if(!cancelled){setQr(result);setError('');}}catch(e){if(!cancelled)setError(e instanceof Error?e.message:'Не вдалося отримати код');}finally{busy=false;}};
+    const refresh=async()=>{if(busy)return;busy=true;try{const result=await stage2Fetch<{token:string;expires_at:string}>('/qr/customer-token',{method:'POST',body:JSON.stringify({start_param:runtime.context?.qr?.startParam||undefined})});if(!cancelled){setQr(result);setError('');}}catch(e){if(!cancelled)setError(e instanceof Error?e.message:'Не вдалося отримати код');}finally{busy=false;}};
     void refresh();const timer=setInterval(()=>{if(cancelled)return;if(qr?.expires_at){};setSeconds(old=>old);},1000);
     const renew=setInterval(()=>void refresh(),40000);
     return()=>{cancelled=true;clearInterval(timer);clearInterval(renew);};
-  },[]);
+  },[runtime.context?.qr?.startParam]);
   useEffect(()=>{const run=()=>setSeconds(Math.max(0,Math.ceil(((qr?new Date(qr.expires_at).getTime():Date.now())-Date.now())/1000)));run();const interval=setInterval(run,1000);return()=>clearInterval(interval);},[qr]);
   return <div className="tourist-screen gt-screen"><main className="gt-content gt-qr-screen">
     <div className="gt-page-heading gt-page-heading--center"><span className="gt-tone--green"><QrCode size={25}/></span><div><h1><TouristText uk="Мій QR"/></h1><p><TouristText uk="Для нарахування або списання бонусів"/></p></div></div>
     <div className="gt-qr-panel"><span className="gt-pill gt-pill--success"><span/>{touristInterfaceText(runtime.language,seconds?'QR активний':'Оновлення QR')}</span>{qr&&seconds>0?<CustomerQrSvg token={qr.token}/>:<div className="gt-stage2-empty"><TouristText uk="Оновлюємо код…"/></div>}
       <strong><TouristText uk="Покажіть код працівнику закладу"/></strong><p><TouristText uk="Код одноразовий і оновлюється автоматично"/></p><div className="gt-qr-timer"><Clock3 size={18}/><span><TouristText uk="Діє ще"/></span><strong>00:{String(seconds).padStart(2,'0')}</strong></div></div>
     {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}
+    {runtime.context?.place?.id ? <div className="gt-notice"><MapPin size={19}/><p>{tr(runtime.language,'QR діє лише в закладі: ','QR valid only at: ','Kod QR działa tylko w obiekcie: ')}<strong>{localizedField(runtime.language,runtime.context.place,'name',runtime.context.place.name)}</strong></p></div>
+      : runtime.context?.region.id ? <div className="gt-notice"><MapPin size={19}/><p>{tr(runtime.language,'QR діє в межах регіону: ','QR valid within region: ','Kod QR działa w regionie: ')}<strong>{runtime.language==='en'?(runtime.context.region.nameEn||runtime.context.region.name):runtime.language==='pl'?(runtime.context.region.namePl||runtime.context.region.name):runtime.context.region.name}</strong></p></div> : null}
     <div className="gt-notice"><ShieldCheck size={21}/><p><TouristText uk="Не передавайте QR іншим. Операцію потрібно підтвердити на цьому пристрої."/></p></div>
     <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','purchase-confirmation')}><TouristText uk="Перевірити підтвердження"/> <ChevronRight size={20}/></button>
   </main></div>;

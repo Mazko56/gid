@@ -180,6 +180,10 @@ CREATE TABLE IF NOT EXISTS activity_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_activity_user_created ON activity_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_place_type ON activity_events(place_id,event_type,created_at DESC);
+-- Count a cashier's repeated resolve attempts for the same token only once per establishment.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_qr_scans_unique
+  ON activity_events(place_id,(payload->>'token_hash')) WHERE event_type='partner_customer_qr_scanned';
 
 CREATE TABLE IF NOT EXISTS emergency_contacts (
   id text PRIMARY KEY,
@@ -319,8 +323,13 @@ CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id,created_at DESC
 CREATE TABLE IF NOT EXISTS customer_qr_tokens (
   token_hash text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at timestamptz NOT NULL, consumed_at timestamptz,
+  context_region_id text REFERENCES regions(id),
+  context_place_id text REFERENCES places(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Additive migration; existing short-lived QR tokens remain readable and expire normally.
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS context_region_id text REFERENCES regions(id);
+ALTER TABLE customer_qr_tokens ADD COLUMN IF NOT EXISTS context_place_id text REFERENCES places(id);
 CREATE INDEX IF NOT EXISTS idx_customer_qr_expiry ON customer_qr_tokens(expires_at);
 CREATE TABLE IF NOT EXISTS bonus_rules (
   region_id text PRIMARY KEY REFERENCES regions(id),

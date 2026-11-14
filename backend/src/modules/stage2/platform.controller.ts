@@ -9,7 +9,7 @@ export class PlatformController {
 
   @UseGuards(SessionGuard) @Get('wallet') wallet(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
   @UseGuards(SessionGuard) @Get('wallet/ledger') ledger(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
-  @UseGuards(SessionGuard) @Post('qr/customer-token') qr(@Req() r:AuthRequest) { return this.platform.customerQr(r.user!); }
+  @UseGuards(SessionGuard) @Post('qr/customer-token') qr(@Req() r:AuthRequest,@Body() b:{start_param?:string}) { return this.platform.customerQr(r.user!,b?.start_param); }
   @UseGuards(SessionGuard) @Post('partner/scan/resolve') scan(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.resolveScan(r.user!,b); }
   @UseGuards(SessionGuard) @Post('transactions/quote') quote(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.quote(r.user!,b); }
   @UseGuards(SessionGuard) @Get('transactions/pending') pending(@Req() r:AuthRequest) { return this.platform.pendingCustomer(r.user!); }
