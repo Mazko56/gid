@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
 import {
   Ambulance,
   ArrowDownToLine,
@@ -3459,6 +3459,72 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
   const name = [runtime.user?.first_name, runtime.user?.last_name].filter(Boolean).join(" ") || "Користувач Telegram";
   const username = runtime.user?.telegram_username ? `@${runtime.user.telegram_username}` : (runtime.context?.region.name || "Гід туриста");
   const languageLabel = runtime.language === "en" ? "English" : runtime.language === "pl" ? "Polski" : "Українська";
+  const [editing, setEditing] = useState(false);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editPhoto, setEditPhoto] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!runtime.user || editing) return;
+    setEditFirstName(runtime.user.first_name ?? "");
+    setEditLastName(runtime.user.last_name ?? "");
+    setEditPhone(runtime.user.phone ?? "");
+    setEditPhoto(runtime.user.photo_url ?? "");
+  }, [runtime.user?.id, runtime.user?.first_name, runtime.user?.last_name, runtime.user?.phone, runtime.user?.photo_url, editing]);
+
+  const selectPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setError("");
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 5_000_000) {
+      setError(tr(runtime.language, "Оберіть JPG, PNG або WebP до 5 МБ", "Choose JPG, PNG or WebP under 5 MB", "Wybierz JPG, PNG lub WebP do 5 MB"));
+      return;
+    }
+    try {
+      const uri = URL.createObjectURL(file);
+      try {
+        const img = new window.Image();
+        img.src = uri;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        const scale = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Canvas unavailable");
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const photo = canvas.toDataURL("image/jpeg", .82);
+        if (photo.length > 600_000) throw new Error("Photo too large");
+        setEditPhoto(photo);
+      } finally { URL.revokeObjectURL(uri); }
+    } catch {
+      setError(tr(runtime.language,"Не вдалося обробити фото", "Could not process the photo", "Nie udało się przetworzyć zdjęcia"));
+    }
+  };
+
+  const saveChanges = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      if (runtime.user?.phone_login_enabled && editPhone !== (runtime.user.phone ?? "") && !editPassword) {
+        throw new Error(tr(runtime.language,"Щоб змінити номер для входу, введіть новий пароль", "Enter a new password to change your sign-in number", "Podaj nowe hasło, aby zmienić numer logowania"));
+      }
+      if (editPassword) await runtime.setPhonePassword(editPhone, editPassword);
+      await runtime.saveProfile({ first_name: editFirstName, last_name: editLastName, phone: editPhone, photo_url: editPhoto });
+      setEditing(false);
+      setEditPassword("");
+      setNotice(tr(runtime.language,"Профіль збережено", "Profile saved", "Profil zapisany"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : tr(runtime.language,"Помилка збереження", "Save failed", "Nie udało się zapisać"));
+    } finally { setSaving(false); }
+  };
 
   useEffect(() => {
     if (runtime.location?.source !== "gps") void runtime.requestLocation();
@@ -3472,6 +3538,26 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <div className={`gt-avatar gt-avatar--photo ${runtime.user?.photo_url ? "has-photo" : ""}`} role="img" aria-label={name}>{runtime.user?.photo_url ? <img src={runtime.user.photo_url} alt={name} /> : <UserRound size={40} />}</div>
           <div><strong>{name}</strong><small><MapPin size={17} /> {username}</small></div>
         </section>
+        {editing ? <form className="gt-profile-edit-form" onSubmit={(event) => void saveChanges(event)}>
+          <h2>{tr(runtime.language,"Редагування профілю", "Edit profile", "Edycja profilu")}</h2>
+          <div className="gt-profile-edit-form__photo">
+            {editPhoto ? <img src={editPhoto} alt={tr(runtime.language,"Фото профілю", "Profile photo", "Zdjęcie profilowe")} /> : <span><UserRound size={32}/></span>}
+            <div className="gt-profile-edit-form__photo-actions">
+              <label>{tr(runtime.language,"Завантажити фото", "Upload photo", "Prześlij zdjęcie")}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => void selectPhoto(e.target.files?.[0])} /></label>
+              {editPhoto ? <button type="button" onClick={() => setEditPhoto("")}>{tr(runtime.language,"Прибрати фото", "Remove photo", "Usuń zdjęcie")}</button> : null}
+            </div>
+          </div>
+          <label>{tr(runtime.language,"Ім’я", "First name", "Imię")}<input type="text" maxLength={60} required value={editFirstName} onChange={e => setEditFirstName(e.target.value)} /></label>
+          <label>{tr(runtime.language,"Прізвище", "Last name", "Nazwisko")}<input type="text" maxLength={60} value={editLastName} onChange={e => setEditLastName(e.target.value)} /></label>
+          <label>{tr(runtime.language,"Номер телефону", "Phone number", "Numer telefonu")}<input type="tel" inputMode="tel" autoComplete="tel" placeholder="+380XXXXXXXXX" value={editPhone} onChange={e => setEditPhone(e.target.value)} /></label>
+          <label>{runtime.user?.phone_login_enabled ? tr(runtime.language,"Новий пароль для входу за телефоном (необов’язково)","New phone sign-in password (optional)","Nowe hasło do logowania telefonem (opcjonalnie)") : tr(runtime.language,"Створити пароль для входу за телефоном (необов’язково)","Set a phone sign-in password (optional)","Ustaw hasło do logowania telefonem (opcjonalnie)")}
+            <input type="password" autoComplete="new-password" minLength={8} placeholder={tr(runtime.language,"Мінімум 8 символів", "At least 8 characters", "Co najmniej 8 znaków")} value={editPassword} onChange={e => setEditPassword(e.target.value)} />
+          </label>
+          <small className="gt-profile-edit-form__hint">{tr(runtime.language,"Пароль потрібний, якщо хочете входити за номером. Без нього доступний вхід через Telegram.","A password enables phone sign-in. Telegram sign-in works without it.","Hasło umożliwia logowanie telefonem. Logowanie Telegram działa bez hasła.")}</small>
+          {error ? <p className="gt-profile-edit-form__notice is-error" role="alert">{error}</p> : null}
+          <div className="gt-profile-edit-form__actions"><button type="button" disabled={saving} onClick={() => { setEditing(false); setError(""); setEditPassword(""); }}>{tr(runtime.language,"Скасувати", "Cancel", "Anuluj")}</button><button type="submit" disabled={saving}>{saving ? tr(runtime.language,"Зберігаємо…", "Saving…", "Zapisywanie…") : tr(runtime.language,"Зберегти", "Save", "Zapisz")}</button></div>
+        </form> : null}
+        {notice && !editing ? <p className="gt-profile-edit-form__notice" role="status">{notice}</p> : null}
         <div className="gt-profile-list gt-profile-list--reference">
           <button type="button" className="gt-profile-row--location" onClick={() => void runtime.requestLocation()}><LocateFixed size={27} /><span>{runtime.location?.source === "gps" ? tr(runtime.language, "Геолокація дозволена", "Location enabled", "Lokalizacja włączona") : tr(runtime.language, "Надати доступ до геолокації", "Enable location", "Włącz lokalizację")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--add-location" onClick={() => navigate("tourist", "add-location")}><MapPin size={27} /><span>{tr(runtime.language, "Додати локацію", "Add place", "Dodaj miejsce")}</span><ChevronRight size={20} /></button>
@@ -3487,11 +3573,11 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" className="gt-profile-row--support" onClick={() => navigate("tourist", "community")}><Headset size={27} /><span>{tr(runtime.language, "Підтримка / спільнота", "Support / community", "Wsparcie / społeczność")}</span><ChevronRight size={20} /></button>
         </div>
         <div className="gt-profile-list gt-profile-list--reference">
-          <button type="button" onClick={() => { if(window.confirm(tr(runtime.language,"Видалити обліковий запис? Особисті дані будуть знеособлені, а фінансові записи збережено згідно зі строками обліку.","Delete your account? Personal data will be anonymized, while financial records will be retained as required.","Usunąć konto? Dane osobowe zostaną zanonimizowane, a zapisy finansowe przechowane zgodnie z przepisami."))) void stage2Fetch('/me/account',{method:'DELETE'}).then(()=>{window.alert(tr(runtime.language,"Обліковий запис знеособлено.","Account anonymized.","Konto zanonimizowano."));window.location.assign('/tourist/welcome');}).catch(e=>window.alert(e instanceof Error?e.message:'Не вдалося видалити профіль')); }}><LogOut size={25}/><span>{tr(runtime.language,"Видалити мій обліковий запис","Delete my account","Usuń moje konto")}</span><ChevronRight size={20}/></button>
+          <button type="button" onClick={() => { if(window.confirm(tr(runtime.language,"Видалити обліковий запис? Особисті дані будуть знеособлені, а фінансові записи збережено згідно зі строками обліку.","Delete your account? Personal data will be anonymized, while financial records will be retained as required.","Usunąć konto? Dane osobowe zostaną zanonimizowane, a zapisy finansowe przechowane zgodnie z przepisami."))) void runtime.deleteMyAccount().catch(e => window.alert(e instanceof Error ? e.message : tr(runtime.language,"Не вдалося видалити профіль","Account deletion failed","Nie udało się usunąć konta"))); }}><LogOut size={25}/><span>{tr(runtime.language,"Видалити мій обліковий запис","Delete my account","Usuń moje konto")}</span><ChevronRight size={20}/></button>
         </div>
         {!runtime.user ? <div className="gt-notice"><Info size={20} /><p>{tr(runtime.language, "Профіль автоматично активується після відкриття Mini App у Telegram.", "Your profile is activated automatically when the Mini App opens in Telegram.", "Profil aktywuje się automatycznie po otwarciu Mini App w Telegramie.")}</p></div> : null}
-        <button type="button" className="gt-logout gt-profile-logout"><LogOut size={25} /> {tr(runtime.language, "Вийти", "Log out", "Wyloguj")}</button>
-        <button type="button" className="gt-outline-button gt-profile-edit" onClick={() => void runtime.refreshProfile()}><RefreshCcw size={20} /> {tr(runtime.language, "Оновити профіль", "Refresh profile", "Odśwież profil")}</button>
+        <button type="button" className="gt-logout gt-profile-logout" onClick={() => void runtime.signOut().catch(() => undefined)}><LogOut size={25} /> {tr(runtime.language, "Вийти", "Log out", "Wyloguj")}</button>
+        <button type="button" className="gt-outline-button gt-profile-edit" onClick={() => { setEditing(value => !value); setNotice(""); setError(""); }}><Pencil size={20} /> {tr(runtime.language, "Редагувати профіль", "Edit profile", "Edytuj profil")}</button>
       </main>
     </div>
   );

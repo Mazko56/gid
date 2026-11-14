@@ -3,7 +3,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TouristLanguage } from "./tourist-i18n";
 import {
+  allowAutomaticSignIn,
   ensureTelegramSession,
+  manualSignInRequired,
+  requireManualSignIn,
+  setSessionToken,
   selectedPlaceId,
   selectedPlacePreview,
   setSelectedPlaceIdStorage,
@@ -32,6 +36,15 @@ type TouristRuntimeValue = {
   requestLocation: () => Promise<Coordinates | null>;
   setLanguage: (language: TouristLanguage) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  manualSignIn: boolean;
+  authGateReady: boolean;
+  signOut: () => Promise<void>;
+  deleteMyAccount: () => Promise<void>;
+  loginWithTelegram: () => Promise<void>;
+  loginWithPhone: (phone: string, password: string) => Promise<void>;
+  registerWithPhone: (name: string, phone: string, password: string) => Promise<void>;
+  saveProfile: (values: { first_name: string; last_name: string; phone: string; photo_url: string }) => Promise<void>;
+  setPhonePassword: (phone: string, password: string) => Promise<void>;
 };
 
 const TouristRuntimeContext = createContext<TouristRuntimeValue | null>(null);
@@ -63,6 +76,9 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
   } : null);
   const [loading, setLoading] = useState(true);
   const [apiOnline, setApiOnline] = useState(false);
+  const [manualSignIn, setManualSignIn] = useState(false);
+  const [authGateReady, setAuthGateReady] = useState(false);
+  useEffect(() => { setManualSignIn(manualSignInRequired()); setAuthGateReady(true); }, []);
   const [selected, setSelected] = useState(() => selectedPlaceId());
   const [selectedPlace, setSelectedPlaceState] = useState<Stage2Place | null>(() => selectedPlacePreview());
   const [localLanguage, setLocalLanguage] = useState<TouristLanguage>(() => {
@@ -217,6 +233,52 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
+  const completeSignIn = (result: { token: string; user: Stage2User }) => {
+    setSessionToken(result.token);
+    allowAutomaticSignIn();
+    setManualSignIn(false);
+    setUser(result.user);
+  };
+
+  const enterSignIn = () => {
+    requireManualSignIn();
+    setManualSignIn(true);
+    setUser(null);
+  };
+
+  const signOut = async () => {
+    try { await stage2Fetch('/auth/logout', { method: 'POST' }); }
+    finally { enterSignIn(); }
+  };
+
+  const deleteMyAccount = async () => {
+    await stage2Fetch('/me/account', { method: 'DELETE' });
+    enterSignIn();
+  };
+
+  const loginWithTelegram = async () => {
+    const result = await ensureTelegramSession(true);
+    if (!result) throw new Error('Telegram не підтвердив вхід. Відкрийте застосунок у Telegram.');
+    completeSignIn(result);
+  };
+
+  const phoneAuth = async (path: string, payload: Record<string, string>) => {
+    const result = await stage2Fetch<{ token: string; user: Stage2User }>(path, {
+      method: 'POST', body: JSON.stringify(payload),
+    }, '');
+    completeSignIn(result);
+  };
+  const loginWithPhone = (phone: string, password: string) => phoneAuth('/auth/phone/login', { phone, password });
+  const registerWithPhone = (name: string, phone: string, password: string) => phoneAuth('/auth/phone/register', { name, phone, password });
+  const saveProfile = async (values: { first_name: string; last_name: string; phone: string; photo_url: string }) => {
+    const next = await stage2Fetch<Stage2User>('/me', { method: 'PATCH', body: JSON.stringify(values) });
+    setUser(next);
+  };
+  const setPhonePassword = async (phone: string, password: string) => {
+    await stage2Fetch('/auth/phone/link', { method: 'POST', body: JSON.stringify({ phone, password }) });
+    await refreshProfile();
+  };
+
   const refreshProfile = async () => {
     try {
       const next = await stage2Fetch<Stage2User>("/me");
@@ -252,7 +314,16 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
     requestLocation,
     setLanguage,
     refreshProfile,
-  }), [context, user, location, loading, apiOnline, selected, selectedPlace, localLanguage]);
+    manualSignIn,
+    authGateReady,
+    signOut,
+    deleteMyAccount,
+    loginWithTelegram,
+    loginWithPhone,
+    registerWithPhone,
+    saveProfile,
+    setPhonePassword,
+  }), [context, user, location, loading, apiOnline, selected, selectedPlace, localLanguage, manualSignIn]);
 
   return <TouristRuntimeContext.Provider value={value}>{children}</TouristRuntimeContext.Provider>;
 }

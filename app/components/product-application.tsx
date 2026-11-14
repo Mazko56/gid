@@ -37,6 +37,7 @@ import { AmbassadorScreen, RegionalScreen } from "./screens/admin-screens";
 import { AdminDesktopScreen } from "./screens/admin-desktop-screens";
 import { PartnerMobileScreen } from "./screens/partner-mobile-screens";
 import { TouristScreen } from "./screens/tourist-screens";
+import { TouristAuthScreen } from "./screens/tourist-auth-screen";
 import { TouristRuntimeProvider, useTouristRuntime } from "../lib/tourist-runtime";
 import { tr } from "../lib/tourist-i18n";
 import { telegramStartParam, waitForTelegramWebApp } from "../lib/stage2-api";
@@ -136,6 +137,17 @@ function TouristBottomNav({
       ))}
     </nav>
   );
+}
+
+function TouristScreenWithAuth({ slug, navigate, activeSlug }: { slug: string; navigate: (role: RoleKey, slug: string) => void; activeSlug: string }) {
+  const runtime = useTouristRuntime();
+  if (!runtime.authGateReady) {
+    return <div className="phone-content gt-account-login-content"><div className="gt-account-auth-loading" aria-live="polite">Гід туриста</div></div>;
+  }
+  if (runtime.manualSignIn) {
+    return <div className="phone-content gt-account-login-content"><TouristAuthScreen /></div>;
+  }
+  return <><div className="phone-content"><TouristScreen slug={slug} navigate={navigate} /></div><TouristBottomNav activeSlug={activeSlug} navigate={navigate} /></>;
 }
 
 export default function ProductApplication({ role, slug }: { role: RoleKey; slug: string }) {
@@ -248,10 +260,7 @@ export default function ProductApplication({ role, slug }: { role: RoleKey; slug
       <main className={`tourist-app-shell ${isAndroidTelegram ? "tourist-app-shell--android" : ""}`}>
         <div className={`tourist-app-frame ${slug === "welcome" ? "tourist-app-frame--welcome" : ""} ${isHomeScreen ? "tourist-app-frame--home" : ""}`}>
           <TouristRuntimeProvider>
-            <div className="phone-content">
-              <TouristScreen slug={activeScreen.slug} navigate={navigate} />
-            </div>
-            <TouristBottomNav activeSlug={slug} navigate={navigate} />
+            <TouristScreenWithAuth slug={activeScreen.slug} activeSlug={slug} navigate={navigate} />
           </TouristRuntimeProvider>
         </div>
       </main>

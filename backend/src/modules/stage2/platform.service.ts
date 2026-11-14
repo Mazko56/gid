@@ -695,12 +695,13 @@ export class PlatformService {
     // Remove direct identifiers and sessions; a future Telegram login creates a fresh account.
     await this.db.transaction(async(client)=>{
       await client.query('DELETE FROM user_sessions WHERE user_id=$1',[user.id]);
+      await client.query('DELETE FROM user_phone_credentials WHERE user_id=$1',[user.id]);
       await client.query('DELETE FROM favorites WHERE user_id=$1',[user.id]);
       await client.query('DELETE FROM external_favorites WHERE user_id=$1',[user.id]);
       await client.query('DELETE FROM trip_plans WHERE user_id=$1',[user.id]);
       await client.query('DELETE FROM customer_qr_tokens WHERE user_id=$1 AND NOT EXISTS (SELECT 1 FROM purchase_transactions t WHERE t.qr_token_hash=customer_qr_tokens.token_hash)',[user.id]);
       await client.query(`UPDATE users SET telegram_id=NULL,telegram_username=NULL,first_name=NULL,last_name=NULL,
-        photo_url=NULL,phone=NULL,selected_language='uk',consent='{}'::jsonb,updated_at=now() WHERE id=$1`,[user.id]);
+        photo_url=NULL,phone=NULL,profile_name_customized=false,profile_photo_customized=false,selected_language='uk',consent='{}'::jsonb,updated_at=now() WHERE id=$1`,[user.id]);
       await client.query("UPDATE bookings SET phone=NULL,client_name='',comment='' WHERE user_id=$1",[user.id]);
       await client.query("UPDATE hotel_requests SET note='',room=NULL WHERE user_id=$1",[user.id]);
       await client.query("UPDATE review_entries SET text='' WHERE user_id=$1",[user.id]);

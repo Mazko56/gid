@@ -991,19 +991,45 @@ export class Stage2Service {
 
   async profile(user: AuthUser) {
     const result = await this.db.query(
-      `SELECT id,telegram_id::text,telegram_username,first_name,last_name,photo_url,selected_language,role,phone,consent,created_at,last_active_at
+      `SELECT id,telegram_id::text,telegram_username,first_name,last_name,photo_url,selected_language,role,phone,consent,created_at,last_active_at,
+       EXISTS(SELECT 1 FROM user_phone_credentials c WHERE c.user_id=users.id) AS phone_login_enabled
        FROM users WHERE id=$1`, [user.id],
     );
     return result.rows[0];
   }
 
   async updateProfile(user: AuthUser, body: Record<string, unknown>) {
-    const language = ["uk","en","pl"].includes(String(body.selected_language)) ? String(body.selected_language) : undefined;
-    const phone = body.phone === undefined ? undefined : String(body.phone ?? "");
-    const consent = body.consent && typeof body.consent === "object" ? body.consent : undefined;
+    const language = ["uk", "en", "pl"].includes(String(body.selected_language)) ? String(body.selected_language) : null;
+    const consent = body.consent && typeof body.consent === "object" && !Array.isArray(body.consent) ? body.consent : null;
+    const hasName = Object.prototype.hasOwnProperty.call(body, "first_name") || Object.prototype.hasOwnProperty.call(body, "last_name");
+    const firstName = String(body.first_name ?? "").trim();
+    const lastName = String(body.last_name ?? "").trim();
+    if (hasName && (!firstName || firstName.length > 60 || lastName.length > 60)) throw new BadRequestException("Ім’я обов’язкове, не більше 60 символів");
+    const hasPhone = Object.prototype.hasOwnProperty.call(body, "phone");
+    const phone = hasPhone ? String(body.phone ?? "").replace(/[\s()\-]/g, "") : "";
+    if (hasPhone && phone !== "" && !/^\+[1-9]\d{7,14}$/.test(phone)) throw new BadRequestException("Номер телефону: міжнародний формат +380XXXXXXXXX");
+    if (hasPhone) {
+      const credential = await this.db.query<{ phone: string }>("SELECT phone FROM user_phone_credentials WHERE user_id=$1", [user.id]);
+      if (credential.rows[0] && credential.rows[0].phone !== phone) {
+        throw new BadRequestException("Змініть номер для входу разом із паролем у редакторі профілю");
+      }
+    }
+    const hasPhoto = Object.prototype.hasOwnProperty.call(body, "photo_url");
+    const photo = hasPhoto ? String(body.photo_url ?? "") : "";
+    if (hasPhoto && photo && (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo) || photo.length > 600_000)) {
+      throw new BadRequestException("Фото має бути JPG, PNG або WebP розміром до 450 КБ");
+    }
     await this.db.query(
-      `UPDATE users SET selected_language=COALESCE($2,selected_language), phone=COALESCE($3,phone), consent=COALESCE($4::jsonb,consent), updated_at=now() WHERE id=$1`,
-      [user.id, language ?? null, phone ?? null, consent ? JSON.stringify(consent) : null],
+      `UPDATE users SET selected_language=COALESCE($2,selected_language),
+       phone=CASE WHEN $3::boolean THEN NULLIF($4::text,'') ELSE phone END,
+       consent=COALESCE($5::jsonb,consent),
+       first_name=CASE WHEN $6::boolean THEN $7 ELSE first_name END,
+       last_name=CASE WHEN $6::boolean THEN NULLIF($8,'') ELSE last_name END,
+       profile_name_customized=CASE WHEN $6::boolean THEN true ELSE profile_name_customized END,
+       photo_url=CASE WHEN $9::boolean THEN NULLIF($10::text,'') ELSE photo_url END,
+       profile_photo_customized=CASE WHEN $9::boolean THEN true ELSE profile_photo_customized END,
+       updated_at=now() WHERE id=$1`,
+      [user.id,language,hasPhone,phone,consent ? JSON.stringify(consent) : null,hasName,firstName,lastName,hasPhoto,photo],
     );
     return this.profile(user);
   }

@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
   first_name text,
   last_name text,
   photo_url text,
+  profile_name_customized boolean NOT NULL DEFAULT false,
+  profile_photo_customized boolean NOT NULL DEFAULT false,
   language_code text,
   selected_language text NOT NULL DEFAULT 'uk',
   role text NOT NULL DEFAULT 'tourist',
@@ -32,6 +34,25 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_name_customized boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo_customized boolean NOT NULL DEFAULT false;
+
+-- Phone credentials are independent from the unverified contact phone in users.
+-- Existing Telegram users only get phone credentials when they explicitly set a password.
+CREATE TABLE IF NOT EXISTS user_phone_credentials (
+  user_id text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  phone text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS user_phone_login_attempts (
+  phone_hash text PRIMARY KEY,
+  failure_count integer NOT NULL DEFAULT 0,
+  first_attempt_at timestamptz NOT NULL DEFAULT now(),
+  locked_until timestamptz
+);
+
 ALTER TABLE regions ADD COLUMN IF NOT EXISTS emergency_verified_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS user_sessions (

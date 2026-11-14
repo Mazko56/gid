@@ -10,6 +10,7 @@ export type Stage2User = {
   selected_language?: string;
   role?: string;
   phone?: string | null;
+  phone_login_enabled?: boolean;
 };
 
 export type Stage2Place = {
@@ -163,6 +164,22 @@ type TelegramWebApp = {
 type TelegramWindow = Window & { Telegram?: { WebApp?: TelegramWebApp } };
 
 const TOKEN_KEY = "gid-tourist-stage2-session";
+const MANUAL_SIGNIN_KEY = "gid-tourist-explicit-signin-required";
+
+export function manualSignInRequired() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(MANUAL_SIGNIN_KEY) === "1";
+}
+export function requireManualSignIn() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MANUAL_SIGNIN_KEY, "1");
+  setSessionToken("");
+}
+export function allowAutomaticSignIn() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(MANUAL_SIGNIN_KEY);
+}
+
 const SELECTED_PLACE_KEY = "gid-tourist-selected-place";
 const SELECTED_PLACE_PREVIEW_KEY = "gid-tourist-selected-place-preview";
 const PHOTO_HYDRATION_ATTEMPT_PREFIX = "gid-tourist-photo-hydration:";
@@ -319,8 +336,8 @@ export function telegramLaunchKey() {
   return [telegramStartParam(), authDate, queryId, user?.id ? String(user.id) : "", hash.slice(0, 16)].join(":");
 }
 
-export async function ensureTelegramSession(): Promise<{ token: string; user: Stage2User } | null> {
-  if (typeof window === "undefined") return null;
+export async function ensureTelegramSession(explicit = false): Promise<{ token: string; user: Stage2User } | null> {
+  if (typeof window === "undefined" || (manualSignInRequired() && !explicit)) return null;
 
   const webApp = await waitForTelegramWebApp();
   const rawInitAtLaunch = webApp?.initData || rawTelegramInitData();
@@ -332,12 +349,8 @@ export async function ensureTelegramSession(): Promise<{ token: string; user: St
       const user = await stage2Fetch<Stage2User>("/me", {}, existing);
       const sessionTelegramId = String(user.telegram_id ?? "");
       if (!currentTelegramId || !sessionTelegramId || sessionTelegramId === currentTelegramId) {
-        const launchProfileChanged = Boolean(launchUser && (
-          (launchUser.photo_url && launchUser.photo_url !== user.photo_url)
-          || (launchUser.first_name && launchUser.first_name !== user.first_name)
-          || (launchUser.last_name && launchUser.last_name !== user.last_name)
-          || (launchUser.username && launchUser.username !== user.telegram_username)
-        ));
+        // Custom names/photos may differ from the Telegram profile intentionally.
+        const launchProfileChanged = false;
         const photoAttemptKey = `${PHOTO_HYDRATION_ATTEMPT_PREFIX}${currentTelegramId}`;
         const avatarAttempted = Boolean(currentTelegramId && window.sessionStorage.getItem(photoAttemptKey) === "1");
         const needsPhotoHydration = Boolean(currentTelegramId && !user.photo_url && !avatarAttempted);
@@ -374,6 +387,7 @@ export async function ensureTelegramSession(): Promise<{ token: string; user: St
     if (!response.ok) throw new Error(await responseError(response));
     const result = await response.json() as { token: string; user: Stage2User };
     setSessionToken(result.token);
+    allowAutomaticSignIn();
     return result;
   } catch (error) {
     lastTelegramAuthError = error instanceof Error ? error.message : "Невідома помилка Telegram авторизації";

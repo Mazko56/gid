@@ -30678,3 +30678,53 @@ button.gt-amenities-row {
 .ad-page-editor-subcategory-row--localized {display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;}
 .ad-page-editor-subcategory-row--localized input {min-width:0;}
 @media(max-width:780px){.ad-page-editor-subcategory-row--localized{grid-template-columns:1fr 1fr}.ad-page-editor-subcategory-row--localized .is-delete{justify-self:end;}}
+
+/* Explicit tourist login, shown only after user chooses Log out / Delete account. */
+.gt-account-auth { min-height:100%; background:#fafbfa; display:flex; align-items:center; justify-content:center; }
+.gt-account-auth__content { width:min(100%,440px); padding:30px 20px 38px; display:flex; flex-direction:column; gap:15px; color:#18231e; }
+.gt-account-auth__brand { display:grid; place-items:center; width:54px; height:54px; border-radius:17px; background:#e4f5eb; color:#079756; }
+.gt-account-auth__content h1 { font-size:26px; line-height:1.15; margin:0; letter-spacing:-.6px; font-weight:800; }
+.gt-account-auth__content > p { font-size:14px; line-height:1.55; color:#747e78; margin:0 0 3px; }
+.gt-account-auth__tabs { display:grid; grid-template-columns:1fr 1fr; background:#ecf2ee; padding:4px; border-radius:13px; gap:4px; margin-top:4px; }
+.gt-account-auth__tabs button { min-height:42px; border:0; border-radius:10px; background:transparent; font-size:14px; font-weight:700; color:#697970; cursor:pointer; }
+.gt-account-auth__tabs button.is-active { background:white; color:#0b9555; box-shadow:0 2px 8px #19462910; }
+.gt-account-auth__form { display:flex; flex-direction:column; gap:14px; }
+.gt-account-auth__form label { display:flex; flex-direction:column; gap:7px; font-size:13px; font-weight:700; color:#35483c; }
+.gt-account-auth__field { display:flex; align-items:center; min-height:49px; gap:10px; padding:0 12px; background:white; border:1px solid #dfe9e2; border-radius:12px; color:#71a38a; }
+.gt-account-auth__field:focus-within { border-color:#47b880; box-shadow:0 0 0 3px #13a15b13; }
+.gt-account-auth__field > input { flex:1; min-width:0; width:100%; font:inherit; font-size:15px; color:#17231c; outline:none; border:0; background:transparent; }
+.gt-account-auth__field > input::placeholder { color:#a0aaa5; }
+.gt-account-auth__eye { border:0; background:transparent; color:#71857a; padding:4px; display:grid; place-items:center; }
+.gt-account-auth__submit { display:flex; gap:9px; align-items:center; justify-content:center; min-height:50px; margin-top:3px; border:0; border-radius:12px; background:#17a565; color:white; font-size:15px; font-weight:750; cursor:pointer; }
+.gt-account-auth__submit:disabled,.gt-account-auth__telegram:disabled { opacity:.65; cursor:wait; }
+.gt-account-auth__or { display:flex; align-items:center; gap:15px; color:#9aa8a0; font-size:13px; justify-content:center; }
+.gt-account-auth__or::before,.gt-account-auth__or::after { content:""; flex:1; height:1px; background:#e3e9e5; }
+.gt-account-auth__telegram { display:flex; align-items:center; justify-content:center; gap:11px; min-height:49px; border:1px solid #bce0f2; background:#f4faff; color:#187ba9; border-radius:12px; font-size:14px; font-weight:750; cursor:pointer; }
+.gt-account-auth__tg { display:grid; place-items:center; width:25px; height:25px; border-radius:50%; background:#249cd2; color:white; font-size:15px; }
+.gt-account-auth__error { border:1px solid #f4b9b9; background:#fff4f4; border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.4; color:#b52525; }
+.gt-account-auth__disclaimer { text-align:center; color:#8b9790; font-size:12px; line-height:1.4; }
+
+/* Profile editing stays within the existing 49px field / green action scale. */
+.gt-profile-edit-form { display:flex; flex-direction:column; gap:14px; padding:17px; background:white; border:1px solid #e7eee9; border-radius:15px; box-shadow:0 4px 14px #24452f08; }
+.gt-profile-edit-form h2 { font-size:18px; color:#17221b; margin:0 0 3px; }
+.gt-profile-edit-form label { display:flex; flex-direction:column; gap:6px; color:#3b4a40; font-size:13px; font-weight:650; }
+.gt-profile-edit-form input[type="text"],.gt-profile-edit-form input[type="tel"],.gt-profile-edit-form input[type="password"] { border:1px solid #e0e9e3; border-radius:11px; width:100%; height:49px; padding:0 13px; font-size:14px; background:white; color:#132019; }
+.gt-profile-edit-form input:focus-visible { outline:2px solid #31ad72; outline-offset:1px; }
+.gt-profile-edit-form__photo { display:flex; align-items:center; gap:14px; }
+.gt-profile-edit-form__photo img,.gt-profile-edit-form__photo > span { width:72px; height:72px; border-radius:50%; object-fit:cover; border:1px solid #dce9e1; background:#edf7f0; display:grid; place-items:center; color:#24aa6d; }
+.gt-profile-edit-form__photo-actions { display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+.gt-profile-edit-form__photo-actions label { border:1px solid #b9dcc9; padding:9px 12px; border-radius:10px; background:#f6fbf8; color:#138a53; cursor:pointer; }
+.gt-profile-edit-form__photo-actions input { display:none; }
+.gt-profile-edit-form__photo-actions button { border:0; color:#8e5656; background:none; font-size:12px; cursor:pointer; }
+.gt-profile-edit-form__hint { font-size:12px; color:#819188; line-height:1.45; }
+.gt-profile-edit-form__actions { display:flex; gap:8px; }
+.gt-profile-edit-form__actions button { flex:1; min-height:48px; border:1px solid #b0dfc4; border-radius:10px; background:#fff; color:#18975a; font-size:14px; font-weight:700; cursor:pointer; }
+.gt-profile-edit-form__actions button[type="submit"] { background:#18a362; color:white; border-color:#18a362; }
+.gt-profile-edit-form__actions button:disabled { opacity:.6; cursor:wait; }
+.gt-profile-edit-form__notice { font-size:13px; line-height:1.45; color:#148552; margin:0; }
+.gt-profile-edit-form__notice.is-error { color:#bc3333; }
+
+.tourist-app-frame .phone-content.gt-account-login-content { padding-bottom:0 !important; }
+
+.gt-account-auth-loading { display:grid; place-items:center; min-height:100%; color:#0f9756; font-size:18px; font-weight:750; background:#fafbfa; }
+.gt-profile-screen .gt-avatar--photo:not(.has-photo) { background:#e7f6ed; color:#16a365; }
