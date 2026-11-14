@@ -310,8 +310,10 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
   }
 
   async pendingCustomer(user: AuthUser) {
-    const pending = await this.db.query(`SELECT t.id,t.place_id,p.name AS place_name,t.amount,t.spent,t.earned,t.cash_due,t.commission,
-      t.expires_at,t.created_at,t.status FROM purchase_transactions t JOIN places p ON p.id=t.place_id
+    const pending = await this.db.query(`SELECT t.id,t.place_id,p.name AS place_name,
+      NULLIF(p.details->>'logo_url','') AS place_logo_url, NULLIF(p.image_url,'') AS place_image_url,
+      t.amount,t.spent,t.earned,t.cash_due,t.commission,t.expires_at,t.created_at,t.status
+      FROM purchase_transactions t JOIN places p ON p.id=t.place_id
       WHERE t.user_id=$1 AND t.status='pending_customer' ORDER BY t.created_at DESC`,[user.id]);
     return pending.rows;
   }

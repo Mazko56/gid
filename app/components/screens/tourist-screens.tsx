@@ -2974,7 +2974,17 @@ function QrScreen({ navigate }: { navigate: Navigate }) {
   </main></div>;
 }
 
-type PendingPurchase = {id:string;place_name:string;amount:number;spent:number;earned:number;cash_due:number;expires_at:string|null};
+type PendingPurchase = {id:string;place_name:string;place_logo_url:string|null;place_image_url:string|null;amount:number;spent:number;earned:number;cash_due:number;expires_at:string|null};
+
+function PurchasePlaceLogo({name,logoUrl,imageUrl}:{name:string;logoUrl:string|null;imageUrl:string|null}) {
+  const [source,setSource]=useState(logoUrl || imageUrl || '');
+  useEffect(()=>setSource(logoUrl || imageUrl || ''),[logoUrl,imageUrl]);
+  const nextSource=()=>setSource(current=>current===logoUrl && imageUrl && imageUrl!==logoUrl ? imageUrl : '');
+  return <figure className="gt-purchase-place-logo">
+    {source?<img src={source} alt={`Зображення закладу ${name}`} onError={nextSource} />
+      :<span aria-label={`Логотип закладу ${name} не завантажено`}>{name.trim().charAt(0).toUpperCase() || '•'}</span>}
+  </figure>;
+}
 function PurchaseConfirmationScreen({ navigate }: { navigate: Navigate }) {
   const runtime=useTouristRuntime();
   const [items,setItems]=useState<PendingPurchase[]>([]);
@@ -2985,7 +2995,7 @@ function PurchaseConfirmationScreen({ navigate }: { navigate: Navigate }) {
   const item=items[0];
   const action=async(approve:boolean)=>{if(!item)return;setLoading(true);setError('');try{await stage2Fetch(`/transactions/${approve?'confirm':'decline'}`,{method:'POST',body:JSON.stringify({id:item.id})});setItems(items.slice(1));setConfirmed(approve);}catch(e){setError(e instanceof Error?e.message:'Операція не вдалася');}finally{setLoading(false);}};
   return <div className="tourist-screen gt-screen"><main className="gt-content"><div className="gt-page-heading"><span className="gt-tone--green"><ReceiptText size={23}/></span><div><h1><TouristText uk="Підтвердження"/></h1><p><TouristText uk="Перевірте деталі операції"/></p></div></div>
-    {item?<div className="gt-purchase-card"><Thumb name="restaurant"/><strong>{item.place_name}</strong><small><TouristText uk="Запит на підтвердження покупки"/></small><div><span><TouristText uk="Сума покупки"/></span><b>{Number(item.amount)} ₴</b></div><div><span><TouristText uk="Списання бонусів"/></span><b>−{Number(item.spent)}</b></div><div><span><TouristText uk="До сплати грошима"/></span><b>{Number(item.cash_due)} ₴</b></div><div className="is-green"><span><TouristText uk="Буде нараховано"/></span><b>+{Number(item.earned)} {touristInterfaceText(runtime.language,'бонусів')}</b></div></div>:<div className="gt-notice"><ShieldCheck size={21}/><p>{touristInterfaceText(runtime.language,confirmed?'Операцію підтверджено. Баланс оновлено.':'Поки немає операцій на підтвердження. Цей екран перевіряється автоматично.')}</p></div>}
+    {item?<div className="gt-purchase-card"><PurchasePlaceLogo name={item.place_name} logoUrl={item.place_logo_url} imageUrl={item.place_image_url}/><strong>{item.place_name}</strong><small><TouristText uk="Запит на підтвердження покупки"/></small><div><span><TouristText uk="Сума покупки"/></span><b>{Number(item.amount)} ₴</b></div><div><span><TouristText uk="Списання бонусів"/></span><b>−{Number(item.spent)}</b></div><div><span><TouristText uk="До сплати грошима"/></span><b>{Number(item.cash_due)} ₴</b></div><div className="is-green"><span><TouristText uk="Буде нараховано"/></span><b>+{Number(item.earned)} {touristInterfaceText(runtime.language,'бонусів')}</b></div></div>:<div className="gt-notice"><ShieldCheck size={21}/><p>{touristInterfaceText(runtime.language,confirmed?'Операцію підтверджено. Баланс оновлено.':'Поки немає операцій на підтвердження. Цей екран перевіряється автоматично.')}</p></div>}
     {error?<p role="alert" style={{color:'#b91c1c'}}>{error}</p>:null}
     {item?<><button type="button" disabled={loading} className="gt-primary-button" onClick={()=>void action(true)}><TouristText uk="Підтвердити операцію"/> <Check size={20}/></button><button type="button" disabled={loading} className="gt-outline-button" onClick={()=>void action(false)}><TouristText uk="Відхилити"/></button></>:<button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','wallet')}><TouristText uk="Перейти до бонусів"/></button>}
   </main></div>;

@@ -3721,6 +3721,19 @@ button.gt-service-card {
 }
 
 .gt-purchase-card .gt-photo { width:74px; height:74px; border-radius:50%; }
+.gt-purchase-place-logo {
+  width:74px;
+  height:74px;
+  margin:0;
+  overflow:hidden;
+  border:1px solid #e3ebe6;
+  border-radius:50%;
+  background:#f0f7f2;
+  display:grid;
+  place-items:center;
+}
+.gt-purchase-place-logo img { display:block; width:100%; height:100%; object-fit:contain; }
+.gt-purchase-place-logo span { color:#167a4e; font-size:30px; font-weight:750; line-height:1; }
 .gt-purchase-card > strong { margin-top:3px; font-size:16px; }
 .gt-purchase-card > small { margin-bottom:8px; color:#7a857e; font-size:10px; }
 .gt-purchase-card > div { display:flex; justify-content:space-between; width:100%; padding:11px 2px; border-top:1px solid #edf0ee; }
