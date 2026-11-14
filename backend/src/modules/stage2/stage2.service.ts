@@ -483,9 +483,10 @@ export class Stage2Service {
 
   async context(startParam: string) {
     const qr = await this.db.query(
-      `SELECT q.id,q.start_param,q.type,q.source,q.region_id,q.place_id,q.active,
+      `SELECT q.id,q.start_param,q.type,q.source,COALESCE(p.region_id,q.region_id) AS region_id,q.place_id,q.active,
               r.name region_name,r.name_en region_name_en,r.name_pl region_name_pl,r.center_lat,r.center_lng,r.community_url
-       FROM qr_points q JOIN regions r ON r.id=q.region_id
+       FROM qr_points q LEFT JOIN places p ON p.id=q.place_id
+       JOIN regions r ON r.id=COALESCE(p.region_id,q.region_id)
        WHERE q.start_param=$1 AND q.active=true`,
       [startParam],
     );

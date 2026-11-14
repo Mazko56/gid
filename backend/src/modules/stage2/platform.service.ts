@@ -87,7 +87,8 @@ export class PlatformService {
     const requestedContext = txt(startParam, 180);
     if (requestedContext) {
       const qrContext = await this.db.query<{region_id:string;place_id:string|null}>(
-        `SELECT q.region_id,q.place_id FROM qr_points q
+        `SELECT COALESCE(p.region_id,q.region_id) AS region_id,q.place_id
+         FROM qr_points q LEFT JOIN places p ON p.id=q.place_id
          WHERE q.start_param=$1 AND q.active=true AND q.type NOT IN ('partner_access','ambassador')`,
         [requestedContext],
       );
@@ -135,10 +136,17 @@ export class PlatformService {
     qr: {context_region_id:string|null;context_place_id:string|null},
     place: {id:string;region_id:string},
   ) {
+    // A venue-bound QR is checked against the exact venue ID first. A stored
+    // region on an older QR can become stale if its venue was moved to another
+    // region; it must not reject the very same venue. Never match by name.
+    if (qr.context_place_id) {
+      if (qr.context_place_id !== place.id)
+        throw new ForbiddenException('QR належить іншому закладу. Перевірте QR точки входу та вибраний партнерський заклад.');
+      return;
+    }
+    // QR codes without a venue remain restricted by their region.
     if (qr.context_region_id && qr.context_region_id !== place.region_id)
       throw new ForbiddenException('QR відкрито для іншого регіону. Відкрийте QR відповідного закладу або регіону.');
-    if (qr.context_place_id && qr.context_place_id !== place.id)
-      throw new ForbiddenException('QR відкрито для іншого закладу. Провести покупку тут не можна.');
   }
 
   async resolveScan(user: AuthUser, body: Record<string, unknown>) {

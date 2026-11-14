@@ -3526,10 +3526,6 @@ function ScannerScreen({ navigate }: { navigate: Navigate }) {
 
         <section className="gt-qr-scanner-card">
           <div className="gt-qr-scanner-card__header"><strong>Сканування клієнта</strong><small>{cameraMessage || (cameraReady ? 'Сканер активний. Наведіть камеру на QR клієнта.' : 'Запускаємо камеру…')}</small></div>
-          <details className="gt-qr-scanner-manual">
-            <summary>Ввести код вручну</summary>
-            <label className="gt-qr-field"><span>Код клієнта</span><input aria-label="Код QR" placeholder="gt_..." value={token} onChange={(e) => setToken(e.target.value.trim())} /></label>
-          </details>
           {error ? <><p role="alert" className="gt-qr-scanner-error">{error}</p><button type="button" className="gt-qr-scanner-reset" onClick={() => { setToken(''); setError(''); setScanRevision((value) => value + 1); }}>Сканувати ще раз</button></> : null}
         </section>
       </main>
