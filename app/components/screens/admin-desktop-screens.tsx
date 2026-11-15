@@ -57,6 +57,7 @@ import type { RoleKey } from "../../lib/navigation";
 import { adminStage2Fetch, stage2Fetch, type Stage2Category, type Stage2EmergencyService, type Stage2EmergencyServicesResponse, type Stage2GeoDetails, type Stage2GeoSuggestion, type Stage2HotOffer, type Stage2PageContentResponse, type Stage2PlaceTypeTemplate } from "../../lib/stage2-api";
 import { RealMap } from "../real-map";
 import { translateKnownLabel } from "../../lib/tourist-i18n";
+import { NEARBY_FILTERS_BY_CATEGORY } from "../../lib/nearby-filter-options";
 
 type EditableTranslations = Record<string, Record<string, string>>;
 const emptyTranslations = (): EditableTranslations => ({ en: {}, pl: {} });
@@ -563,7 +564,8 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [placeTypeTemplates, setPlaceTypeTemplates] = useState<Stage2PlaceTypeTemplate[]>([]);
   const [name, setName] = useState("");
   const [categorySlug, setCategorySlug] = useState("");
-  const [subcategory, setSubcategory] = useState("");
+  const [categorySelections, setCategorySelections] = useState<string[]>([]);
+  const [nearbySelections, setNearbySelections] = useState<string[]>([]);
   const [priceLevel, setPriceLevel] = useState("");
   const [forKids, setForKids] = useState(false);
   const [parking, setParking] = useState(false);
@@ -574,11 +576,17 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const availableSubcategories = categorySubcategories.length
     ? categorySubcategories
     : Array.from(new Set(placeTypeTemplates.filter((item) => item.category_slug === categorySlug).map((item) => item.place_type).filter(Boolean)));
+  // Keep any previously saved legacy subcategory visible/editable until an admin changes it.
+  const displaySubcategories = Array.from(new Set([...availableSubcategories, ...categorySelections]));
+  const nearbyFilterOptions = NEARBY_FILTERS_BY_CATEGORY[categorySlug] || [];
   const categoryFilters = currentCategory?.filter_config || {};
+  const toggleCategorySelection = (label: string) => setCategorySelections((current) => current.includes(label) ? current.filter(x => x !== label) : [...current,label]);
+  const toggleNearbySelection = (label: string) => setNearbySelections((current) => current.includes(label) ? current.filter(x => x !== label) : [...current,label]);
   const onCategoryChange = (next: string) => {
     if (next === categorySlug) return;
     setCategorySlug(next);
-    setSubcategory("");
+    setCategorySelections([]);
+    setNearbySelections([]);
     setPriceLevel("");
     setForKids(false);
     setParking(false);
@@ -599,6 +607,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [mapOpen, setMapOpen] = useState(false);
   const [mapDraft, setMapDraft] = useState({ lat: 48.34535, lng: 24.57855 });
   const [geoHintError, setGeoHintError] = useState("");
+  const [geoActiveField, setGeoActiveField] = useState<"city"|"street"|"house"|null>(null);
   const [citySuggestions, setCitySuggestions] = useState<Stage2GeoSuggestion[]>([]);
   const [streetSuggestions, setStreetSuggestions] = useState<Stage2GeoSuggestion[]>([]);
   const [houseSuggestions, setHouseSuggestions] = useState<Stage2GeoSuggestion[]>([]);
@@ -648,7 +657,9 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       const gallery = Array.isArray(details.gallery) ? details.gallery.map(String).filter(Boolean) : [];
       setName(row.name || "");
       setCategorySlug(row.category_slug || "");
-      setSubcategory(row.subcategory || "");
+      setCategorySelections(Array.isArray(details.admin_category_subcategories) ? details.admin_category_subcategories.map(String) : (row.subcategory ? [row.subcategory] : []));
+      setNearbySelections(Array.isArray(details.admin_nearby_filters) ? details.admin_nearby_filters.map(String) : []);
+      setGeoActiveField(null);
       setPriceLevel(row.price_level == null ? "" : String(row.price_level));
       setForKids(attrs.kids === true);
       setParking(attrs.parking === true);
@@ -669,33 +680,37 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   }, []);
 
   useEffect(() => {
-    if (cityPlaceId || city.trim().length < 1) { setCitySuggestions([]); return; }
+    if (geoActiveField !== "city" || cityPlaceId || city.trim().length < 2) { setCitySuggestions([]); return; }
+    let alive = true;
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(city.trim())}&mode=city`)
-        .then((items) => { setCitySuggestions(items); setGeoHintError(""); }).catch((e) => { setCitySuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
+        .then((items) => { if (alive) { setCitySuggestions(items); setGeoHintError(""); } }).catch((e) => { if (alive) { setCitySuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); } });
     }, 220);
-    return () => window.clearTimeout(timer);
-  }, [city, cityPlaceId]);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [city, cityPlaceId, geoActiveField]);
 
   useEffect(() => {
-    if (!city.trim() || streetPlaceId || street.trim().length < 1) { setStreetSuggestions([]); return; }
+    if (geoActiveField !== "street" || !city.trim() || streetPlaceId || street.trim().length < 2) { setStreetSuggestions([]); return; }
+    let alive = true;
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(street.trim())}&mode=street&city=${encodeURIComponent(city)}`)
-        .then((items) => { setStreetSuggestions(items); setGeoHintError(""); }).catch((e) => { setStreetSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
+        .then((items) => { if (alive) { setStreetSuggestions(items); setGeoHintError(""); } }).catch((e) => { if (alive) { setStreetSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); } });
     }, 220);
-    return () => window.clearTimeout(timer);
-  }, [street, streetPlaceId, city, cityPlaceId]);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [street, streetPlaceId, city, cityPlaceId, geoActiveField]);
 
   useEffect(() => {
-    if (!street.trim() || housePlaceId || house.trim().length < 1) { setHouseSuggestions([]); return; }
+    if (geoActiveField !== "house" || !street.trim() || housePlaceId || house.trim().length < 1) { setHouseSuggestions([]); return; }
+    let alive = true;
     const timer = window.setTimeout(() => {
       void stage2Fetch<Stage2GeoSuggestion[]>(`/geo/autocomplete?input=${encodeURIComponent(house.trim())}&mode=house&city=${encodeURIComponent(city)}&street=${encodeURIComponent(street)}`)
-        .then((items) => { setHouseSuggestions(items); setGeoHintError(""); }).catch((e) => { setHouseSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); });
+        .then((items) => { if (alive) { setHouseSuggestions(items); setGeoHintError(""); } }).catch((e) => { if (alive) { setHouseSuggestions([]); setGeoHintError(e instanceof Error ? e.message : "Немає з’єднання з геосервісом"); } });
     }, 220);
-    return () => window.clearTimeout(timer);
-  }, [house, housePlaceId, city, street, streetPlaceId]);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [house, housePlaceId, city, street, streetPlaceId, geoActiveField]);
 
   const chooseGeo = async (suggestion: Stage2GeoSuggestion, mode: "city" | "street" | "house") => {
+    setGeoActiveField(null); setCitySuggestions([]); setStreetSuggestions([]); setHouseSuggestions([]);
     const details = await stage2Fetch<Stage2GeoDetails>(`/geo/place/${encodeURIComponent(suggestion.place_id)}`);
     if (mode === "city") {
       setCity(details.city || suggestion.main_text); setRegionName(details.region); setCityPlaceId(suggestion.place_id);
@@ -747,13 +762,14 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     const ids = telegramIds.split(/[\s,;]+/g).map((item) => item.trim()).filter(Boolean);
     if (!name.trim()) return setError("Вкажіть назву партнера");
     if (!categorySlug) return setError("Оберіть категорію");
-    if (subcategory && !availableSubcategories.includes(subcategory) && !editId) return setError("Оберіть підкатегорію з довідника");
+    if (!editId && categorySelections.some(x => !availableSubcategories.includes(x))) return setError("Оберіть підкатегорії з довідника");
+    if (nearbySelections.some(x => !nearbyFilterOptions.includes(x))) return setError("Оберіть фільтри з наявного списку «Що поруч»");
     if (!ids.length || ids.some((item) => !/^\d{5,20}$/.test(item))) return setError("Вкажіть один або декілька коректних числових Telegram ID");
     if (!mapSelected && (!cityPlaceId || !streetPlaceId || !housePlaceId)) return setError("Оберіть повну адресу з підказок або вкажіть точку на мапі");
     setSaving(true);
     try {
       const requestBody = {
-        name: name.trim(), category_slug: categorySlug, subcategory: subcategory || null, price_level: categoryFilters.price ? (priceLevel ? Number(priceLevel) : null) : null, placement_type: placement, rate_percent: Number(rate) || 0,
+        name: name.trim(), category_slug: categorySlug, subcategory: categorySelections[0] || null, category_subcategories: categorySelections, nearby_filters: nearbySelections, price_level: categoryFilters.price ? (priceLevel ? Number(priceLevel) : null) : null, placement_type: placement, rate_percent: Number(rate) || 0,
         city, region_name: regionName, street, house, address, lat, lng, map_selected: mapSelected,
         phone, description, translations:partnerTranslations, image_url: photos[0] || null, telegram_ids: ids, publish,
         work_hours: alwaysOpen ? { always_open: true } : { daily: { from: workFrom, to: workTo } },
@@ -766,6 +782,8 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
           cabinet_modules: modules,
           check_in: checkIn,
           check_out: checkOut,
+          admin_category_subcategories: categorySelections,
+          admin_nearby_filters: nearbySelections,
         },
       };
       if (editId) {
@@ -791,16 +809,16 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const geoFields = (
     <div className="ad-admin-address-grid">
       <div className="ad-admin-autocomplete">
-        <input value={city} onChange={(e) => { setCity(e.target.value); setCityPlaceId(""); setStreet(""); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder="Місто / село" />
-        {citySuggestions.length ? <div className="ad-admin-suggestions">{citySuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "city")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
+        <input value={city} onFocus={() => setGeoActiveField("city")} onBlur={() => setGeoActiveField(null)} onChange={(e) => { setGeoActiveField("city"); setCity(e.target.value); setCityPlaceId(""); setStreet(""); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder="Місто / село" />
+        {geoActiveField === "city" && citySuggestions.length ? <div className="ad-admin-suggestions">{citySuggestions.map((item) => <button type="button" key={item.place_id} onPointerDown={e=>e.preventDefault()} onClick={() => void chooseGeo(item, "city")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <div className="ad-admin-autocomplete">
-        <input value={street} disabled={!city.trim() && !mapSelected} onChange={(e) => { setStreet(e.target.value); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder={cityPlaceId || mapSelected ? "Вулиця" : "Спочатку виберіть місто"} />
-        {streetSuggestions.length ? <div className="ad-admin-suggestions">{streetSuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "street")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
+        <input value={street} disabled={!city.trim() && !mapSelected} onFocus={() => setGeoActiveField("street")} onBlur={() => setGeoActiveField(null)} onChange={(e) => { setGeoActiveField("street"); setStreet(e.target.value); setStreetPlaceId(""); setHouse(""); setHousePlaceId(""); setMapSelected(false); }} placeholder={cityPlaceId || mapSelected ? "Вулиця" : "Спочатку виберіть місто"} />
+        {geoActiveField === "street" && streetSuggestions.length ? <div className="ad-admin-suggestions">{streetSuggestions.map((item) => <button type="button" key={item.place_id} onPointerDown={e=>e.preventDefault()} onClick={() => void chooseGeo(item, "street")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <div className="ad-admin-autocomplete">
-        <input value={house} disabled={!street.trim() && !mapSelected} onChange={(e) => { setHouse(e.target.value); setHousePlaceId(""); setMapSelected(false); }} placeholder={streetPlaceId || mapSelected ? "Будинок" : "Спочатку виберіть вулицю"} />
-        {houseSuggestions.length ? <div className="ad-admin-suggestions">{houseSuggestions.map((item) => <button type="button" key={item.place_id} onClick={() => void chooseGeo(item, "house")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
+        <input value={house} disabled={!street.trim() && !mapSelected} onFocus={() => setGeoActiveField("house")} onBlur={() => setGeoActiveField(null)} onChange={(e) => { setGeoActiveField("house"); setHouse(e.target.value); setHousePlaceId(""); setMapSelected(false); }} placeholder={streetPlaceId || mapSelected ? "Будинок" : "Спочатку виберіть вулицю"} />
+        {geoActiveField === "house" && houseSuggestions.length ? <div className="ad-admin-suggestions">{houseSuggestions.map((item) => <button type="button" key={item.place_id} onPointerDown={e=>e.preventDefault()} onClick={() => void chooseGeo(item, "house")}><strong>{item.main_text}</strong><small>{item.secondary_text}</small></button>)}</div> : null}
       </div>
       <OutlineButton onClick={() => { setMapDraft({ lat, lng }); setMapOpen(true); }}><MapPin size={16}/> Вказати на мапі</OutlineButton>
       {geoHintError ? <small className="ad-admin-address-result" role="alert">{geoHintError}</small> : null}
@@ -823,22 +841,20 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
         <div className="ad-create-row ad-create-row--2"><div className="ad-create-row__label"><span>2</span><strong>Категорія</strong></div><div className="ad-create-row__control">
           <div className="ad-partner-category-fields">
             <select className="ad-native-select" aria-label="Категорія закладу" value={categorySlug} onChange={(e)=>onCategoryChange(e.target.value)}><option value="">Оберіть категорію</option>{categories.map((item)=><option key={item.slug} value={item.slug}>{item.slug === "hotel" ? "Готель / точка входу" : item.name}</option>)}</select>
-            {categorySlug ? <label className="ad-partner-category-field"><span>{categorySubcategories.length ? "Підкатегорія" : "Тип закладу / підкатегорія"}</span>
-              <select className="ad-native-select" aria-label="Підкатегорія закладу" value={subcategory} onChange={(e)=>setSubcategory(e.target.value)} disabled={!availableSubcategories.length}>
-                <option value="">{availableSubcategories.length ? "Оберіть підкатегорію" : "Підкатегорій у довіднику немає"}</option>
-                {availableSubcategories.map((value)=><option key={value} value={value}>{value}</option>)}
-                {editId && subcategory && !availableSubcategories.includes(subcategory) ? <option value={subcategory}>{subcategory} (раніше збережена)</option> : null}
-              </select>
-            </label> : null}
+            {categorySlug && displaySubcategories.length ? <div className="ad-partner-category-filter-fields"><strong>Підкатегорії розділу (можна декілька)</strong>
+              <div className="ad-partner-category-options">{displaySubcategories.map(label=><label key={label} className={categorySelections.includes(label)?"is-selected":""}><input type="checkbox" checked={categorySelections.includes(label)} onChange={()=>toggleCategorySelection(label)}/><span>{label}</span></label>)}</div>
+            </div> : null}
+            {categorySlug && nearbyFilterOptions.length ? <div className="ad-partner-category-filter-fields"><strong>Фільтри мапи «Що поруч» (можна декілька)</strong>
+              <div className="ad-partner-category-options">{nearbyFilterOptions.map(label=><label key={label} className={nearbySelections.includes(label)?"is-selected":""}><input type="checkbox" checked={nearbySelections.includes(label)} onChange={()=>toggleNearbySelection(label)}/><span>{label}</span></label>)}</div>
+            </div> : null}
             {categorySlug && (categoryFilters.price || categoryFilters.kids || categoryFilters.parking) ? <div className="ad-partner-category-filter-fields">
-              <strong>Параметри закладу для фільтрації</strong>
+              <strong>Додаткові параметри</strong>
               {categoryFilters.price ? <label className="ad-partner-category-field"><span>Цінова категорія</span><select className="ad-native-select" value={priceLevel} aria-label="Цінова категорія" onChange={(e)=>setPriceLevel(e.target.value)}>
                 <option value="">Не вказано</option><option value="1">Бюджетна · ₴</option><option value="2">Середня · ₴₴</option><option value="3">Висока · ₴₴₴</option><option value="4">Преміум · ₴₴₴₴</option>
               </select></label> : null}
               {categoryFilters.kids ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={forKids} onChange={(e)=>setForKids(e.target.checked)}/><span>Підходить для відвідування з дітьми</span></label> : null}
               {categoryFilters.parking ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={parking} onChange={(e)=>setParking(e.target.checked)}/><span>Є паркування</span></label> : null}
             </div> : null}
-            {categorySlug ? <small className="ad-partner-category-hint">Відстань визначається за координатами, «Відкрито зараз» — за графіком, рейтинг — за відгуками. Ці значення не заповнюються вручну.</small> : null}
           </div>
         </div></div>
         <div className="ad-create-row ad-create-row--3"><div className="ad-create-row__label"><span>3</span><strong>Тип розміщення</strong></div><div className="ad-create-row__control"><div className="ad-placement-options">{([['social','Соціальний','Безкоштовне розміщення'],['basic','Базовий','Інфо про заклад + QR для гостей'],['premium','Платний / Преміум','Просування послуг та монетизація']] as const).map(([key,title,note])=><label key={key} className={placement===key?'is-selected':''} onClick={()=>setPlacement(key)}><i>{placement===key?<Check size={14}/>:null}</i><span><strong>{title}</strong><small>{note}</small></span></label>)}</div></div></div>

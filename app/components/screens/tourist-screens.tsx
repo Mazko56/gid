@@ -1684,7 +1684,6 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
   useEffect(() => {
     if (!runtime.location && !runtime.context) return;
     let cancelled = false;
-    let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
@@ -1705,12 +1704,12 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
       let cachedPlaces: Stage2Place[] = [];
       try {
         const cached = window.sessionStorage.getItem(cacheKey);
-        if (cached) {
+        if (cached && selectedChip === "Усі" && !query.trim()) {
           const parsed = adminCreatedPlacesOnly(JSON.parse(cached) as Stage2Place[]);
           if (Array.isArray(parsed) && parsed.length) { hasCachedPlaces = true; cachedPlaces = parsed; revealPlacesProgressively(parsed, setPlaces, isCancelled); setLoading(false); }
         }
       } catch { /* cache is optional */ }
-      if (!hasCachedPlaces) setLoading(true);
+      if (!hasCachedPlaces) { setPlaces([]); setLoading(true); }
       if (cachedPlaces.length) void enrichPlaceCardsProgressively(cachedPlaces, setPlaces, isCancelled, enrichmentSeen);
 
       // First paint is only 3 POIs. The full page is revealed in batches of 3 so Leaflet never
@@ -1718,22 +1717,12 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
       const loadFull = () => void stage2Fetch<Stage2Place[]>(`/places?${makeParams(20)}`).then((rawItems) => {
         if (cancelled) return;
         const items = adminCreatedPlacesOnly(rawItems);
-        fullResolved = true;
         revealPlacesProgressively(items, setPlaces, isCancelled);
         setLoading(false);
         try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* cache is optional */ }
         void enrichPlaceCardsProgressively(items, setPlaces, isCancelled, enrichmentSeen);
       }).catch(() => { if (!cancelled) setLoading(false); });
-      if (hasCachedPlaces) loadFull();
-      else void stage2Fetch<Stage2Place[]>(`/places?${makeParams(3)}`).then((rawItems) => {
-        const items = adminCreatedPlacesOnly(rawItems);
-        if (!cancelled && !fullResolved && items.length) {
-          setPlaces(items);
-          setLoading(false);
-          void enrichPlaceCardsProgressively(items, setPlaces, isCancelled, enrichmentSeen);
-        }
-      }).catch(() => undefined).finally(() => { if (!cancelled) loadFull(); });
-
+      loadFull();
       if (query.trim()) void trackEvent("search_used", { regionId: runtime.context?.region.id, payload: { q: query.trim(), category: config.category } });
     }, query.trim() ? 180 : 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -1867,7 +1856,6 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
   useEffect(() => {
     if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
     let cancelled = false;
-    let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
@@ -1885,7 +1873,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
       let cachedPlaces: Stage2Place[] = [];
       try {
         const cached = window.sessionStorage.getItem(cacheKey);
-        if (cached) {
+        if (cached && activeCategory === "Усі" && !activeSubcategory && !query.trim()) {
           const parsed = ownPlacesOnly(JSON.parse(cached) as Stage2Place[]);
           if (Array.isArray(parsed) && parsed.length) {
             hasCachedPlaces = true;
@@ -1895,14 +1883,13 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
           }
         }
       } catch { /* optional cache */ }
-      if (!hasCachedPlaces) setNearbyLoading(true);
+      if (!hasCachedPlaces) { setNearbyPlaces([]); setNearbyLoading(true); }
       setNearbyError("");
       if (cachedPlaces.length) void enrichPlaceCardsProgressively(cachedPlaces, setNearbyPlaces, isCancelled, enrichmentSeen);
 
       const loadFull = () => void stage2Fetch<Stage2Place[]>(`/places?${makeParams()}`).then((rawItems) => {
         if (cancelled) return;
         const items = ownPlacesOnly(rawItems);
-        fullResolved = true;
         revealPlacesProgressively(items, setNearbyPlaces, isCancelled);
         setNearbyLoading(false);
         try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* optional cache */ }
@@ -1917,15 +1904,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
 
       // Always show 2–3 markers first, including the "Усі" tab. The full 2–5 km result can
       // continue loading in the background without leaving the map empty for several seconds.
-      if (hasCachedPlaces) loadFull();
-      else void stage2Fetch<Stage2Place[]>(`/places?${makeParams()}`).then((rawItems) => {
-        const items = ownPlacesOnly(rawItems);
-        if (!cancelled && !fullResolved && items.length) {
-          setNearbyPlaces(items);
-          setNearbyLoading(false);
-          void enrichPlaceCardsProgressively(items, setNearbyPlaces, isCancelled, enrichmentSeen);
-        }
-      }).catch(() => undefined).finally(() => { if (!cancelled) loadFull(); });
+      loadFull();
     }, query.trim() ? 160 : 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [runtime.context, center?.lat, center?.lng, radius, activeCategoryMeta?.slug, activeCategory, activeTone, activeSubcategory, query]);
@@ -2291,7 +2270,6 @@ function TransferScreen({ navigate }: { navigate: Navigate }) {
   useEffect(() => {
     if (!runtime.location && !runtime.context) return;
     let cancelled = false;
-    let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
@@ -2310,29 +2288,22 @@ function TransferScreen({ navigate }: { navigate: Navigate }) {
       let cachedPlaces: Stage2Place[] = [];
       try {
         const cached = window.sessionStorage.getItem(cacheKey);
-        if (cached) {
+        if (cached && chip === "Усі" && !query.trim()) {
           const parsed = adminCreatedPlacesOnly(JSON.parse(cached) as Stage2Place[]);
           if (Array.isArray(parsed) && parsed.length) {
             hasCachedPlaces = true; cachedPlaces = parsed; revealPlacesProgressively(parsed, setPlaces, isCancelled); setApiLoaded(true); setTransferLoading(false);
           }
         }
       } catch { /* optional cache */ }
-      if (!hasCachedPlaces) setTransferLoading(true);
+      if (!hasCachedPlaces) { setPlaces([]); setTransferLoading(true); }
       if (cachedPlaces.length) void enrichPlaceCardsProgressively(cachedPlaces, setPlaces, isCancelled, enrichmentSeen);
       const loadFull = () => void stage2Fetch<Stage2Place[]>(`/places?${makeParams(20)}`).then((rawItems) => {
         const items = adminCreatedPlacesOnly(rawItems);
-        if (cancelled) return; fullResolved = true; revealPlacesProgressively(items, setPlaces, isCancelled); setApiLoaded(true); setTransferLoading(false);
+        if (cancelled) return; revealPlacesProgressively(items, setPlaces, isCancelled); setApiLoaded(true); setTransferLoading(false);
         try { window.sessionStorage.setItem(cacheKey, JSON.stringify(items)); } catch { /* ignore */ }
         void enrichPlaceCardsProgressively(items, setPlaces, isCancelled, enrichmentSeen);
       }).catch(() => { if (!cancelled) { setApiLoaded(true); setTransferLoading(false); } });
-      if (hasCachedPlaces) loadFull();
-      else void stage2Fetch<Stage2Place[]>(`/places?${makeParams(3)}`).then((rawItems) => {
-        const items = adminCreatedPlacesOnly(rawItems);
-        if (!cancelled && !fullResolved && items.length) {
-          setPlaces(items); setApiLoaded(true); setTransferLoading(false);
-          void enrichPlaceCardsProgressively(items, setPlaces, isCancelled, enrichmentSeen);
-        }
-      }).catch(() => undefined).finally(() => { if (!cancelled) loadFull(); });
+      loadFull();
     }, query.trim() ? 160 : 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [runtime.context, runtime.location, query, chip]);
@@ -2464,6 +2435,9 @@ function MyBookingsScreen({ navigate }: {navigate:Navigate}) {
 
 function PlanScreen({ navigate }: { navigate: Navigate }) {
   return <RealPlanScreen navigate={navigate} />;
+}
+function SavedPlansScreen({ navigate }: { navigate: Navigate }) {
+  return <RealPlanScreen navigate={navigate} initialView="list" />;
 }
 
 type WalletData = {balance:number; entries:Array<{id:string;amount:number;entry_type:string;status:string;place_name?:string;created_at:string;expires_at?:string}>};
@@ -3153,6 +3127,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" className="gt-profile-row--add-location" onClick={() => navigate("tourist", "add-location")}><MapPin size={27} /><span>{tr(runtime.language, "Додати локацію", "Add place", "Dodaj miejsce")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--reviews" onClick={() => navigate("tourist", "review")}><MessageSquareMore size={27} /><span>{tr(runtime.language, "Мої відгуки", "My reviews", "Moje opinie")}</span><ChevronRight size={20} /></button>
           <button type="button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={27}/><span>{tr(runtime.language,"Мої бронювання","My bookings","Moje rezerwacje")}</span><ChevronRight size={20}/></button>
+          <button type="button" className="gt-profile-row--saved-plans" onClick={()=>navigate('tourist','saved-plans')}><Route size={27}/><span>{tr(runtime.language,"Мої плани","My plans","Moje plany")}</span><ChevronRight size={20}/></button>
           <button type="button" className="gt-profile-row--favorites" onClick={() => navigate("tourist", "favorites")}><Heart size={27} /><span>{tr(runtime.language, "Улюблені", "Favorites", "Ulubione")}</span><ChevronRight size={20} /></button>
           <button type="button" onClick={() => navigate("tourist", "activity")}><Clock3 size={27} /><span>{tr(runtime.language, "Історія активності", "Activity history", "Historia aktywności")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--bonuses" onClick={() => navigate("tourist", "wallet")}><Gift size={27} /><span>{tr(runtime.language, "Бонуси", "Bonuses", "Bonusy")}</span><ChevronRight size={20} /></button>
@@ -3355,6 +3330,8 @@ export function TouristScreen({
       return <MyBookingsScreen navigate={navigate} />;
     case "plan":
       return <PlanScreen navigate={navigate} />;
+    case "saved-plans":
+      return <SavedPlansScreen navigate={navigate} />;
     case "wallet":
       return <WalletScreen />;
     case "qr":

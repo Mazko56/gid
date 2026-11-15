@@ -31042,3 +31042,37 @@ button.gt-amenities-row {
 .ad-main--create .ad-partner-category-toggle { display:flex; align-items:center; gap:9px; color:#283e30; font-size:12.5px; cursor:pointer; }
 .ad-main--create .ad-partner-category-toggle input { accent-color:#189c58; width:16px; height:16px; flex:0 0 auto; }
 .ad-main--create .ad-partner-category-hint { color:#667b6f; font-size:11.5px; line-height:1.45; }
+
+/* Partner classification: native form scale, compact selectable classifications. */
+.ad-main--create .ad-partner-category-fields { gap:8px; }
+.ad-main--create .ad-partner-category-fields > .ad-native-select,
+.ad-main--create .ad-partner-category-field .ad-native-select { min-height:42px; height:42px; font-size:80%; padding:0 13px; border-radius:7px; }
+.ad-main--create .ad-partner-category-filter-fields { gap:7px; padding:9px 11px; background:#fff; }
+.ad-main--create .ad-partner-category-options { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.ad-main--create .ad-partner-category-options label { display:inline-flex; align-items:center; gap:6px; min-height:29px; padding:5px 9px; border:1px solid #e0e9e2; background:#fff; border-radius:8px; font-size:11.5px; font-weight:600; color:#314438; cursor:pointer; }
+.ad-main--create .ad-partner-category-options label.is-selected { border-color:#7fcaa0; background:#effaf4; color:#11663e; }
+.ad-main--create .ad-partner-category-options label input { width:13px; height:13px; margin:0; accent-color:#149350; }
+
+/* The original planner palette, typography and button scaling are retained. */
+.gt-plan-screen .gt-plan-budget-grid button { min-height:42px; padding:6px 5px; }
+.gt-plan-screen .gt-plan-budget-grid strong { font-size:11px; }
+.gt-plan-library .gt-plan-home { padding-bottom:24px; }
+.gt-plan-library-header { display:flex; align-items:center; gap:13px; margin:10px 0 18px; }
+.gt-plan-library-header > div { flex:1; min-width:0; }
+.gt-plan-library-header h1 { font-size:23px; line-height:1.2; margin:0 0 5px; }
+.gt-plan-library-header p { color:#718077; font-size:12px; margin:0; }
+.gt-plan-library-back { display:grid; place-items:center; width:38px; height:38px; flex:0 0 auto; border:1px solid #dcebe2; border-radius:12px; background:#fff; color:#1c6b45; cursor:pointer; }
+.gt-plan-library-list { display:grid; gap:10px; margin-bottom:18px; }
+.gt-plan-library-card { display:flex; align-items:center; gap:11px; width:100%; min-height:76px; padding:12px; background:#fff; color:#213d2c; border:1px solid #dfe9e2; border-radius:14px; text-align:left; cursor:pointer; }
+.gt-plan-library-card:hover { border-color:#9bcfaf; }
+.gt-plan-library-card-icon { display:grid; place-items:center; width:42px; height:42px; flex:0 0 auto; border-radius:12px; background:#e9f8ef; color:#188657; }
+.gt-plan-library-card-text { display:grid; flex:1; min-width:0; gap:6px; }
+.gt-plan-library-card-text strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.gt-plan-library-card-text small { color:#7a847b; font-size:11px; }
+.gt-plan-library-card > svg { flex:0 0 auto; color:#8c9a91; }
+.gt-plan-library-empty { display:grid; justify-items:center; gap:10px; text-align:center; padding:34px 19px; border:1px solid #e3ece6; background:#fff; border-radius:15px; margin:15px 0; color:#607369; font-size:12px; }
+.gt-plan-library-empty > span { display:grid; place-items:center; width:58px; height:58px; border-radius:17px; background:#e8f8ef; color:#168651; }
+.gt-plan-library-empty strong { color:#213b2c; font-size:14px; }
+.gt-plan-library-empty p { margin:0; font-size:12px; line-height:1.5; }
+.gt-plan-saved-notice { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; color:#167c4b; }
+.gt-plan-saved-notice button { display:inline-flex; align-items:center; gap:2px; border:0; background:transparent; color:#146b47; font:inherit; font-weight:750; text-decoration:underline; cursor:pointer; }

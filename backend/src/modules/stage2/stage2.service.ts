@@ -7,6 +7,7 @@ import { GooglePlacesService, type GoogleNearbyPlace } from "./google-places.ser
 import { GeoapifyPlacesService, type GeoapifyPlace } from "./geoapify-places.service.js";
 import { OutscraperPlacesService, type OutscraperPlace } from "./outscraper-places.service.js";
 import { PublicPlaceMediaService } from "./public-place-media.service.js";
+import { NEARBY_FILTERS_BY_CATEGORY } from "./nearby-filter-options.js";
 
 function num(value: unknown, fallback?: number) {
   const parsed = Number(value);
@@ -93,8 +94,28 @@ const PARTNER_SUBCATEGORY_ALIASES: Record<string, string[]> = {
 function partnerMatchesSubcategory(place: PlaceRow, label: string) {
   if (!label) return true;
   if (place.subcategory === label || place.tags.includes(label)) return true;
+  // Admin-selected classifications are authoritative. Do not guess extra labels from a venue name.
+  if (place.details && Object.prototype.hasOwnProperty.call(place.details, 'admin_nearby_filters')) return false;
   const haystack = [place.name, place.description, place.subcategory ?? "", ...place.tags].join(" ").toLocaleLowerCase("uk");
   return (PARTNER_SUBCATEGORY_ALIASES[label] ?? []).some((token) => haystack.includes(token.toLocaleLowerCase("uk")));
+}
+
+function validatedPartnerClassifications(body: Record<string, unknown>, allowedSubcategories: string[], categorySlug: string, previousSubcategory: string | null = null, previousDetails: Record<string,unknown> = {}) {
+  const fallback = previousSubcategory ? [previousSubcategory] : [];
+  const categoryInput = body.category_subcategories === undefined
+    ? (Array.isArray(previousDetails.admin_category_subcategories) ? previousDetails.admin_category_subcategories : body.subcategory === undefined ? fallback : body.subcategory ? [body.subcategory] : [])
+    : body.category_subcategories;
+  const nearbyInput = body.nearby_filters === undefined
+    ? (Array.isArray(previousDetails.admin_nearby_filters) ? previousDetails.admin_nearby_filters : [])
+    : body.nearby_filters;
+  if (!Array.isArray(categoryInput) || !Array.isArray(nearbyInput)) throw new BadRequestException('Некоректні фільтри закладу');
+  const unique = (values: unknown[]) => Array.from(new Set(values.map(v => String(v).trim()).filter(Boolean)));
+  const categorySelections = unique(categoryInput);
+  const nearbySelections = unique(nearbyInput);
+  if (categorySelections.some(v => !allowedSubcategories.includes(v))) throw new BadRequestException('Підкатегорія не належить обраній категорії');
+  const permittedNearby = NEARBY_FILTERS_BY_CATEGORY[categorySlug] ?? [];
+  if (nearbySelections.some(v => !permittedNearby.includes(v))) throw new BadRequestException('Фільтр не належить обраній категорії «Що поруч»');
+  return {categorySelections,nearbySelections,selectedSubcategory:categorySelections[0] ?? null};
 }
 
 function parseTelegramIds(value: unknown) {
@@ -546,10 +567,18 @@ export class Stage2Service {
     const externalRequested = false;
     const externalSection = String(params.google_section ?? (category || "all"));
 
-    let rows = await this.rawPlaces(regionId || undefined);
+    // Coordinates+radius define the search area even when the origin QR is in a different administrative region.
+    let rows = await this.rawPlaces(lat != null && lng != null && radius != null ? undefined : (regionId || undefined));
     rows = rows.filter((p) => !category || p.category_slug === category);
     rows = rows.filter((p) => partnerMatchesSubcategory(p, subcategory));
-    rows = rows.filter((p) => !q || [p.name,p.description,p.address,p.subcategory ?? "",...p.tags].join(" ").toLocaleLowerCase("uk").includes(q));
+    rows = rows.filter((p) => {
+      if (!q) return true;
+      const searchText = [p.name,p.description,p.address,p.subcategory ?? '',p.category_name ?? '',p.category_name_en ?? '',p.category_name_pl ?? '',...p.tags,
+        ...(Array.isArray(p.details?.admin_category_subcategories) ? p.details.admin_category_subcategories : []),
+        ...(Array.isArray(p.details?.admin_nearby_filters) ? p.details.admin_nearby_filters : [])].join(' ').toLocaleLowerCase('uk').replace(/['ʼ’`]/g, '');
+      const needle = q.replace(/['ʼ’`]/g, '');
+      return searchText.includes(needle) || (PARTNER_SUBCATEGORY_ALIASES[p.subcategory ?? ''] ?? []).some(word => word.includes(needle));
+    });
     rows = rows.filter((p) => minRating == null || Number(p.rating) >= minRating);
     rows = rows.filter((p) => priceLevel == null || p.price_level === priceLevel);
     rows = rows.filter((p) => !kids || p.attributes?.kids === true);
@@ -1515,16 +1544,21 @@ export class Stage2Service {
     const categorySlug = String(body.category_slug ?? current.category_slug ?? "").trim();
     const category = await this.db.query<{slug:string;subcategories:unknown}>("SELECT slug,subcategories FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
     if (!category.rows[0]) throw new BadRequestException("Невідома категорія");
-    const selectedSubcategory = String(body.subcategory === undefined ? (current.subcategory ?? "") : (body.subcategory ?? "")).trim() || null;
     const allowedSubcategories = Array.isArray(category.rows[0].subcategories) ? category.rows[0].subcategories.map(String) : [];
     if (!allowedSubcategories.length) {
       const templates = await this.db.query<{place_type:string}>("SELECT place_type FROM place_type_templates WHERE category_slug=$1 AND active=true", [categorySlug]);
       allowedSubcategories.push(...templates.rows.map((item) => item.place_type));
     }
-    if (selectedSubcategory && !allowedSubcategories.includes(selectedSubcategory)
-        && !(categorySlug === current.category_slug && selectedSubcategory === current.subcategory)) {
-      throw new BadRequestException("Підкатегорія не належить обраній категорії");
+    const originalDetails = current.details && typeof current.details === 'object' ? current.details as Record<string, unknown> : {};
+    // Existing legacy values are preserved if they are no longer in the category editor.
+    if (current.category_slug === categorySlug) {
+      const legacyValues = [
+        ...(Array.isArray(originalDetails.admin_category_subcategories) ? originalDetails.admin_category_subcategories.map(String) : []),
+        ...(current.subcategory ? [String(current.subcategory)] : []),
+      ];
+      for (const value of legacyValues) if (value && !allowedSubcategories.includes(value)) allowedSubcategories.push(value);
     }
+    const {categorySelections,nearbySelections,selectedSubcategory} = validatedPartnerClassifications(body, allowedSubcategories, categorySlug, current.category_slug === categorySlug ? current.subcategory : null, current.category_slug === categorySlug ? originalDetails : {});
     const rawPrice = body.price_level === undefined ? current.price_level : body.price_level;
     const priceLevel = rawPrice == null || rawPrice === "" ? null : Number(rawPrice);
     if (priceLevel !== null && (!Number.isInteger(priceLevel) || priceLevel < 1 || priceLevel > 4)) {
@@ -1558,7 +1592,12 @@ export class Stage2Service {
     if (lat == null || lng == null || !address) throw new BadRequestException("Вкажіть коректну адресу або точку на мапі");
     const regionId = await this.ensureRegionForPlace(city, regionName, lat, lng, String(body.region_id ?? current.region_id));
 
-    const details = { ...currentDetails, ...detailsInput, city, region_name: regionName, allowed_telegram_ids: telegramIds };
+    const previousManagedTags = Array.from(new Set([
+      ...(Array.isArray(currentDetails.admin_category_subcategories) ? currentDetails.admin_category_subcategories.map(String) : current.subcategory ? [String(current.subcategory)] : []),
+      ...(Array.isArray(currentDetails.admin_nearby_filters) ? currentDetails.admin_nearby_filters.map(String) : []),
+    ]));
+    const nextManagedTags = Array.from(new Set([...categorySelections,...nearbySelections]));
+    const details = { ...currentDetails, ...detailsInput, city, region_name: regionName, allowed_telegram_ids: telegramIds, admin_category_subcategories: categorySelections, admin_nearby_filters: nearbySelections };
     const attributes = { ...currentAttributes, ...attributesInput };
     const workHours = body.work_hours && typeof body.work_hours === "object" ? body.work_hours : current.work_hours ?? {};
     const name = String(body.name ?? current.name ?? "").trim();
@@ -1573,6 +1612,9 @@ export class Stage2Service {
          body.phone === undefined ? current.phone : body.phone || null, body.image_url === undefined ? current.image_url : body.image_url || null,
          priceLevel, JSON.stringify(workHours), JSON.stringify(attributes), JSON.stringify(details), JSON.stringify(body.translations ?? current.translations ?? {})],
       );
+      // Change only labels managed by the admin classification fields; preserve unrelated manually added tags.
+      if (previousManagedTags.length) await client.query('DELETE FROM place_tags WHERE place_id=$1 AND tag=ANY($2::text[])', [placeId,previousManagedTags]);
+      for (const tag of nextManagedTags) await client.query('INSERT INTO place_tags(place_id,tag) VALUES($1,$2) ON CONFLICT DO NOTHING', [placeId,tag]);
       await client.query("UPDATE organization_telegram_access SET active=false,updated_at=now() WHERE organization_id=$1", [organizationId]);
       for (const telegramId of telegramIds) {
         await client.query(
@@ -1594,15 +1636,12 @@ export class Stage2Service {
     if (!telegramIds.length) throw new BadRequestException("Вкажіть хоча б один числовий Telegram ID");
     const category = await this.db.query<{slug:string;subcategories:unknown}>("SELECT slug,subcategories FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
     if (!category.rows[0]) throw new BadRequestException("Невідома категорія");
-    const selectedSubcategory = String(body.subcategory ?? "").trim() || null;
     const allowedSubcategories = Array.isArray(category.rows[0].subcategories) ? category.rows[0].subcategories.map(String) : [];
     if (!allowedSubcategories.length) {
       const templates = await this.db.query<{place_type:string}>("SELECT place_type FROM place_type_templates WHERE category_slug=$1 AND active=true", [categorySlug]);
       allowedSubcategories.push(...templates.rows.map((item) => item.place_type));
     }
-    if (selectedSubcategory && !allowedSubcategories.includes(selectedSubcategory)) {
-      throw new BadRequestException("Підкатегорія не належить обраній категорії");
-    }
+    const {categorySelections,nearbySelections,selectedSubcategory} = validatedPartnerClassifications(body, allowedSubcategories, categorySlug);
     const rawPrice = body.price_level;
     const priceLevel = rawPrice == null || rawPrice === "" ? null : Number(rawPrice);
     if (priceLevel !== null && (!Number.isInteger(priceLevel) || priceLevel < 1 || priceLevel > 4)) {
@@ -1641,6 +1680,8 @@ export class Stage2Service {
       admin_created: true,
       partner_invite_start_param: startParam,
       allowed_telegram_ids: telegramIds,
+      admin_category_subcategories: categorySelections,
+      admin_nearby_filters: nearbySelections,
     };
 
     await this.db.transaction(async (client) => {
@@ -1653,6 +1694,9 @@ export class Stage2Service {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,CASE WHEN $17='approved' THEN now() ELSE NULL END,$18::jsonb)`,
         [placeId, organizationId, regionId, categorySlug, selectedSubcategory, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, priceLevel, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
       );
+      for (const tag of new Set([...categorySelections,...nearbySelections])) {
+        await client.query('INSERT INTO place_tags(place_id,tag) VALUES($1,$2) ON CONFLICT DO NOTHING', [placeId,tag]);
+      }
       for (const telegramId of telegramIds) {
         await client.query(
           `INSERT INTO organization_telegram_access(organization_id,telegram_id,role,active) VALUES($1,$2,'owner',true)
