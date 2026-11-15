@@ -12,7 +12,7 @@ type Place = {
 };
 type Region = { id: string; name: string; name_en: string|null; name_pl: string|null; center_lat: number; center_lng: number };
 type PlannerInput = {
-  start_param?: unknown; region_id?: unknown; destination_region_ids?: unknown; mode?: unknown; days?: unknown;
+  start_param?: unknown; region_id?: unknown; gps_lat?: unknown; gps_lng?: unknown; destination_region_ids?: unknown; mode?: unknown; days?: unknown;
   start_date?: unknown; start_time?: unknown; adults?: unknown; children?: unknown;
   activities?: unknown; avoid?: unknown; custom_requirements?: unknown;
   transport?: unknown; radius_km?: unknown; max_travel_minutes?: unknown;
@@ -82,6 +82,16 @@ export class PlannerService {
       return {region_id:row.region_id,region_name:row.region_name,region_name_en:row.region_name_en,region_name_pl:row.region_name_pl,
         place_id:row.place_id,place_name:row.place_name,address:row.place_address,
         lat:Number(row.place_lat??row.region_lat),lng:Number(row.place_lng??row.region_lng),source:row.place_id?'place_qr':'region_qr'};
+    }
+    // A normal launch starts at the actual GPS coordinates. QR entry points always take precedence above.
+    const gpsLat=Number(input.gps_lat),gpsLng=Number(input.gps_lng);
+    const hasGps=input.gps_lat!==undefined&&input.gps_lng!==undefined&&Number.isFinite(gpsLat)&&Number.isFinite(gpsLng)&&Math.abs(gpsLat)<=90&&Math.abs(gpsLng)<=180&&!(gpsLat===0&&gpsLng===0);
+    if(hasGps){
+      const registered=await this.regions(String(gpsLat),String(gpsLng));
+      const nearest=registered[0];
+      if(!nearest)throw new NotFoundException('Немає жодного активного регіону в базі');
+      return {region_id:nearest.id,region_name:nearest.name,region_name_en:nearest.name_en,region_name_pl:nearest.name_pl,
+        place_id:null,place_name:null,address:null,lat:gpsLat,lng:gpsLng,source:'gps'};
     }
     const regionId=String(input.region_id??'').trim();
     if(!regionId)throw new BadRequestException('Спочатку виберіть реальне місто для початку маршруту');

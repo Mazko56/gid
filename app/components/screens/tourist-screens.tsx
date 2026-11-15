@@ -787,16 +787,22 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
   const [weather, setWeather] = useState<Stage2Weather | null>(null);
   const [weatherFailed, setWeatherFailed] = useState(false);
   const [geoDetails, setGeoDetails] = useState<Stage2GeoDetails | null>(null);
+  const [geoLookupFailed, setGeoLookupFailed] = useState(false);
   const [adminCategories, setAdminCategories] = useState<Stage2Category[]>([]);
   const qrRegionName = language === "en" ? (context?.region.nameEn || context?.region.name || "") : language === "pl" ? (context?.region.namePl || context?.region.name || "") : (context?.region.name || "");
-  const regionName = gpsActive ? (geoDetails?.city || geoDetails?.region || qrRegionName) : qrRegionName;
+  const regionName = contextPlace
+    ? localizedField(language, contextPlace, "name", contextPlace.name)
+    : context ? qrRegionName
+    : gpsActive ? (geoDetails?.city || geoDetails?.region || (geoLookupFailed ? `${scanLat.toFixed(5)}, ${scanLng.toFixed(5)}` : tr(language, "Визначаємо населений пункт…", "Finding your city…", "Ustalamy miejscowość…")))
+    : tr(language, "Увімкніть геолокацію", "Enable location access", "Włącz lokalizację");
 
   useEffect(() => {
-    if (!gpsActive) { setGeoDetails(null); return; }
+    if (!gpsActive) { setGeoDetails(null); setGeoLookupFailed(false); return; }
     let cancelled = false;
+    setGeoLookupFailed(false);
     void stage2Fetch<Stage2GeoDetails>(`/geo/reverse?lat=${encodeURIComponent(String(scanLat))}&lng=${encodeURIComponent(String(scanLng))}`)
-      .then((details) => { if (!cancelled) setGeoDetails(details); })
-      .catch(() => { if (!cancelled) setGeoDetails(null); });
+      .then((details) => { if (!cancelled) { setGeoDetails(details); setGeoLookupFailed(false); } })
+      .catch(() => { if (!cancelled) { setGeoDetails(null); setGeoLookupFailed(true); } });
     return () => { cancelled = true; };
   }, [gpsActive, scanLat, scanLng]);
 
@@ -927,20 +933,25 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
         </div>
       </section>
 
-      <button
+      {context ? <button
         type="button"
         className="gt-hotel-summary gt-hotel-summary--reference"
         onClick={() => navigate("tourist", "about")}
       >
         <span className="gt-current-place-pin" aria-hidden="true"><CurrentPlaceSticker /></span>
         <span className="gt-current-place-copy">
-          <strong>{language === "en" ? "Your QR point" : language === "pl" ? "Punkt z QR" : "Ви зараз тут"}</strong>
+          <strong>{language === "en" ? "Your QR base point" : language === "pl" ? "Punkt bazowy z QR" : "Базова точка за QR"}</strong>
           <small>{contextPlace?.name || tr(language, "Точка входу не визначена", "Entry point not set", "Nie ustawiono punktu wejścia")}</small>
           {contextPlace ? <b><Star size={14} fill="currentColor" /> {Number(contextPlace.rating || 0).toFixed(1)} · {contextPlace.review_count || 0} {language === "en" ? "reviews" : language === "pl" ? "opinii" : "відгуків"}</b> : <b>{language === "en" ? "Loading QR context…" : language === "pl" ? "Wczytywanie kontekstu QR…" : "Завантажуємо контекст QR…"}</b>}
         </span>
         {contextPlace?.image_url ? <img src={contextPlace.image_url} alt="" className="gt-photo gt-current-place-photo gt-current-place-photo--remote" /> : <span className="gt-current-place-photo gt-current-place-photo--empty" aria-hidden="true" />}
         <i>{language === "en" ? "Details" : language === "pl" ? "Szczegóły" : "Деталі"}</i>
-      </button>
+      </button> : <button type="button" className="gt-hotel-summary gt-hotel-summary--reference" onClick={() => navigate("tourist", "nearby")}>
+        <span className="gt-current-place-pin" aria-hidden="true"><MapPin size={26}/></span>
+        <span className="gt-current-place-copy"><strong>{tr(language,"Ваше місцеположення","Your location","Twoja lokalizacja")}</strong>
+        <small>{gpsActive ? (geoDetails?.formatted_address || geoDetails?.city || tr(language,"Визначаємо адресу…","Finding your address…","Ustalamy adres…")) : tr(language,"Дозвольте геолокацію, щоб побачити місця поруч","Allow location to see nearby places","Zezwól na lokalizację, aby zobaczyć pobliskie miejsca")}</small></span>
+        <i>{tr(language,"На карту","Map","Mapa")}</i>
+      </button>}
 
       <div className="gt-category-grid">
         {localizedCategories.map(({ title, note, slug, tone, icon: Icon }) => (
@@ -1671,15 +1682,16 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
   }, [config.category]);
 
   useEffect(() => {
-    if (!runtime.context) return;
+    if (!runtime.location && !runtime.context) return;
     let cancelled = false;
     let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
-      const point = runtime.location ?? { lat: Number(runtime.context!.place?.lat ?? runtime.context!.region.lat), lng: Number(runtime.context!.place?.lng ?? runtime.context!.region.lng) };
+      const point = runtime.location ?? (runtime.context ? { lat: Number(runtime.context.place?.lat ?? runtime.context.region.lat), lng: Number(runtime.context.place?.lng ?? runtime.context.region.lng) } : null);
+      if (!point) return;
       const makeParams = (limit: number) => {
-        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : runtime.context!.region.id, category: config.category });
+        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : (runtime.context?.region.id || ""), category: config.category });
         if (query.trim()) params.set("q", query.trim());
         if (selectedChip !== "Усі") params.set("subcategory", selectedChip);
         params.set("lat", String(point.lat));
@@ -1853,14 +1865,14 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
   const center = runtime.location ?? (runtime.context ? { lat: Number(runtime.context.place?.lat ?? runtime.context.region.lat), lng: Number(runtime.context.place?.lng ?? runtime.context.region.lng), source: "qr" as const } : null);
 
   useEffect(() => {
-    if (!runtime.context || !center) return;
+    if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
     let cancelled = false;
     let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
       const makeParams = () => {
-        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : runtime.context!.region.id, lat: String(center.lat), lng: String(center.lng), radius: String(radius) });
+        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : (runtime.context?.region.id || ""), lat: String(center.lat), lng: String(center.lng), radius: String(radius) });
         params.set("include_routes", "false");
         if (activeCategoryMeta?.slug) params.set("category", activeCategoryMeta.slug);
         if (activeSubcategory) params.set("subcategory", activeSubcategory);
@@ -1986,7 +1998,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
         </section>
 
         <section className="gt-nearby-design__map gt-nearby-design__map--live" aria-label={tr(runtime.language, "Карта місць поруч", "Nearby places map", "Mapa miejsc w pobliżu")}>
-          {center ? <RealMap center={center} places={nearbyPlaces} radius={radius} className="gt-nearby-design__real-map" onSelect={previewMapPlace} showLayerControl /> : <div className="gt-nearby-design__map-loading">{tr(runtime.language, "Визначаємо вашу точку входу…", "Detecting your entry point…", "Ustalamy punkt wejścia…")}</div>}
+          {center ? <RealMap center={center} places={nearbyPlaces} radius={radius} className="gt-nearby-design__real-map" onSelect={previewMapPlace} showLayerControl /> : <div className="gt-nearby-design__map-loading">{tr(runtime.language, "Для пошуку поруч потрібна геолокація. Дозвольте доступ або відкрийте QR локації.", "Allow location access or open a location QR to see nearby places.", "Zezwól na lokalizację lub otwórz kod QR miejsca, aby zobaczyć pobliskie punkty.")}</div>}
           {nearbyError ? <div className="gt-nearby-design__diagnostic" role="alert">
             <strong>{tr(runtime.language, "Помилка сервісу місць", "Places service error", "Błąd usługi miejsc")}</strong>
             <span>{nearbyError}</span>
@@ -2277,15 +2289,16 @@ function TransferScreen({ navigate }: { navigate: Navigate }) {
   }, []);
 
   useEffect(() => {
-    if (!runtime.context) return;
+    if (!runtime.location && !runtime.context) return;
     let cancelled = false;
     let fullResolved = false;
     const enrichmentSeen = new Set<string>();
     const isCancelled = () => cancelled;
     const timer = window.setTimeout(() => {
-      const point = runtime.location ?? { lat: Number(runtime.context!.place?.lat ?? runtime.context!.region.lat), lng: Number(runtime.context!.place?.lng ?? runtime.context!.region.lng) };
+      const point = runtime.location ?? (runtime.context ? { lat: Number(runtime.context.place?.lat ?? runtime.context.region.lat), lng: Number(runtime.context.place?.lng ?? runtime.context.region.lng) } : null);
+      if (!point) return;
       const makeParams = (limit: number) => {
-        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : runtime.context!.region.id, category: "transfer" });
+        const params = new URLSearchParams({ region_id: runtime.location?.source === "gps" ? "" : (runtime.context?.region.id || ""), category: "transfer" });
         params.set("lat", String(point.lat)); params.set("lng", String(point.lng)); params.set("radius", "15000");
         params.set("include_routes", "false");
         if (query.trim()) params.set("q", query.trim());

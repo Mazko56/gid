@@ -321,7 +321,7 @@ export function telegramStartParam() {
     fromLaunch ||= params.get("tgWebAppStartParam") || "";
     fromFallback ||= params.get("startapp") || params.get("start") || "";
   }
-  return fromTelegram || fromLaunch || fromFallback || process.env.NEXT_PUBLIC_DEFAULT_QR_START_PARAM || "";
+  return fromTelegram || fromLaunch || fromFallback || "";
 }
 
 export function telegramLaunchKey() {

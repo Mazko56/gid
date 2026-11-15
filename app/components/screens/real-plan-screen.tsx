@@ -58,7 +58,9 @@ export function RealPlanScreen({navigate}:{navigate:Navigate}){
  const [result,setResult]=useState<PlannerResult|null>(null);const [chosen,setChosen]=useState(0);
  const [savedPlans,setSavedPlans]=useState<Saved[]>([]);const [savedPlan,setSavedPlan]=useState<Saved|null>(null);
  const origin=runtime.context;const hasQr=Boolean(telegramStartParam()&&origin?.qr);
- const baseLat=Number(origin?.place?.lat??origin?.region.lat);const baseLng=Number(origin?.place?.lng??origin?.region.lng);
+ const gps= !hasQr && runtime.location?.source==='gps' ? runtime.location : null;
+ const baseLat=hasQr?Number(origin?.place?.lat??origin?.region.lat):(gps?.lat??NaN);
+ const baseLng=hasQr?Number(origin?.place?.lng??origin?.region.lng):(gps?.lng??NaN);
  const originTitle=origin?.place?.name||I(lang,origin?.region.name||'QR не визначено',origin?.region.nameEn||'QR not detected',origin?.region.namePl||'Brak kodu QR');
  const originAddress=origin?.place?.address||origin?.region.name||'';
  const update=<K extends keyof FormData>(key:K,value:FormData[K])=>setForm(f=>({...f,[key]:value}));
@@ -69,12 +71,12 @@ export function RealPlanScreen({navigate}:{navigate:Navigate}){
   .then(rows=>{if(alive)setRegions(rows);}).catch(e=>{if(alive)setError(e instanceof Error?e.message:String(e));}).finally(()=>{if(alive)setLoadingRegions(false);});return()=>{alive=false;};},[baseLat,baseLng,hasQr]);
  useEffect(()=>{void stage2Fetch<Saved[]>('/me/plans').then(setSavedPlans).catch(()=>undefined);},[]);
  const selectedRegionCoords=regions.find(r=>r.id===region);
- const nearby=useMemo(()=>{if(hasQr)return regions.filter(r=>r.distance_km==null||r.distance_km<=form.radius_km);if(!selectedRegionCoords)return [];
+ const nearby=useMemo(()=>{if(hasQr||gps)return regions.filter(r=>r.distance_km!=null&&r.distance_km<=form.radius_km);if(!selectedRegionCoords)return [];
   const radians=Math.PI/180;const distance=(a:Region,b:Region)=>{const dlat=(Number(b.center_lat)-Number(a.center_lat))*radians,dlng=(Number(b.center_lng)-Number(a.center_lng))*radians;const h=Math.sin(dlat/2)**2+Math.cos(Number(a.center_lat)*radians)*Math.cos(Number(b.center_lat)*radians)*Math.sin(dlng/2)**2;return 6371*2*Math.asin(Math.min(1,Math.sqrt(h)));};
-  return regions.map(r=>({...r,distance_km:Math.round(distance(selectedRegionCoords,r)*10)/10})).filter(r=>r.distance_km<=form.radius_km).sort((a,b)=>a.distance_km-b.distance_km);},[regions,form.radius_km,hasQr,selectedRegionCoords]);
+  return regions.map(r=>({...r,distance_km:Math.round(distance(selectedRegionCoords,r)*10)/10})).filter(r=>r.distance_km<=form.radius_km).sort((a,b)=>a.distance_km-b.distance_km);},[regions,form.radius_km,hasQr,gps?.lat,gps?.lng,selectedRegionCoords]);
  const activeVariant=result?.variants[chosen]||result?.variants[0];
- const generate=async()=>{if(!hasQr&&!region){setError(I(lang,'Оберіть базове місто','Select a starting town','Wybierz miasto początkowe'));return;}if(!form.activities.length){setError(I(lang,'Оберіть хоча б один вид відпочинку','Select at least one interest','Wybierz co najmniej jedno zainteresowanie'));return;}
-  setLoading(true);setError('');try{const data=await stage2Fetch<PlannerResult>('/me/plans/generate',{method:'POST',body:JSON.stringify({...form,mode:survey,start_param:hasQr?telegramStartParam():'',region_id:hasQr?origin?.region.id:region})});setResult(data);setChosen(0);setMode('result');}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
+ const generate=async()=>{if(!hasQr&&!gps&&!region){setError(I(lang,'Дозвольте геолокацію або виберіть місто','Allow location access or select a city','Zezwól na lokalizację lub wybierz miasto'));return;}if(!form.activities.length){setError(I(lang,'Оберіть хоча б один вид відпочинку','Select at least one interest','Wybierz co najmniej jedno zainteresowanie'));return;}
+  setLoading(true);setError('');try{const data=await stage2Fetch<PlannerResult>('/me/plans/generate',{method:'POST',body:JSON.stringify({...form,mode:survey,start_param:hasQr?telegramStartParam():'',region_id:hasQr?origin?.region.id:region, gps_lat:gps?.lat, gps_lng:gps?.lng})});setResult(data);setChosen(0);setMode('result');}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
  const save=async()=>{if(!result||!activeVariant)return;setLoading(true);setError('');try{const title=`${I(lang,'Мій маршрут','My itinerary','Moja trasa')} · ${result.origin.place_name||result.origin.region_name} · ${form.start_date}`;
   const saved=await stage2Fetch<Saved>('/me/plans',{method:'POST',body:JSON.stringify({title,region_id:result.origin.region_id,criteria:{...result.criteria,origin:result.origin},days:activeVariant.days})});setSavedPlan(saved);setSavedPlans(p=>[saved,...p.filter(x=>x.id!==saved.id)]);setMode('saved');}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setLoading(false);}};
  const share=async()=>{if(!result)return;const text=`${I(lang,'Мій маршрут','My itinerary','Moja trasa')}: ${result.origin.place_name||result.origin.region_name}\n${activeVariant?.days.flatMap(d=>d.stops.map(s=>`${s.time} ${s.place_name}`)).join('\n')||''}`;try{if(navigator.share)await navigator.share({title:'Gid Tourist',text});else if(navigator.clipboard)await navigator.clipboard.writeText(text);}catch{/* user cancelled share */}};
@@ -87,7 +89,7 @@ export function RealPlanScreen({navigate}:{navigate:Navigate}){
   <div className="gt-plan-date-cards"><label><span>{I(lang,'Початок','Start','Początek')}</span><input type="date" min={today()} value={form.start_date} onChange={e=>update('start_date',e.target.value)}/><CalendarRange/></label>
    <label><span>{I(lang,'Зручний час','Start time','Godzina')}</span><input type="time" value={form.start_time} onChange={e=>update('start_time',e.target.value)}/><Clock3/></label></div></>;
  const locationBlock=<><h2>{I(lang,'Де ви перебуваєте?','Where are you staying?','Gdzie jesteś?')}</h2>
-  {hasQr?<div className="gt-plan-location"><MapPin size={22}/><span><small>{I(lang,'Поточне місце (за QR)','Current place (QR)','Obecne miejsce (QR)')}</small><strong>{originTitle}</strong><em>{originAddress}</em></span><Check size={18}/></div>
+  {hasQr||gps?<div className="gt-plan-location"><MapPin size={22}/><span><small>{I(lang,'Поточне місце (за QR)','Current place (QR)','Obecne miejsce (QR)')}</small><strong>{hasQr?originTitle:I(lang,'Ваше фактичне місцеположення','Your current location','Twoja obecna lokalizacja')}</strong><em>{hasQr?originAddress:`${gps?.lat.toFixed(5)}, ${gps?.lng.toFixed(5)}`}</em></span><Check size={18}/></div>
    :<label className="gt-plan-location gt-plan-city-select"><MapPin size={22}/><span><small>{I(lang,'Місто початку','Starting city','Miasto początkowe')}</small><select value={region} disabled={loadingRegions} onChange={e=>{setRegion(e.target.value);update('destination_region_ids',[]);}}><option value="">{I(lang,'Оберіть місто','Select city','Wybierz miasto')}</option>{regions.map(r=><option value={r.id} key={r.id}>{regionName(r,lang)}</option>)}</select></span></label>}
   <h2>{I(lang,'Радіус для пошуку локацій','Search radius','Promień wyszukiwania')}</h2>
   <SmallSelector lang={lang} className="gt-plan-chip-group--radius" items={[["5","5 км","5 km","5 km"],["15","15 км","15 km","15 km"],["30","30 км","30 km","30 km"],["50","50 км","50 km","50 km"],["100","100 км","100 km","100 km"]]} value={String(form.radius_km)} onChange={v=>update('radius_km',Number(v))}/>
@@ -103,7 +105,7 @@ export function RealPlanScreen({navigate}:{navigate:Navigate}){
  const summary=<div className="gt-plan-summary-list">
    <div><UsersRound/><span><small>{I(lang,'Компанія','Travellers','Podróżnicy')}</small><strong>{form.adults} + {form.children}</strong></span></div>
    <div><CalendarDays/><span><small>{I(lang,'Період','Dates','Termin')}</small><strong>{form.start_date} · {form.start_time} · {form.days} {I(lang,'дн.','days','dni')}</strong></span></div>
-   <div><MapPin/><span><small>{I(lang,'Звідки','Starting at','Początek')}</small><strong>{hasQr?originTitle:regionName(regions.find(r=>r.id===region)||{name:'—',name_en:null,name_pl:null,id:'',center_lat:0,center_lng:0,distance_km:null},lang)}</strong></span></div>
+   <div><MapPin/><span><small>{I(lang,'Звідки','Starting at','Początek')}</small><strong>{hasQr?originTitle:gps?I(lang,'Ваша GPS-позиція','Your GPS location','Twoja pozycja GPS'):regionName(regions.find(r=>r.id===region)||{name:'—',name_en:null,name_pl:null,id:'',center_lat:0,center_lng:0,distance_km:null},lang)}</strong></span></div>
    <div><TentTree/><span><small>{I(lang,'Відпочинок','Interests','Zainteresowania')}</small><strong>{form.activities.map(v=>labelOf(groups.activities,v,lang)).join(', ')||'—'}</strong></span></div>
    <div><CarFront/><span><small>{I(lang,'Транспорт','Transport','Transport')}</small><strong>{labelOf(groups.transport,form.transport,lang)}</strong></span></div>
   </div>;

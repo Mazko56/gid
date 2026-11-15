@@ -103,7 +103,8 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
               resolvedContext = ctx;
               if (!cancelled) {
                 setContext(ctx);
-                setLocation((current) => current?.source === "gps" ? current : {
+                // The QR's venue (or region) is the tourist's search origin, regardless of GPS permissions.
+                setLocation({
                   lat: Number(ctx.place?.lat ?? ctx.region.lat),
                   lng: Number(ctx.place?.lng ?? ctx.region.lng),
                   source: "qr",
@@ -182,7 +183,8 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
         } catch { resolve(null); }
       });
       if (nativePoint) {
-        setLocation(nativePoint);
+        // GPS may be used for explicit sharing, but must not replace a QR entry point.
+        if (!telegramStartParam()) setLocation(nativePoint);
         try { window.localStorage.setItem("gid-tourist-geolocation-approved", "1"); } catch { /* ignore */ }
         return nativePoint;
       }
@@ -193,7 +195,7 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const next = { lat: position.coords.latitude, lng: position.coords.longitude, source: "gps" as const };
-          setLocation(next);
+          if (!telegramStartParam()) setLocation(next);
           try { window.localStorage.setItem("gid-tourist-geolocation-approved", "1"); } catch { /* ignore */ }
           resolve(next);
         },
@@ -204,7 +206,7 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || telegramStartParam()) return;
     const hasTelegramLocation = Boolean((window as any).Telegram?.WebApp?.LocationManager);
     const hasBrowserLocation = typeof navigator !== "undefined" && Boolean(navigator.geolocation);
     if (!hasTelegramLocation && !hasBrowserLocation) return;
