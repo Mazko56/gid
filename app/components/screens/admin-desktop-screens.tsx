@@ -2549,6 +2549,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
   const [serviceTitle, setServiceTitle] = useState("");
   const serviceTitleInput = useRef<HTMLInputElement>(null);
   const [serviceNote, setServiceNote] = useState("");
+  const [servicePhone, setServicePhone] = useState("");
   const [serviceTone, setServiceTone] = useState<Stage2EmergencyService["tone"]>("green");
   const [serviceTranslations,setServiceTranslations]=useState<EditableTranslations>(emptyTranslations);
   const [serviceIcon, setServiceIcon] = useState<Stage2EmergencyService["icon"]>("custom");
@@ -2657,7 +2658,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
 
   const resetServiceForm = () => {
     setServiceTargetRegionId(regionId === "all" ? "" : regionId);
-    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true); setServiceTranslations(emptyTranslations());
+    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServicePhone(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true); setServiceTranslations(emptyTranslations());
   };
 
   const editService = (service: Stage2EmergencyService) => {
@@ -2666,6 +2667,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
     window.requestAnimationFrame(() => serviceTitleInput.current?.focus());
     setServiceTitle(service.title);
     setServiceNote(service.note);
+    setServicePhone(service.phone || "");
     setServiceTone(service.tone);
     setServiceIcon(service.icon);
     setServiceTranslations(readTranslations(service.translations));
