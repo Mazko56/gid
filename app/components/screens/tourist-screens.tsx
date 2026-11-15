@@ -404,7 +404,7 @@ function googleReviewsForPlace(place?: Stage2Place | null): GoogleReviewView[] {
     if (!text) return [];
     const author = typeof authorObject.displayName === "string" && authorObject.displayName.trim()
       ? authorObject.displayName.trim()
-      : "Google";
+      : "Відвідувач";
     const rating = Number(review.rating ?? 0);
     const time = typeof review.relativePublishTimeDescription === "string"
       ? review.relativePublishTimeDescription
@@ -629,6 +629,7 @@ function PlaceRow({
   walk,
   walking = false,
   verified = false,
+  badges,
   tags = [],
   google = false,
   googlePlaceId: googleId = "",
@@ -644,6 +645,7 @@ function PlaceRow({
   walk: string;
   walking?: boolean;
   verified?: boolean;
+  badges?: ReactNode;
   tags?: string[];
   google?: boolean;
   googlePlaceId?: string;
@@ -659,6 +661,7 @@ function PlaceRow({
           <b>{distance}</b>
         </span>
         <small>{subtitle}</small>
+        {badges}
         <span className="gt-place-row__meta">
           <span>
             <Star size={14} fill="currentColor" /> {rating}
@@ -1643,6 +1646,25 @@ function placePhotoFallback(place: Stage2Place): PhotoName {
   return "hotel";
 }
 
+type TouristPlaceBadge = "partner" | "advertisement" | "recommended";
+function touristPlaceBadges(place: Stage2Place): TouristPlaceBadge[] {
+  // Never infer a paid/editorial placement from the price tier or from another tag.
+  if (isExternalPlace(place)) return [];
+  const configured = place.attributes?.display_badges;
+  const allowed: TouristPlaceBadge[] = ["partner", "advertisement", "recommended"];
+  if (Array.isArray(configured)) return allowed.filter(value => configured.includes(value));
+  return place.is_partner || place.attributes?.partner === true ? ["partner"] : [];
+}
+function touristPlaceBadgeLabel(badge: TouristPlaceBadge, language: TouristLanguage): string {
+  if (badge === "partner") return tr(language, "Партнер", "Partner", "Partner");
+  if (badge === "advertisement") return tr(language, "Реклама", "Advertising", "Reklama");
+  return tr(language, "Ми рекомендуємо", "We recommend", "Polecamy");
+}
+function PlaceBadges({place,language,inline=false}: {place:Stage2Place;language:TouristLanguage;inline?:boolean}) {
+  const badges=touristPlaceBadges(place);
+  return badges.length ? <span className={`gt-place-display-badges ${inline?'is-inline':''}`}>{badges.map(badge=><i key={badge} className={`gt-place-display-badge gt-place-display-badge--${badge}`}>{touristPlaceBadgeLabel(badge,language)}</i>)}</span> : null;
+}
+
 function visiblePlaceTags(place: Stage2Place) {
   if (isExternalPlace(place)) {
     return [place.subcategory || place.category_name || ""].filter(Boolean).slice(0, 1);
@@ -1790,6 +1812,7 @@ function DynamicCategoryScreen({ navigate, config }: { navigate: Navigate; confi
               walk={walkLabel(place.distance_m, place.walking_duration_s, runtime.language)}
               walking
               verified={place.attributes?.verified === true}
+              badges={<PlaceBadges place={place} language={runtime.language} inline/>}
               tags={visiblePlaceTags(place)}
               onClick={() => openPlace(place)}
             />
@@ -2020,6 +2043,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
             <RemotePlaceImage url={previewPlace.image_url} className="gt-map-place-preview__image" google={hasGooglePhotoCandidate(previewPlace)} googlePlaceId={googlePlaceId(previewPlace)} eager fallback={<Thumb name={placePhotoFallback(previewPlace)} />} />
             <div className="gt-map-place-preview__copy">
               <strong>{localizedField(runtime.language,previewPlace,"name")}</strong>
+              <PlaceBadges place={previewPlace} language={runtime.language} inline/>
               <small>{previewPlace.subcategory ? translateKnownLabel(runtime.language, previewPlace.subcategory) : localizedField(runtime.language,previewPlace,"category_name",previewPlace.address)}</small>
               <span><b><Star size={13} fill="currentColor" /> {placeRatingLabel(previewPlace, false)}{Number(previewPlace.rating || 0) > 0 ? ` · ${previewPlace.review_count || 0}` : ""}</b><em>{previewPlace.is_open_now === true ? tr(runtime.language, "Відкрито", "Open", "Otwarte") : previewPlace.is_open_now === false ? tr(runtime.language, "Зачинено", "Closed", "Zamknięte") : tr(runtime.language, "Графік", "Hours", "Godziny")} · {placeHoursLabel(previewPlace, runtime.language)}</em></span>
               <span><b>{distanceLabel(previewPlace.distance_m, runtime.language)}</b><em><WalkingIcon size={13} /> {walkLabel(previewPlace.distance_m, previewPlace.walking_duration_s, runtime.language)}</em></span>
@@ -2043,7 +2067,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
                 <button type="button" className="gt-nearby-design__card" key={place.id} onClick={() => openPlace(place)}>
                   <RemotePlaceImage url={place.image_url} className="gt-photo gt-nearby-design__remote-photo" google={hasGooglePhotoCandidate(place)} googlePlaceId={googlePlaceId(place)} fallback={<Thumb name={placePhotoFallback(place)} />} />
                   <span className="gt-nearby-design__card-copy">
-                    <strong>{localizedField(runtime.language,place,"name")}{place.is_partner || place.attributes?.partner === true ? <i className="gt-nearby-partner-badge">{tr(runtime.language, "Партнер", "Partner", "Partner")}</i> : null}</strong><small>{place.subcategory ? translateKnownLabel(runtime.language,place.subcategory) : localizedField(runtime.language,place,"category_name")}</small>
+                    <strong>{localizedField(runtime.language,place,"name")}<PlaceBadges place={place} language={runtime.language} inline/></strong><small>{place.subcategory ? translateKnownLabel(runtime.language,place.subcategory) : localizedField(runtime.language,place,"category_name")}</small>
                     <span><b><Star size={12} fill="currentColor" /> {placeRatingLabel(place, false)}</b><em>{distanceLabel(place.distance_m, runtime.language)} · {walkLabel(place.distance_m, place.walking_duration_s, runtime.language)}</em></span>
                   </span>
                 </button>
@@ -2064,6 +2088,11 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
   const [placeLoading, setPlaceLoading] = useState(false);
   const [favorite, setFavorite] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [nativeReviews, setNativeReviews] = useState<Array<{id:string;rating:number;text:string;author:string;created_at:string;partner_reply?:string|null}>>([]);
+  const [nativeReviewsLoaded, setNativeReviewsLoaded] = useState(false);
+  const [nativeReviewsLoading, setNativeReviewsLoading] = useState(false);
+  const [nativeReviewsError, setNativeReviewsError] = useState("");
+  const reviewsRequestVersion = useRef(0);
   const [bookableResources,setBookableResources] = useState<BookingResource[]>([]);
   const fallbackId = runtime.selectedPlaceId || runtime.selectedPlace?.id || runtime.context?.place?.id || "";
 
@@ -2090,6 +2119,7 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
     return () => { cancelled = true; };
   }, [fallbackId, runtime.context?.place, runtime.location?.lat, runtime.location?.lng, runtime.selectedPlace]);
 
+  useEffect(() => { reviewsRequestVersion.current += 1; setReviewsOpen(false); setNativeReviews([]); setNativeReviewsLoaded(false); setNativeReviewsLoading(false); setNativeReviewsError(""); }, [fallbackId]);
   const loadedPlace = place?.id === fallbackId ? place : null;
   const selectedFallback = runtime.selectedPlace?.id === fallbackId ? runtime.selectedPlace : null;
   const contextFallback = runtime.context?.place?.id === fallbackId ? runtime.context.place : null;
@@ -2134,12 +2164,15 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
   };
 
   const openReviews = () => {
-    if (googleReviews.length) {
-      setReviewsOpen(true);
-      return;
-    }
-    if (!reviewsHref) return;
-    window.open(reviewsHref, "_blank", "noopener,noreferrer");
+    setReviewsOpen(true);
+    if (isExternalPlace(current)) return; // External POIs can show only reviews supplied by their provider.
+    const requestVersion = ++reviewsRequestVersion.current;
+    setNativeReviewsLoading(true);
+    setNativeReviewsError("");
+    void stage2Fetch<Array<{id:string;rating:number;text:string;author:string;created_at:string;partner_reply?:string|null}>>(`/reviews/place/${encodeURIComponent(current.id)}`)
+      .then(items => { if (requestVersion !== reviewsRequestVersion.current) return; setNativeReviews(Array.isArray(items) ? items : []); setNativeReviewsLoaded(true); })
+      .catch(error => { if (requestVersion !== reviewsRequestVersion.current) return; setNativeReviewsError(error instanceof Error ? error.message : tr(runtime.language,"Не вдалося завантажити відгуки","Reviews could not be loaded","Nie udało się wczytać opinii")); })
+      .finally(() => { if (requestVersion === reviewsRequestVersion.current) setNativeReviewsLoading(false); });
   };
 
   const callPlace = () => {
@@ -2163,12 +2196,13 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
         <div>
           {typeof current.details?.logo_url === "string" && current.details.logo_url ? <img className="gt-place-brand-logo" src={current.details.logo_url} alt={`Логотип ${current.name}`}/> : null}
           <h1>{current.name}</h1>
+          <PlaceBadges place={current} language={runtime.language}/>
           <p><MapPin size={17} /> {runtime.context?.region.name || current.address || tr(runtime.language, "Поточна локація", "Current location", "Bieżąca lokalizacja")} · {distance}</p>
         </div>
       </section>
       <main className="gt-content gt-content--overlap">
         <div className="gt-place-summary">
-          <button type="button" className="gt-place-summary__reviews-button" onClick={openReviews} aria-disabled={!reviewsHref && !googleReviews.length}><Star size={19} fill="currentColor" /><strong>{placeRatingLabel(current, false)}</strong><small>{Number(current.rating || 0) > 0 ? `${current.review_count || 0} ${tr(runtime.language, "відгуків", "reviews", "opinii")} · Google` : tr(runtime.language, "Відкрити відгуки Google", "Open Google reviews", "Otwórz opinie Google")}</small></button>
+          <button type="button" className="gt-place-summary__reviews-button" onClick={openReviews}><Star size={19} fill="currentColor" /><strong>{placeRatingLabel(current, false)}</strong><small>{`${current.review_count || 0} ${tr(runtime.language, "відгуків", "reviews", "opinii")}`}</small></button>
           <span><Clock3 size={19} /><strong>{current.is_open_now === true ? tr(runtime.language, "Відкрито", "Open", "Otwarte") : current.is_open_now === false ? tr(runtime.language, "Зачинено", "Closed", "Zamknięte") : tr(runtime.language, "Графік", "Hours", "Godziny")}</strong><small>{daily?.to ? `${tr(runtime.language, "до", "until", "do")} ${daily.to}` : tr(runtime.language, "див. нижче", "see below", "zobacz niżej")}</small></span>
           <span><MapPin size={19} /><strong>{distance}</strong><small><WalkingIcon size={12} /> {walkingTime} {tr(runtime.language, "пішки", "walk", "pieszo")}</small></span>
         </div>
@@ -2194,20 +2228,28 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
         {visiblePlaceTags(current).length ? <div className="gt-stage2-place-tags">{visiblePlaceTags(current).map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
         <button type="button" className="gt-primary-button" onClick={openRoute}>{tr(runtime.language, "Побудувати маршрут", "Build route", "Wyznacz trasę")} <Navigation size={20} /></button>
       </main>
-      {reviewsOpen ? <div className="gt-reviews-modal" role="dialog" aria-modal="true" aria-label={tr(runtime.language, "Відгуки Google", "Google reviews", "Opinie Google")} onClick={() => setReviewsOpen(false)}>
+      {reviewsOpen ? <div className="gt-reviews-modal" role="dialog" aria-modal="true" aria-label={tr(runtime.language, "Відгуки про заклад", "Place reviews", "Opinie o miejscu")} onClick={() => setReviewsOpen(false)}>
         <section onClick={(event) => event.stopPropagation()}>
           <header>
-            <div><strong>{tr(runtime.language, "Відгуки Google", "Google reviews", "Opinie Google")}</strong><small>{placeRatingLabel(current, false)} · {current.review_count || googleReviews.length} {tr(runtime.language, "відгуків", "reviews", "opinii")}</small></div>
+            <div><strong>{tr(runtime.language, "Відгуки про заклад", "Place reviews", "Opinie o miejscu")}</strong><small>{placeRatingLabel(current, false)} · {isExternalPlace(current) ? (current.review_count || googleReviews.length) : nativeReviewsLoaded ? nativeReviews.length : (current.review_count || 0)} {tr(runtime.language, "відгуків", "reviews", "opinii")}</small></div>
             <button type="button" aria-label={tr(runtime.language, "Закрити", "Close", "Zamknij")} onClick={() => setReviewsOpen(false)}><X size={19} /></button>
           </header>
+          {nativeReviewsLoading && !isExternalPlace(current) ? <p className="gt-reviews-state">{tr(runtime.language,"Завантажуємо відгуки…","Loading reviews…","Wczytywanie opinii…")}</p> : null}
+          {nativeReviewsError && !isExternalPlace(current) ? <p className="gt-reviews-state" role="alert">{nativeReviewsError}</p> : null}
           <div className="gt-google-reviews__list">
-            {googleReviews.map((review, index) => <article key={`${review.author}-${review.time}-${index}`}>
-              <div><strong>{review.author}</strong><span><Star size={14} fill="currentColor" /> {review.rating > 0 ? review.rating.toFixed(1) : "Google"}</span></div>
-              <p>{review.text}</p>
-              {review.time ? <small>{review.time}</small> : null}
+            {isExternalPlace(current) ? googleReviews.map((review,index) => <article key={`${review.author}-${review.time}-${index}`}>
+              <div><strong>{review.author}</strong><span><Star size={14} fill="currentColor" /> {review.rating > 0 ? review.rating.toFixed(1) : "—"}</span></div>
+              <p>{review.text}</p>{review.time ? <small>{review.time}</small> : null}
+            </article>) : nativeReviews.map(review => <article key={review.id}>
+              <div><strong>{review.author || tr(runtime.language,"Відвідувач","Visitor","Gość")}</strong><span><Star size={14} fill="currentColor" /> {Number(review.rating).toFixed(1)}</span></div>
+              {review.text ? <p>{review.text}</p> : null}
+              {review.created_at ? <small>{new Date(review.created_at).toLocaleDateString(runtime.language === "uk" ? "uk-UA" : runtime.language === "pl" ? "pl-PL" : "en-US")}</small> : null}
+              {review.partner_reply ? <p className="gt-review-partner-reply"><strong>{tr(runtime.language,"Відповідь закладу:","Venue response:","Odpowiedź obiektu:")}</strong> {review.partner_reply}</p> : null}
             </article>)}
           </div>
-          {reviewsHref ? <button type="button" className="gt-primary-button" onClick={() => window.open(reviewsHref, "_blank", "noopener,noreferrer")}>{tr(runtime.language, "Всі відгуки в Google", "All reviews on Google", "Wszystkie opinie w Google")} <ExternalLink size={18} /></button> : null}
+          {!isExternalPlace(current) && !nativeReviewsLoading && nativeReviewsLoaded && nativeReviews.length === 0 ? <p className="gt-reviews-state">{tr(runtime.language,"Для цього закладу поки немає опублікованих відгуків.","There are no published reviews for this place yet.","Nie ma jeszcze opublikowanych opinii o tym miejscu.")}</p> : null}
+          {isExternalPlace(current) && !googleReviews.length ? <p className="gt-reviews-state">{tr(runtime.language,"Тексти відгуків для цього місця недоступні.","Review texts are unavailable for this place.","Treści opinii o tym miejscu są niedostępne.")}</p> : null}
+          {isExternalPlace(current) && reviewsHref ? <button type="button" className="gt-primary-button" onClick={() => window.open(reviewsHref, "_blank", "noopener,noreferrer")}>{tr(runtime.language, "Переглянути всі відгуки", "See all reviews", "Zobacz wszystkie opinie")} <ExternalLink size={18} /></button> : null}
         </section>
       </div> : null}
     </div>

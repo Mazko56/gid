@@ -31076,3 +31076,16 @@ button.gt-amenities-row {
 .gt-plan-library-empty p { margin:0; font-size:12px; line-height:1.5; }
 .gt-plan-saved-notice { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; color:#167c4b; }
 .gt-plan-saved-notice button { display:inline-flex; align-items:center; gap:2px; border:0; background:transparent; color:#146b47; font:inherit; font-weight:750; text-decoration:underline; cursor:pointer; }
+
+/* Editor-controlled venue labels. Keep the original card geometry and text scale. */
+.gt-place-display-badges { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin:6px 0; }
+.gt-place-display-badges.is-inline { display:inline-flex; vertical-align:middle; margin:0 0 0 6px; }
+.gt-place-display-badge { display:inline-flex; align-items:center; padding:2px 6px; border-radius:999px; background:#e4f7eb; color:#078a4e; font-size:9px; line-height:1.35; font-style:normal; font-weight:800; white-space:nowrap; }
+.gt-place-display-badge--advertisement { background:#fff0d6; color:#8c5700; }
+.gt-place-display-badge--recommended { background:#ede7ff; color:#6441a8; }
+.gt-nearby-design__card .gt-place-display-badges { max-width:100%; }
+.gt-place-hero .gt-place-display-badge { color:#fff; background:rgba(10,44,25,.7); border:1px solid rgba(255,255,255,.28); }
+.gt-place-hero .gt-place-display-badge--advertisement { background:rgba(101,67,10,.85); }
+.gt-place-hero .gt-place-display-badge--recommended { background:rgba(80,40,140,.85); }
+.gt-reviews-state { margin:12px 0; font-size:13px; line-height:1.5; color:#65746c; }
+.gt-review-partner-reply { background:#eef9f3; padding:10px; border-radius:10px; font-size:12px; color:#315b44; }

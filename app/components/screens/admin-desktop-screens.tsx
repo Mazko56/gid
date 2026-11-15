@@ -569,6 +569,8 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [priceLevel, setPriceLevel] = useState("");
   const [forKids, setForKids] = useState(false);
   const [parking, setParking] = useState(false);
+  const [displayBadges, setDisplayBadges] = useState<string[]>(["partner"]);
+  const toggleDisplayBadge = (key: string) => setDisplayBadges(current => current.includes(key) ? current.filter(value => value !== key) : [...current, key]);
   const currentCategory = categories.find((item) => item.slug === categorySlug);
   const categorySubcategories = (currentCategory?.subcategories || []).filter((item) => typeof item === "string" && item.trim());
   // Some categories (e.g. hotels) have no tourist subcategories, but do have
@@ -663,6 +665,9 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       setPriceLevel(row.price_level == null ? "" : String(row.price_level));
       setForKids(attrs.kids === true);
       setParking(attrs.parking === true);
+      setDisplayBadges(Array.isArray(attrs.display_badges)
+        ? attrs.display_badges.filter((value: unknown) => ["partner", "advertisement", "recommended"].includes(String(value))).map(String)
+        : attrs.partner === true ? ["partner"] : []);
       setPlacement((attrs.placement_type === "basic" || attrs.placement_type === "premium") ? attrs.placement_type : "social");
       setRate(String(attrs.rate_percent ?? 0));
       setCity(String(details.city || "")); setRegionName(String(details.region_name || row.region_name || "")); setStreet(String(details.street || "")); setHouse(String(details.house || ""));
@@ -774,6 +779,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
         phone, description, translations:partnerTranslations, image_url: photos[0] || null, telegram_ids: ids, publish,
         work_hours: alwaysOpen ? { always_open: true } : { daily: { from: workFrom, to: workTo } },
         attributes: { partner: true, placement_type: placement, rate_percent: Number(rate) || 0, kids: categoryFilters.kids === true && forKids, parking: categoryFilters.parking === true && parking },
+        display_badges: displayBadges,
         details: {
           address_verified: !mapSelected && Boolean(housePlaceId),
           geo_place_ids: { city: cityPlaceId, street: streetPlaceId, house: housePlaceId },
@@ -855,6 +861,11 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
               {categoryFilters.kids ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={forKids} onChange={(e)=>setForKids(e.target.checked)}/><span>Підходить для відвідування з дітьми</span></label> : null}
               {categoryFilters.parking ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={parking} onChange={(e)=>setParking(e.target.checked)}/><span>Є паркування</span></label> : null}
             </div> : null}
+          </div>
+        </div></div>
+        <div className="ad-create-row ad-create-row--badges"><div className="ad-create-row__label"><span><Star size={14}/></span><strong>Позначки закладу</strong></div><div className="ad-create-row__control">
+          <div className="ad-partner-category-filter-fields"><strong>Позначки, які бачить турист (можна декілька)</strong>
+            <div className="ad-partner-category-options">{([['partner','Партнер'],['advertisement','Реклама'],['recommended','Ми рекомендуємо']] as const).map(([key,label])=><label key={key} className={displayBadges.includes(key)?'is-selected':''}><input type="checkbox" checked={displayBadges.includes(key)} onChange={()=>toggleDisplayBadge(key)}/><span>{label}</span></label>)}</div>
           </div>
         </div></div>
         <div className="ad-create-row ad-create-row--3"><div className="ad-create-row__label"><span>3</span><strong>Тип розміщення</strong></div><div className="ad-create-row__control"><div className="ad-placement-options">{([['social','Соціальний','Безкоштовне розміщення'],['basic','Базовий','Інфо про заклад + QR для гостей'],['premium','Платний / Преміум','Просування послуг та монетизація']] as const).map(([key,title,note])=><label key={key} className={placement===key?'is-selected':''} onClick={()=>setPlacement(key)}><i>{placement===key?<Check size={14}/>:null}</i><span><strong>{title}</strong><small>{note}</small></span></label>)}</div></div></div>

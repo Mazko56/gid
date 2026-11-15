@@ -118,6 +118,15 @@ function validatedPartnerClassifications(body: Record<string, unknown>, allowedS
   return {categorySelections,nearbySelections,selectedSubcategory:categorySelections[0] ?? null};
 }
 
+const ALLOWED_DISPLAY_BADGES = ["partner", "advertisement", "recommended"] as const;
+function validDisplayBadges(value: unknown, fallback: unknown = ["partner"]) {
+  const items = value === undefined ? fallback : value;
+  if (!Array.isArray(items) || items.some(item => typeof item !== "string" || !ALLOWED_DISPLAY_BADGES.some(allowed => allowed === item))) {
+    throw new BadRequestException("Некоректні позначки закладу");
+  }
+  return Array.from(new Set(items));
+}
+
 function parseTelegramIds(value: unknown) {
   const raw = Array.isArray(value) ? value : String(value ?? "").split(/[\s,;]+/g);
   return Array.from(new Set(raw.map((item) => String(item).trim()).filter((item) => /^\d{5,20}$/.test(item))));
@@ -1479,6 +1488,9 @@ export class Stage2Service {
     const regionId = await this.ensureRegionForPlace(verifiedAddress.city, verifiedAddress.region, lat, lng, requestedRegion);
     const organizationId = makeId("org");
     const placeId = makeId("place");
+    // Editorial/advertising badges can only be assigned through the admin endpoint.
+    const submittedAttributes = body.attributes && typeof body.attributes === "object" ? body.attributes as Record<string,unknown> : {};
+    const { display_badges: _ignoredBadges, ...partnerAttributes } = submittedAttributes;
 
     await this.db.transaction(async (client) => {
       await client.query(
@@ -1488,7 +1500,7 @@ export class Stage2Service {
       await client.query(
         `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,telegram,website,image_url,price_level,work_hours,attributes,details,status,created_by_user_id)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18::jsonb,'pending',$19)`,
-        [placeId, organizationId, regionId, category, placeType, name, body.description ?? "", verifiedAddress.formatted_address || body.address || "", lat, lng, body.phone ?? null, body.telegram ?? null, body.website ?? null, body.image_url ?? null, num(body.price_level), JSON.stringify(body.work_hours ?? {}), JSON.stringify(body.attributes ?? {}), JSON.stringify(body.details ?? {}), user.id],
+        [placeId, organizationId, regionId, category, placeType, name, body.description ?? "", verifiedAddress.formatted_address || body.address || "", lat, lng, body.phone ?? null, body.telegram ?? null, body.website ?? null, body.image_url ?? null, num(body.price_level), JSON.stringify(body.work_hours ?? {}), JSON.stringify(partnerAttributes), JSON.stringify(body.details ?? {}), user.id],
       );
       await client.query("UPDATE users SET role=CASE WHEN role='tourist' THEN 'partner' ELSE role END, updated_at=now() WHERE id=$1", [user.id]);
     });
@@ -1509,10 +1521,14 @@ export class Stage2Service {
     const nextRegionId = await this.ensureRegionForPlace(String(body.city ?? ""), String(body.region_name ?? ""), nextLat, nextLng, current.region_id);
     const nextPlaceType = String(body.subcategory ?? current.subcategory ?? "Готель").trim() || "Готель";
     const nextCategory = await this.categoryForPlaceType(nextPlaceType, current.category_slug);
+    // Partner self-service may edit ordinary attributes but must not rewrite admin-controlled badges.
+    const submittedAttributes = body.attributes && typeof body.attributes === "object" ? body.attributes as Record<string,unknown> : {};
+    const { display_badges: _ignoredBadges, partner: _ignoredPartner, ...editableAttributes } = submittedAttributes;
+    const nextAttributes = { ...(current.attributes ?? {}), ...editableAttributes };
     await this.db.query(
       `UPDATE places SET region_id=$2,category_slug=$3,subcategory=$4,name=$5,description=$6,address=$7,lat=$8,lng=$9,phone=$10,telegram=$11,website=$12,image_url=$13,
        price_level=$14,work_hours=$15::jsonb,attributes=$16::jsonb,details=$17::jsonb,translations=$18::jsonb,status=CASE WHEN status='approved' THEN 'approved' ELSE 'pending' END,updated_at=now() WHERE id=$1`,
-      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(body.attributes ?? current.attributes ?? {}), JSON.stringify({ ...(current.details ?? {}), ...((body.details && typeof body.details === "object") ? body.details as Record<string, unknown> : {}) }),JSON.stringify(body.translations ?? current.translations ?? {})],
+      [placeId, nextRegionId, nextCategory, nextPlaceType, body.name ?? current.name, body.description ?? current.description, body.address ?? current.address, nextLat, nextLng, body.phone ?? current.phone, body.telegram ?? current.telegram, body.website ?? current.website, body.image_url ?? current.image_url, num(body.price_level, current.price_level ?? undefined) ?? null, JSON.stringify(body.work_hours ?? current.work_hours ?? {}), JSON.stringify(nextAttributes), JSON.stringify({ ...(current.details ?? {}), ...((body.details && typeof body.details === "object") ? body.details as Record<string, unknown> : {}) }),JSON.stringify(body.translations ?? current.translations ?? {})],
     );
     return this.place(placeId, false);
   }
@@ -1607,7 +1623,9 @@ export class Stage2Service {
     ]));
     const nextManagedTags = Array.from(new Set([...categorySelections,...nearbySelections]));
     const details = { ...currentDetails, ...detailsInput, city, region_name: regionName, allowed_telegram_ids: telegramIds, admin_category_subcategories: categorySelections, admin_nearby_filters: nearbySelections };
-    const attributes = { ...currentAttributes, ...attributesInput };
+    // Tourist-facing labels are explicitly chosen by an administrator, not by the public partner API.
+    const displayBadges = validDisplayBadges(body.display_badges, currentAttributes.display_badges ?? (currentAttributes.partner === true ? ["partner"] : []));
+    const attributes = { ...currentAttributes, ...attributesInput, display_badges: displayBadges, partner: true };
     const workHours = body.work_hours && typeof body.work_hours === "object" ? body.work_hours : current.work_hours ?? {};
     const name = String(body.name ?? current.name ?? "").trim();
     if (!name) throw new BadRequestException("Вкажіть назву партнера");
@@ -1684,6 +1702,7 @@ export class Stage2Service {
     const status = publish ? "approved" : "draft";
     const workHours = body.work_hours && typeof body.work_hours === "object" ? body.work_hours : {};
     const attributes = body.attributes && typeof body.attributes === "object" ? body.attributes as Record<string, unknown> : {};
+    const displayBadges = validDisplayBadges(body.display_badges);
     const details = {
       ...detailsInput,
       admin_created: true,
@@ -1701,7 +1720,7 @@ export class Stage2Service {
       await client.query(
         `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,image_url,price_level,work_hours,attributes,details,status,approved_at,translations)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,CASE WHEN $17='approved' THEN now() ELSE NULL END,$18::jsonb)`,
-        [placeId, organizationId, regionId, categorySlug, selectedSubcategory, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, priceLevel, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
+        [placeId, organizationId, regionId, categorySlug, selectedSubcategory, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, priceLevel, JSON.stringify(workHours), JSON.stringify({ ...attributes, display_badges: displayBadges, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
       );
       for (const tag of new Set([...categorySelections,...nearbySelections])) {
         await client.query('INSERT INTO place_tags(place_id,tag) VALUES($1,$2) ON CONFLICT DO NOTHING', [placeId,tag]);
