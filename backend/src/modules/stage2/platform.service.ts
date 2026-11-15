@@ -42,6 +42,8 @@ function validBookingTime(resource:Record<string,any>,start:Date) {
   const from=parse(String(hours.from)),to=parse(String(hours.to));
   const duration=Number(resource.duration_minutes),minutes=parts.minutes;
   const days=Array.isArray(hours.days)?hours.days.map(Number):[];
+  const specificSlots=(hours.day_slots && typeof hours.day_slots==='object' && !Array.isArray(hours.day_slots)) ? (hours.day_slots as Record<string,unknown>)[String(parts.weekday)] : undefined;
+  if(Array.isArray(specificSlots) && !specificSlots.includes(`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`))return false;
   if(!days.includes(parts.weekday)||!Number.isFinite(from)||!Number.isFinite(to)||!Number.isInteger(duration)||minutes<from||minutes+duration>to)return false;
   const interval=Number(hours.slot_minutes||30);
   if(![15,30,60].includes(interval)||(minutes-from)%interval!==0)return false;
@@ -636,9 +638,40 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
     return {id,status};
   }
 
+  private async recoverMissingServiceCalendars(placeId:string,current:Record<string,any>[]) {
+    // One-way repair for legacy services already saved in places.details but missing
+    // their booking_resources row. Never infer slots for unconfigured services.
+    const place=await this.db.query(`SELECT details->'services' AS services FROM places WHERE id=$1 AND status='approved'`,[placeId]);
+    const services=place.rows[0]?.services;
+    if(!Array.isArray(services))return false;
+    let recovered=false;
+    for(const item of services as Array<Record<string,any>>) {
+      if(!item || item.bookingEnabled!==true || item.active===false || item.hidden===true)continue;
+      const id=`service:${placeId}:${String(item.id||'')}`;
+      if(!item.id || id.length>90 || current.some(row=>row.id===id))continue;
+      const duration=Number(item.durationMinutes),capacity=Number(item.maxGuests),interval=Number(item.slotIntervalMinutes||30);
+      const from=String(item.timeFrom||''),to=String(item.timeTo||'');
+      const days=Array.isArray(item.daysOfWeek)?item.daysOfWeek.map(Number):[1,2,3,4,5,6,7];
+      if(!Number.isInteger(duration)||duration<15||duration>1440||!Number.isInteger(capacity)||capacity<1||capacity>100||![15,30,60].includes(interval)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(from)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(to)||from>=to||!days.length||days.some(day=>!Number.isInteger(day)||day<1||day>7))continue;
+      const breaks=Array.isArray(item.breaks)?item.breaks:[];
+      const daySlots=item.daySlots && typeof item.daySlots==='object'&&!Array.isArray(item.daySlots)?item.daySlots:{};
+      const matches=String(item.price||'').replace(/\s/g,'').replace(/,/g,'.').match(/\d+(?:\.\d{1,2})?/g)||[];
+      const price=item.priceType==='free'?0:Number(matches[0]||0);
+      if(!Number.isFinite(price)||price<0||price>10_000_000)continue;
+      const hours={service_id:String(item.id),from,to,days,breaks,slot_minutes:interval,day_slots:daySlots,price_type:String(item.priceType||''),price_text:String(item.price||'')};
+      const inserted=await this.db.query(`INSERT INTO booking_resources(id,place_id,name,capacity,duration_minutes,price,working_hours,active)
+        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,true) ON CONFLICT(id) DO NOTHING RETURNING id`,
+        [id,placeId,String(item.name||'Послуга').slice(0,160),capacity,duration,price,json(hours)]);
+      if(inserted.rows.length)recovered=true;
+    }
+    return recovered;
+  }
+
   async resources(placeId: string) {
-    const result = await this.db.query(`SELECT r.* FROM booking_resources r JOIN places p ON p.id=r.place_id
+    const load=()=>this.db.query(`SELECT r.* FROM booking_resources r JOIN places p ON p.id=r.place_id
       WHERE p.id=$1 AND p.status='approved' AND r.active=true ORDER BY r.name`,[placeId]);
+    let result=await load();
+    if(await this.recoverMissingServiceCalendars(placeId,result.rows))result=await load();
     return result.rows.filter((row:Record<string,any>)=>row.id.startsWith('service:') && row.working_hours && typeof row.working_hours.service_id==='string' && typeof row.working_hours.from==='string' && typeof row.working_hours.to==='string');
   }
 

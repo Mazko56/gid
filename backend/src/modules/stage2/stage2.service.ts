@@ -1383,6 +1383,14 @@ export class Stage2Service {
       const breaks=Array.isArray(item.breaks)?item.breaks:[];
       if(breaks.some(b=>!b||!timePattern.test(String(b.from))||!timePattern.test(String(b.to))||String(b.from)>=String(b.to)))
         throw new BadRequestException(`Перевірте перерви для «${item.name}»`);
+      const daySlots=(!item.daySlots || typeof item.daySlots!=='object'||Array.isArray(item.daySlots)) ? {} : item.daySlots as Record<string,unknown>;
+      const toMinute=(v:string)=>Number(v.slice(0,2))*60+Number(v.slice(3));
+      for(const [day,slots] of Object.entries(daySlots)) {
+        if(!/^[1-7]$/.test(day)||!Array.isArray(slots)||slots.length>100||
+           slots.some((slot:unknown)=>typeof slot!=='string'||!timePattern.test(slot)||toMinute(slot)<toMinute(from)||toMinute(slot)+duration>toMinute(to)||
+             (toMinute(slot)-toMinute(from))%interval!==0||breaks.some(b=>toMinute(slot)<toMinute(String(b.to))&&toMinute(slot)+duration>toMinute(String(b.from)))))
+          throw new BadRequestException(`Перевірте вільні години ${day}-го дня для «${item.name}»`);
+      }
       const matches=String(item.price||'').replace(/\s/g,'').replace(/,/g,'.').match(/\d+(?:\.\d{1,2})?/g)||[];
       const minPrice=item.priceType==='free'?0:Number(matches[0]||0);
       const maxPrice=item.priceType==='range'&&matches.length>1?Number(matches[1]):null;
@@ -1390,7 +1398,7 @@ export class Stage2Service {
         throw new BadRequestException(`Некоректна ціна послуги «${item.name}»`);
       if(!['free','fixed','from','range','request'].includes(String(item.priceType||'')))
         throw new BadRequestException(`Оберіть тип ціни послуги «${item.name}»`);
-      return {item,duration,capacity,interval,from,to,days,breaks,minPrice,maxPrice};
+      return {item,duration,capacity,interval,from,to,days,breaks,daySlots,minPrice,maxPrice};
     });
     return this.db.transaction(async(client)=>{
       // Persist service definitions and matching reservable calendar items atomically.
@@ -1400,7 +1408,7 @@ export class Stage2Service {
       for(const c of configs) {
         const id=`service:${placeId}:${c.item.id}`;
         activeIds.push(id);
-        const hours={service_id:c.item.id,from:c.from,to:c.to,days:c.days,breaks:c.breaks,slot_minutes:c.interval,price_type:c.item.priceType,price_text:String(c.item.price||''),price_max:c.maxPrice};
+        const hours={service_id:c.item.id,from:c.from,to:c.to,days:c.days,breaks:c.breaks,day_slots:c.daySlots,slot_minutes:c.interval,price_type:c.item.priceType,price_text:String(c.item.price||''),price_max:c.maxPrice};
         await client.query(`INSERT INTO booking_resources(id,place_id,name,capacity,duration_minutes,price,working_hours,active)
           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,true)
           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,capacity=EXCLUDED.capacity,duration_minutes=EXCLUDED.duration_minutes,

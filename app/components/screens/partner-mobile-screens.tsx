@@ -174,6 +174,8 @@ type PartnerService = {
   maxGuests?: number;
   slotIntervalMinutes?: number;
   daysOfWeek?: number[];
+  // Missing day = all valid slots between the opening and closing hours.
+  daySlots?: Record<string,string[]>;
 };
 
 const defaultServices: PartnerService[] = [];
@@ -2361,9 +2363,11 @@ function CabinetScreen({ navigate }: { navigate: Navigate }) {
     "Налаштування",
   ];
   const configuredModules = profile.cabinetModules ?? [];
-  const moduleNames = configuredModules.length >= 3
+  const selectedModules = configuredModules.length >= 3
     ? [...configuredModules, ...(!configuredModules.includes("Гарячі пропозиції") ? ["Гарячі пропозиції"] : [])]
     : baseModules;
+  // Booking requests need to be the first item even for custom cabinet configurations.
+  const moduleNames = ["Бронювання", ...selectedModules.filter(name=>name!=="Бронювання"&&name!=="Бронювання і ресурси")];
   const enabled = moduleNames
     .filter((name) => profile.hasWifi || name !== "Wi‑Fi")
     .map((name) => definitions[name] ?? { slug: "partner-update", icon: Info, title: name, note: "Налаштування цього розділу кабінету" })
@@ -2717,20 +2721,46 @@ function PartnerServiceTranslationFields({service,onChange}:{service:PartnerServ
 }
 
 function ServiceBookingSettings({service,onChange}:{service:PartnerService;onChange:(next:PartnerService)=>void}) {
+  const [editingDay,setEditingDay]=useState<number|null>(null);
   const chosen = service.daysOfWeek || (service.scheduleType === 'weekdays' ? [1,2,3,4,5] : [1,2,3,4,5,6,7]);
+  const parseMinutes=(value:string)=>/^([01]\d|2[0-3]):[0-5]\d$/.test(value)?Number(value.slice(0,2))*60+Number(value.slice(3)):NaN;
+  const start=parseMinutes(service.timeFrom),end=parseMinutes(service.timeTo);
+  const duration=Number(service.durationMinutes||60),interval=Number(service.slotIntervalMinutes||30);
+  const defaultSlots:string[]=[];
+  if(Number.isFinite(start)&&Number.isFinite(end)&&end>start&&duration>=15&&interval>=15){
+    for(let m=start;m+duration<=end&&defaultSlots.length<100;m+=interval){
+      const conflicts=(service.breaks||[]).some(b=>{const from=parseMinutes(b.from),to=parseMinutes(b.to);return Number.isFinite(from)&&Number.isFinite(to)&&m<to&&m+duration>from;});
+      if(!conflicts)defaultSlots.push(`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`);
+    }
+  }
+  const custom=editingDay===null?undefined:service.daySlots?.[String(editingDay)];
+  const selectedSlots=custom===undefined?defaultSlots:custom;
+  const setDaySlots=(day:number,times:string[])=>onChange({...service,daySlots:{...(service.daySlots||{}),[day]:times}});
+  const restoreDay=(day:number)=>{const next={...(service.daySlots||{})};delete next[String(day)];onChange({...service,daySlots:next});};
   return <section className="gt-service-bookable-settings">
     <div className="gt-service-toggle-block"><span><strong>Онлайн-бронювання цієї послуги</strong><small>Гості зможуть обирати тільки дозволені вами години</small></span>
       <ServiceSwitch checked={service.bookingEnabled===true} onChange={bookingEnabled=>onChange({...service,bookingEnabled})}/></div>
     {service.bookingEnabled ? <>
       <div className="gt-service-inline-fields">
-        <label className="gt-booking-field"><span>Тривалість, хв</span><input type="number" min="15" max="1440" step="15" value={service.durationMinutes || 60} onChange={e=>onChange({...service,durationMinutes:Number(e.target.value)})}/></label>
-        <label className="gt-booking-field"><span>Максимум гостей</span><input type="number" min="1" max="100" value={service.maxGuests || 1} onChange={e=>onChange({...service,maxGuests:Number(e.target.value)})}/></label>
+        <label className="gt-booking-field"><span>Тривалість, хв</span><input type="number" min="15" max="1440" step="15" value={service.durationMinutes||60} onChange={e=>onChange({...service,durationMinutes:Number(e.target.value)})}/></label>
+        <label className="gt-booking-field"><span>Максимум гостей</span><input type="number" min="1" max="100" value={service.maxGuests||1} onChange={e=>onChange({...service,maxGuests:Number(e.target.value)})}/></label>
       </div>
-      <label className="gt-booking-field"><span>Інтервал між початками бронювань</span><select value={service.slotIntervalMinutes || 30} onChange={e=>onChange({...service,slotIntervalMinutes:Number(e.target.value)})}>
+      <label className="gt-booking-field"><span>Інтервал між початками бронювань</span><select value={service.slotIntervalMinutes||30} onChange={e=>onChange({...service,slotIntervalMinutes:Number(e.target.value),daySlots:{}})}>
         <option value={15}>15 хв</option><option value={30}>30 хв</option><option value={60}>60 хв</option>
       </select></label>
-      <div className="gt-service-days"><strong>Дні доступності</strong><div>{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day,index)=><button type="button" key={day} className={chosen.includes(index+1)?'is-active':''} onClick={()=>onChange({...service,daysOfWeek:chosen.includes(index+1)?chosen.filter(v=>v!==index+1):[...chosen,index+1].sort()})}>{day}</button>)}</div></div>
-      <p className="gt-service-photo-hint">Час «Від» і «До» вище визначає доступний період; перерви також блокують слоти. Бронювання поза графіком сервер відхиляє.</p>
+      <div className="gt-service-days"><strong>Години за днями тижня</strong><p className="gt-service-day-hint">Натисніть день, щоб змінити його вільні години. Для інших днів діє повний графік роботи послуги.</p>
+        <div>{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day,index)=><button type="button" key={day} aria-pressed={editingDay===index+1} className={`${chosen.includes(index+1)?'is-active':''} ${editingDay===index+1?'is-editing':''}`} onClick={()=>setEditingDay(current=>current===index+1?null:index+1)}>{day}</button>)}</div>
+      </div>
+      {editingDay!==null?<div className="gt-service-day-editor">
+        <div className="gt-service-day-editor__head"><strong>{['Понеділок','Вівторок','Середа','Четвер','П’ятниця','Субота','Неділя'][editingDay-1]}</strong><ServiceSwitch checked={chosen.includes(editingDay)} onChange={enabled=>onChange({...service,daysOfWeek:enabled?[...chosen,editingDay].filter((v,i,a)=>a.indexOf(v)===i).sort() : chosen.filter(d=>d!==editingDay)})}/></div>
+        {chosen.includes(editingDay)?<>
+          <p className="gt-service-day-hint">{custom===undefined?'Доступні всі години в межах графіка.':'Індивідуальні години цього дня.'} Зайняті бронюваннями години система прибирає автоматично.</p>
+          <div className="gt-service-day-slots">{defaultSlots.map(slot=><button type="button" key={slot} aria-pressed={selectedSlots.includes(slot)} className={selectedSlots.includes(slot)?'is-selected':''} onClick={()=>setDaySlots(editingDay,selectedSlots.includes(slot)?selectedSlots.filter(s=>s!==slot):[...selectedSlots,slot].sort())}>{slot}</button>)}</div>
+          {!defaultSlots.length?<p className="gt-service-day-hint">За поточного часу роботи та тривалості послуги немає доступних початків.</p>:null}
+          <button type="button" className="gt-service-day-reset" onClick={()=>restoreDay(editingDay)}>Відновити всі години цього дня</button>
+        </>:<p className="gt-service-day-hint">Цього дня онлайн-бронювання вимкнено.</p>}
+      </div>:null}
+      <p className="gt-service-photo-hint">Вільні години розраховуються за часом роботи, тривалістю послуги, перервами та вже створеними бронюваннями.</p>
     </> : null}
   </section>;
 }
@@ -3201,6 +3231,7 @@ function ToggleRow({
 
 type PartnerResource = {id:string;name:string;price:number;duration_minutes:number;capacity:number;active:boolean};
 type PartnerBooking = {id:string;resource_id:string;resource_name:string;client_name:string;phone:string|null;starts_at:string;party_size:number;status:string;comment:string;source:string};
+type OccupiedBooking = {id:string;resource_id:string;starts_at:string;ends_at:string};
 function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const placeId=typeof window!=='undefined'?window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'':'';
   const [resources,setResources]=useState<PartnerResource[]>([]);
@@ -3209,8 +3240,10 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const [clientName,setClientName]=useState('');
   const [phone,setPhone]=useState('');
   const [date,setDate]=useState(()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()));
+  const liveDate=useRef(date);liveDate.current=date;
   const [time,setTime]=useState('');
   const [availableSlots,setAvailableSlots]=useState<Record<string,string[]>>({});
+  const [occupiedSlots,setOccupiedSlots]=useState<OccupiedBooking[]>([]);
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   const reload=async()=>{
@@ -3225,21 +3258,27 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
       setSelectedResource(old=>bookable.some(item=>item.id===old)?old:bookable[0]?.id||'');
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося завантажити бронювання');}
   };
-  useEffect(()=>{void reload();},[placeId]);
+  useEffect(()=>{void reload();const timer=setInterval(()=>{void reload();void refreshCalendar();},30000);return()=>clearInterval(timer);},[placeId]);
   const bookableResources=resources.filter(item=>item.active&&item.id.startsWith('service:'));
+  const refreshCalendar=async()=>{
+    const requestedDate=liveDate.current;
+    if(!placeId||!requestedDate)return;
+    const result=await stage2Fetch<{slots:Record<string,string[]>;occupied:OccupiedBooking[]}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${encodeURIComponent(requestedDate)}`);
+    if(liveDate.current===requestedDate){setAvailableSlots(result.slots||{});setOccupiedSlots(result.occupied||[]);}
+  };
   useEffect(()=>{
-    if(!placeId||!date){setAvailableSlots({});return;}
+    if(!placeId||!date){setAvailableSlots({});setOccupiedSlots([]);return;}
     let closed=false;
-    void stage2Fetch<{slots:Record<string,string[]>}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${encodeURIComponent(date)}`)
-      .then(result=>{if(!closed)setAvailableSlots(result.slots||{});})
-      .catch(()=>{if(!closed)setAvailableSlots({});});
+    void stage2Fetch<{slots:Record<string,string[]>;occupied:OccupiedBooking[]}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${encodeURIComponent(date)}`)
+      .then(result=>{if(!closed){setAvailableSlots(result.slots||{});setOccupiedSlots(result.occupied||[]);}})
+      .catch(()=>{if(!closed){setAvailableSlots({});setOccupiedSlots([]);}});
     return()=>{closed=true;};
   },[placeId,date]);
   const slots=availableSlots[selectedResource]||[];
   useEffect(()=>{if(!slots.includes(time))setTime(slots[0]||'');},[selectedResource,date,availableSlots,time]);
   const updateStatus=async(id:string,status:string)=>{
     setBusy(true);setMessage('');
-    try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();}
+    try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();await refreshCalendar();}
     catch(e){setMessage(e instanceof Error?e.message:'Не вдалося оновити статус');}
     finally{setBusy(false);}
   };
@@ -3248,10 +3287,13 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
     setBusy(true);setMessage('');
     try{
       await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName.trim(),phone:phone.trim(),party_size:1,starts_at:kyivBookingIso(date,time)})});
-      setMessage('Бронювання додано');setClientName('');await reload();
+      setMessage('Бронювання додано');setClientName('');await reload();await refreshCalendar();
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося створити бронювання');}
     finally{setBusy(false);}
   };
+  const pendingBookings=bookings.filter(b=>['new','pending_partner','alternative_proposed'].includes(b.status));
+  const confirmedBookings=bookings.filter(b=>b.status==='confirmed');
+  const historyBookings=bookings.filter(b=>!['new','pending_partner','alternative_proposed','confirmed'].includes(b.status));
   const bookingStatusText:Record<string,string>={new:'Нова',pending_partner:'Очікує підтвердження',confirmed:'Підтверджено',completed:'Завершено',alternative_proposed:'Запропоновано інший час',cancelled_by_partner:'Скасовано закладом',cancelled_by_user:'Скасовано гостем',no_show:'Не зʼявився',refunded:'Повернення'};
   const inputField=(label:string,value:string,onChange:(v:string)=>void,placeholder='')=><label className="gt-booking-field"><span>{label}</span><input type="text" value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></label>;
   return <div className="gt-partner-mobile-screen has-bottom-nav gt-partner-booking-screen">
@@ -3266,15 +3308,16 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
         <button className="gt-booking-action" type="button" onClick={()=>navigate('partner','partner-services')}><Plus size={18}/>Налаштувати послуги</button>
       </section>
       <section className="gt-booking-panel">
-        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><ClipboardList size={20}/></span><div><h2>Календар і заявки</h2><p>Реальні бронювання закладу, включно з попередніми</p></div></div>
-        {!bookings.length?<p className="gt-booking-empty">Заявок поки немає.</p>:bookings.map(b=><article key={b.id} className="gt-booking-request">
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><ClipboardList size={20}/></span><div><h2>Бронювання</h2><p>Нові заявки · {pendingBookings.length} · підтверджені · {confirmedBookings.length}</p></div></div>
+        {!bookings.length?<p className="gt-booking-empty">Заявок поки немає.</p>:null}
+        {([["Очікують рішення",pendingBookings],["Підтверджені",confirmedBookings],["Історія бронювань",historyBookings]] as [string,PartnerBooking[]][]).map(([title,items])=>items.length?<div key={title} className="gt-booking-status-group"><h3>{title}</h3>{items.map(b=><article key={b.id} className="gt-booking-request">
           <div className="gt-booking-request__head"><strong>{b.resource_name}</strong><span>{bookingStatusText[b.status]||b.status}</span></div>
           <time>{new Date(b.starts_at).toLocaleString('uk-UA',{dateStyle:'medium',timeStyle:'short'})}</time>
           <p>{b.client_name||'Гість'} · {b.phone||'без телефону'} · {b.party_size} ос.</p>
           {b.comment?<small>{b.comment}</small>:null}
           {['new','pending_partner','alternative_proposed'].includes(b.status)?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'confirmed')}>Підтвердити</button><button type="button" disabled={busy} className="is-muted" onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Відхилити</button></div>:null}
           {b.status==='confirmed'?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button></div>:null}
-        </article>)}
+        </article>)}</div>:null)}
       </section>
       <section className="gt-booking-panel">
         <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Додати бронювання</h2><p>Тільки послуги та вільний час із вашого календаря</p></div></div>
@@ -3285,6 +3328,7 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
           <label className="gt-booking-field"><span>Дата</span><input type="date" value={date} min={new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())} onChange={e=>setDate(e.target.value)}/></label>
           <label className="gt-booking-field"><span>Час</span><select value={time} onChange={e=>setTime(e.target.value)}>{slots.length?slots.map(v=><option key={v} value={v}>{v}</option>):<option value="">Немає вільного часу</option>}</select></label>
         </div>
+        {occupiedSlots.filter(item=>item.resource_id===selectedResource).length?<div className="gt-booking-occupied"><strong>Зайнято на цю дату</strong><div>{occupiedSlots.filter(item=>item.resource_id===selectedResource).map(item=><span key={item.id}>{new Date(item.starts_at).toLocaleTimeString('uk-UA',{timeZone:'Europe/Kyiv',hour:'2-digit',minute:'2-digit'})} – {new Date(item.ends_at).toLocaleTimeString('uk-UA',{timeZone:'Europe/Kyiv',hour:'2-digit',minute:'2-digit'})}</span>)}</div></div>:null}
         <button className="gt-booking-action" type="button" disabled={busy||!selectedResource||!date||!time||!slots.includes(time)} onClick={()=>void addManual()}><Check size={18}/> Зберегти бронювання</button>
       </section>
       {message?<p role="status" className="gt-booking-message">{message}</p>:null}

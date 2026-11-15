@@ -1451,9 +1451,9 @@ type PublicPartnerService = {
   bookingEnabled?:boolean;durationMinutes?:number;maxGuests?:number;
 };
 const BOOKING_SERVICE_KEY='gid-tourist-booking-selected-service';
-function servicePhotoParts(photo:string|undefined,alt:string) {
+function servicePhotoParts(photo:string|undefined,alt:string,eager=false) {
   return photo ? <><span className="gt-real-service-photo__blur" style={{backgroundImage:`url(${photo})`}}/>
-    <img className="gt-real-service-photo__image" src={photo} alt={alt} loading="lazy"/></> : <span className="gt-real-service-photo__empty"><Hotel size={38}/></span>;
+    <img className="gt-real-service-photo__image" src={photo} alt={alt} loading={eager?'eager':'lazy'}/></> : <span className="gt-real-service-photo__empty"><Hotel size={38}/></span>;
 }
 function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
@@ -1484,7 +1484,11 @@ function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
     return `${service.priceType==='from' ? touristInterfaceText(runtime.language,"Від "):''}${service.price} ${service.currency==='UAH'||!service.currency?'₴':service.currency}`;
   };
   const book=(service:PublicPartnerService)=>{
-    if(typeof window!=='undefined')window.sessionStorage.setItem(BOOKING_SERVICE_KEY,JSON.stringify({placeId,id:service.id,name:service.name,image:service.image||'',priceType:service.priceType||'',price:service.price||'',currency:service.currency||'UAH'}));
+    // Store only the stable service reference. Photos are often base64 and can
+    // overflow sessionStorage; the booking screen fetches the real photo.
+    if(typeof window!=='undefined')window.sessionStorage.setItem(BOOKING_SERVICE_KEY,JSON.stringify({placeId,id:service.id,name:service.name,
+      image:service.image?.startsWith('data:')?'':(service.image||''),priceType:service.priceType||'',price:service.price||'',currency:service.currency||'UAH'}));
+    if(place)runtime.setSelectedPlace(place);
     navigate('tourist','booking');
   };
   const phone = (selected?.phone || place?.phone || '').trim();
@@ -1494,7 +1498,7 @@ function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
   const nextFeature=(direction:number)=>setFeatureIndex(index=>(index+direction+Math.min(services.length,4))%Math.min(services.length,4));
   if(selected)return <div className="tourist-screen gt-screen gt-hotel-service-detail gt-real-service-detail-screen">
     <header className="gt-hotel-services-header"><button type="button" aria-label="Назад" onClick={()=>setSelected(null)}><ArrowLeft size={25}/></button><h1>{touristInterfaceText(runtime.language,'Послуги закладу')}</h1><span/></header>
-    <section className="gt-hotel-service-photo gt-real-service-photo">{servicePhotoParts(selected.image,name(selected))}</section>
+    <section className="gt-hotel-service-photo gt-real-service-photo">{servicePhotoParts(selected.image,name(selected),true)}</section>
     <section className="gt-hotel-service-copy"><h2>{name(selected)}</h2>{description(selected)?<p>{description(selected)}</p>:null}</section>
     {selected.additionalInfo?<p className="gt-real-service-note">{localizedField(runtime.language,selected,'additionalInfo')}</p>:null}
     <section className="gt-hotel-service-price"><strong>{price(selected)}</strong>
@@ -2121,7 +2125,7 @@ function PlaceScreen({ navigate }: { navigate: Navigate }) {
           <button type="button" onClick={() => current.telegram ? window.open(current.telegram, "_blank", "noopener,noreferrer") : undefined}><MessageCircle size={22} /><span>Telegram</span></button>
           <button type="button" className={favorite ? "is-active" : ""} onClick={() => void toggleFavorite()}><Heart size={22} fill={favorite ? "currentColor" : "none"} /><span>{favorite ? tr(runtime.language, "Збережено", "Saved", "Zapisano") : tr(runtime.language, "Зберегти", "Save", "Zapisz")}</span></button>
         </div>
-        {bookableResources.length ? <button type="button" className="gt-primary-button gt-place-book-button" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','booking');}}><CalendarDays size={20}/> <TouristText uk="Забронювати"/> <span>{bookableResources.length} {bookableResources.length===1?'ресурс':'ресурси'}</span><ChevronRight size={18}/></button>:null}
+        {bookableResources.length ? <button type="button" className="gt-primary-button gt-place-book-button" onClick={()=>{window.sessionStorage.removeItem(BOOKING_SERVICE_KEY);runtime.setSelectedPlace(current);navigate('tourist','booking');}}><CalendarDays size={20}/> <TouristText uk="Забронювати"/> <span>{bookableResources.length} {bookableResources.length===1?'ресурс':'ресурси'}</span><ChevronRight size={18}/></button>:null}
         {Array.isArray(current.details?.services) && current.details.services.some((s:unknown)=>typeof s==='object'&&s!==null&&(s as {active?:boolean;hidden?:boolean}).active!==false&&(s as {hidden?:boolean}).hidden!==true) ? <button type="button" className="gt-detail-card gt-place-services-link" onClick={()=>{runtime.setSelectedPlace(current);navigate('tourist','hotel-services');}}><span><Hotel size={22}/></span><div><strong><TouristText uk="Послуги закладу"/></strong><small><TouristText uk="Тільки послуги, додані партнером"/></small></div><ChevronRight size={19}/></button> : null}
         <SectionTitle title={tr(runtime.language, "Про заклад", "About", "O miejscu")} />
         <p className="gt-body-copy">{current.description || tr(runtime.language, "Інформація про заклад уточнюється.", "Place information is being updated.", "Informacje o miejscu są aktualizowane.")}</p>
@@ -2322,13 +2326,22 @@ type BookingRecord = {id:string;place_name?:string;resource_name?:string;starts_
 function BookingScreen({ navigate }: { navigate: Navigate }) {
   const runtime=useTouristRuntime();
   const selected=runtime.selectedPlace;
-  const placeId=selected?.id||runtime.selectedPlaceId||runtime.context?.place?.id||'';
   const translate=(value:string)=>touristInterfaceText(runtime.language,value);
   const [service]=useState<{placeId:string;id:string;name:string;image:string;priceType:string;price:string;currency:string}|null>(()=>{
     if(typeof window==='undefined')return null;
     try{const value=window.sessionStorage.getItem(BOOKING_SERVICE_KEY);return value?JSON.parse(value):null;}catch{return null;}
   });
+  const placeId=service?.placeId||selected?.id||runtime.selectedPlaceId||runtime.context?.place?.id||'';
   const serviceSelected=service?.placeId===placeId?service:null;
+  const [actualService,setActualService]=useState<PublicPartnerService|null>(null);
+  useEffect(()=>{
+    if(!placeId||!serviceSelected?.id){setActualService(null);return;}
+    let closed=false;
+    void stage2Fetch<PublicPartnerService[]>(`/partner/services/public/${encodeURIComponent(placeId)}`)
+      .then(items=>{if(!closed)setActualService(items.find(item=>item.id===serviceSelected.id)||null);})
+      .catch(()=>{if(!closed)setActualService(null);});
+    return()=>{closed=true;};
+  },[placeId,serviceSelected?.id]);
   const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const [date,setDate]=useState(today);
   const [resources,setResources]=useState<BookingResource[]>([]);
@@ -2356,8 +2369,9 @@ function BookingScreen({ navigate }: { navigate: Navigate }) {
   const resource=bookables.find(r=>r.id===resourceId);
   const availableSlots=resource?slots[resource.id]||[]:[];
   useEffect(()=>{if(!availableSlots.includes(time))setTime(availableSlots[0]||'');},[resourceId,date,slots,time]);
-  const photo=serviceSelected?.image||(selected||runtime.context?.place)?.image_url||'';
-  const name=serviceSelected?.name||localizedField(runtime.language,selected||runtime.context?.place,'name',translate('Бронювання'));
+  const venuePlace=selected?.id===placeId?selected:runtime.context?.place?.id===placeId?runtime.context.place:null;
+  const photo=actualService?.image||serviceSelected?.image||venuePlace?.image_url||'';
+  const name=actualService?localizedField(runtime.language,actualService,'name',serviceSelected?.name||''):serviceSelected?.name||localizedField(runtime.language,venuePlace,'name',translate('Бронювання'));
   const priceText=resource?.working_hours?.price_text||serviceSelected?.price||'';
   const priceType=resource?.working_hours?.price_type||serviceSelected?.priceType||'';
   const priceLabel=!resource?'—':priceType==='free'?translate('Безкоштовно'):
@@ -2379,11 +2393,11 @@ function BookingScreen({ navigate }: { navigate: Navigate }) {
     <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1>{translate('Бронювання')}</h1><p>{translate('Оберіть доступний час послуги')}</p></div></div>
     <div className="gt-booking-place gt-real-booking-place">
       {photo?<img className="gt-real-booking-image" src={photo} alt={name}/>:<span className="gt-real-booking-image gt-real-booking-placeholder"><Hotel size={27}/></span>}
-      <div><strong>{name}</strong><small>{selected?.address||runtime.context?.place?.address||''}</small></div>
+      <div><strong>{name}</strong><small>{venuePlace?.address||''}</small></div>
     </div>
     {resource&&['from','range','request'].includes(priceType)?<p className="gt-real-service-note">{translate('Остаточну вартість уточнює заклад під час підтвердження бронювання.')}</p>:null}
     {loading?<p className="gt-stage2-empty">{translate('Перевіряємо доступність…')}</p>:null}
-    {!loading&&!bookables.length?<p className="gt-notice">{translate('Для цієї послуги партнер ще не налаштував онлайн-бронювання. Зверніться до закладу за телефоном.')}</p>:null}
+    {!loading&&!bookables.length?<p className="gt-notice">{serviceSelected?.id ? translate('Календар цієї послуги ще не доступний. Партнеру потрібно відкрити послугу та зберегти її графік бронювання.') : translate('Цей заклад ще не налаштував онлайн-бронювання послуг.')}</p>:null}
     {bookables.length>1?<><SectionTitle title="Послуга"/><div className="gt-time-grid">{bookables.map(item=><button type="button" key={item.id} className={resourceId===item.id?'is-active':''} onClick={()=>{setResourceId(item.id);setConfirmed(false);}}>{item.name}</button>)}</div></>:null}
     <SectionTitle title="Дата"/><input aria-label={translate('Дата бронювання')} type="date" min={today()} value={date} onChange={event=>{setDate(event.target.value);setConfirmed(false);}} style={{width:'100%',padding:'14px',borderRadius:12,border:'1px solid #dde3df'}}/>
     <SectionTitle title="Вільний час"/>
