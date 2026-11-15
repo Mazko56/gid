@@ -242,7 +242,11 @@ export default function ProductApplication({ role, slug }: { role: RoleKey; slug
   const navigate = (nextRole: RoleKey, nextSlug: string) => {
     const screen = getScreen(nextRole, nextSlug);
     setMenuOpen(false);
-    router.push(`/${nextRole}/${screen.slug}`);
+    const priceNavigation = nextRole === "partner" && [
+      "partner-service-price-type", "partner-service-edit-price-type",
+      "partner-service-add", "partner-service-edit",
+    ].includes(screen.slug);
+    router.push(`/${nextRole}/${screen.slug}`, { scroll: !priceNavigation });
   };
 
   if (role === "partner") {

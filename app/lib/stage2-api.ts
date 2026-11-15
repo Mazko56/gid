@@ -249,7 +249,8 @@ export function setSessionToken(token: string) {
 
 export function selectedPlaceId() {
   if (typeof window === "undefined") return "";
-  return window.sessionStorage.getItem(SELECTED_PLACE_KEY) ?? "";
+  try { return window.sessionStorage.getItem(SELECTED_PLACE_KEY) ?? ""; }
+  catch { return ""; } // Telegram WebView may block or exhaust sessionStorage.
 }
 
 export function selectedPlacePreview() {
@@ -264,14 +265,34 @@ export function selectedPlacePreview() {
 
 export function setSelectedPlaceIdStorage(id: string) {
   if (typeof window === "undefined") return;
-  if (id) window.sessionStorage.setItem(SELECTED_PLACE_KEY, id);
-  else window.sessionStorage.removeItem(SELECTED_PLACE_KEY);
+  try {
+    if (id) window.sessionStorage.setItem(SELECTED_PLACE_KEY, id);
+    else window.sessionStorage.removeItem(SELECTED_PLACE_KEY);
+  } catch { /* Storage is optional: in-memory selection must still work. */ }
 }
 
+// A place can include large base64 photos in details.services. Storing all of those
+// in sessionStorage may throw QuotaExceededError and PREVENT navigation to the place.
+// Persist only a lightweight preview; the place-details endpoint loads full details.
 export function setSelectedPlacePreviewStorage(place: Stage2Place | null) {
   if (typeof window === "undefined") return;
-  if (place) window.sessionStorage.setItem(SELECTED_PLACE_PREVIEW_KEY, JSON.stringify(place));
-  else window.sessionStorage.removeItem(SELECTED_PLACE_PREVIEW_KEY);
+  try {
+    if (!place) { window.sessionStorage.removeItem(SELECTED_PLACE_PREVIEW_KEY); return; }
+    const logo = place.details?.logo_url;
+    const compact: Stage2Place = {
+      id: place.id, region_id: place.region_id, category_slug: place.category_slug,
+      name: place.name, description: (place.description || "").slice(0, 600),
+      address: place.address, lat: place.lat, lng: place.lng,
+      rating: place.rating, review_count: place.review_count,
+      category_name: place.category_name, subcategory: place.subcategory,
+      phone: place.phone, telegram: place.telegram, website: place.website,
+      image_url: typeof place.image_url === "string" && !place.image_url.startsWith("data:") ? place.image_url : null,
+      source: place.source, is_partner: place.is_partner,
+      distance_m: place.distance_m, walking_duration_s: place.walking_duration_s,
+      details: typeof logo === "string" && !logo.startsWith("data:") && logo.length < 2048 ? { logo_url: logo } : {},
+    };
+    window.sessionStorage.setItem(SELECTED_PLACE_PREVIEW_KEY, JSON.stringify(compact));
+  } catch { /* A full sessionStorage must never break opening a place. */ }
 }
 
 async function stage2Request(path: string, init: RequestInit = {}, token = "") {

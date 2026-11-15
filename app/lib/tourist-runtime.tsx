@@ -105,6 +105,13 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
               resolvedContext = ctx;
               if (!cancelled) {
                 setContext(ctx);
+                // A new QR launch must not inherit another venue selected on a previous visit.
+                // Later explicit catalog selections still override the QR within this launch.
+                const qrPlace = ctx.place ?? null;
+                setSelectedPlaceState(qrPlace);
+                setSelected(qrPlace?.id ?? "");
+                setSelectedPlaceIdStorage(qrPlace?.id ?? "");
+                setSelectedPlacePreviewStorage(qrPlace);
                 // The QR's venue (or region) is the tourist's search origin, regardless of GPS permissions.
                 setLocation({
                   lat: Number(ctx.place?.lat ?? ctx.region.lat),

@@ -139,6 +139,42 @@ const ACTIVATED_STORAGE_KEY = "gid-tourist-partner-activated";
 const SERVICES_STORAGE_KEY = "gid-tourist-partner-services";
 const SERVICE_DRAFT_STORAGE_KEY = "gid-tourist-partner-service-draft";
 const SERVICE_SELECTED_STORAGE_KEY = "gid-tourist-partner-selected-service";
+const SERVICE_PRICE_SCROLL_KEY = "gid-partner-service-price-return-position";
+// Keep an in-memory fallback because Telegram WebView storage may be full of photos.
+let pendingPriceScroll: { kind: "add" | "edit"; rowTop: number; scrollY: number } | null = null;
+function priceTypeRow() {
+  return [...document.querySelectorAll<HTMLElement>(".gt-service-editor-content .gt-service-select-row")]
+    .find((element) => element.textContent?.includes("Тип ціни")) || null;
+}
+function rememberPriceTypePosition(kind: "add" | "edit") {
+  if (typeof window === "undefined") return;
+  pendingPriceScroll = { kind, rowTop: priceTypeRow()?.getBoundingClientRect().top ?? 0, scrollY: window.scrollY };
+  try { window.sessionStorage.setItem(SERVICE_PRICE_SCROLL_KEY, JSON.stringify(pendingPriceScroll)); } catch { /* optional */ }
+}
+function useRestorePriceTypePosition(kind: "add" | "edit", ready: boolean) {
+  useEffect(() => {
+    if (!ready || typeof window === "undefined") return;
+    let stored = pendingPriceScroll;
+    if (!stored) {
+      try { stored = JSON.parse(window.sessionStorage.getItem(SERVICE_PRICE_SCROLL_KEY) || "null"); } catch { /* optional */ }
+    }
+    if (!stored || stored.kind !== kind) return;
+    const savedPosition = stored;
+    pendingPriceScroll = null;
+    try { window.sessionStorage.removeItem(SERVICE_PRICE_SCROLL_KEY); } catch { /* optional */ }
+    // Wait for the draft and the conditional price input to render before restoring.
+    const first = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const target = priceTypeRow();
+        const currentY = window.scrollY;
+        const desired = target ? currentY + target.getBoundingClientRect().top - savedPosition.rowTop : savedPosition.scrollY;
+        window.scrollTo({ top: Math.max(0, desired), behavior: "auto" });
+      });
+    });
+    return () => window.cancelAnimationFrame(first);
+  }, [kind, ready]);
+}
+
 
 type PartnerServiceAudience = "hotel" | "all";
 type PartnerServicePriceType = "" | "free" | "fixed" | "from" | "range" | "request";
@@ -2768,14 +2804,19 @@ function ServiceBookingSettings({service,onChange}:{service:PartnerService;onCha
 function AddServiceScreen({ navigate }: { navigate: Navigate }) {
   const [draft, setDraft] = useState<PartnerService>(emptyServiceDraft);
   const [preview, setPreview] = useState<string>("");
+  const [draftReady, setDraftReady] = useState(false);
 
   useEffect(() => {
     setDraft(readServiceDraft());
+    setDraftReady(true);
   }, []);
 
+  // Do not overwrite the selected price type with the empty initial draft
+  // before localStorage has been read on returning to this screen.
   useEffect(() => {
-    saveServiceDraft(draft);
-  }, [draft]);
+    if (draftReady) saveServiceDraft(draft);
+  }, [draft, draftReady]);
+  useRestorePriceTypePosition("add", draftReady);
 
   const [saveError, setSaveError] = useState('');
   const save = async () => {
@@ -2852,7 +2893,7 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
           label="Тип ціни"
           value={priceTypeLabel(draft.priceType)}
           placeholder="Оберіть тип ціни"
-          onClick={() => navigate("partner", "partner-service-price-type")}
+          onClick={() => { rememberPriceTypePosition("add"); navigate("partner", "partner-service-price-type"); }}
         />
         {['fixed','from','range'].includes(draft.priceType) ? <div className="gt-service-inline-fields">
           <ServiceField label={draft.priceType === 'range' ? 'Діапазон цін, ₴' : 'Ціна, ₴'} value={draft.price} placeholder={draft.priceType === 'range' ? 'Наприклад, 500–900' : 'Наприклад, 500'} onChange={(price) => setDraft((current) => ({...current, price}))} />
@@ -2966,10 +3007,13 @@ function readSelectedService() {
 function EditServiceScreen({ navigate }: { navigate: Navigate }) {
   const [service, setService] = useState<PartnerService>(() => ({ ...emptyServiceDraft }));
   const [saveError,setSaveError] = useState('');
+  const [serviceReady,setServiceReady] = useState(false);
 
   useEffect(() => {
     setService(readSelectedService());
+    setServiceReady(true);
   }, []);
+  useRestorePriceTypePosition("edit", serviceReady);
 
   const persist = (next: PartnerService) => {
     setService(next);
@@ -3027,6 +3071,7 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
 
         <h3 className="gt-service-section-title">Ціна послуги</h3>
         <ServiceSelectRow label="Тип ціни" value={priceTypeLabel(service.priceType)} placeholder="Оберіть тип ціни" onClick={() => {
+          rememberPriceTypePosition("edit");
           savePartnerServices(readPartnerServices().map((item) => item.id === service.id ? service : item));
           saveServiceDraft(service);
           navigate("partner", "partner-service-edit-price-type");
