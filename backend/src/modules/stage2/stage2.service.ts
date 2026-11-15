@@ -1358,7 +1358,7 @@ export class Stage2Service {
     await this.assertOwnedPartnerPlace(user,placeId);
     const services = body.services;
     if (!Array.isArray(services) || services.length > 80) throw new BadRequestException('Надто багато послуг або неправильний формат');
-    const filtered = services.map((item,index) => {
+    const filtered: Array<Record<string, unknown> & { id: string; name: string }> = services.map((item,index) => {
       if (!item || typeof item !== 'object') throw new BadRequestException('Некоректна послуга');
       const record = item as Record<string,unknown>;
       const name = String(record.name || '').trim().slice(0,160);
@@ -1375,12 +1375,12 @@ export class Stage2Service {
     const configs = bookable.map(item=>{
       const duration=Number(item.durationMinutes),capacity=Number(item.maxGuests),interval=Number(item.slotIntervalMinutes||30);
       const from=String(item.timeFrom||''),to=String(item.timeTo||'');
-      const days=Array.isArray(item.daysOfWeek)?item.daysOfWeek.map(Number):[1,2,3,4,5,6,7];
+      const days: number[] = Array.isArray(item.daysOfWeek)?item.daysOfWeek.map((day: unknown)=>Number(day)):[1,2,3,4,5,6,7];
       if(!Number.isInteger(duration)||duration<15||duration>1440||!Number.isInteger(capacity)||capacity<1||capacity>100 || ![15,30,60].includes(interval))
         throw new BadRequestException(`Уточніть тривалість, кількість гостей та інтервал для «${item.name}»`);
       if(!timePattern.test(from)||!timePattern.test(to)||from>=to||!days.length||days.some(d=>!Number.isInteger(d)||d<1||d>7))
         throw new BadRequestException(`Укажіть коректний графік бронювання для «${item.name}»`);
-      const breaks=Array.isArray(item.breaks)?item.breaks:[];
+      const breaks: Array<Record<string, unknown>> = Array.isArray(item.breaks)?item.breaks:[];
       if(breaks.some(b=>!b||!timePattern.test(String(b.from))||!timePattern.test(String(b.to))||String(b.from)>=String(b.to)))
         throw new BadRequestException(`Перевірте перерви для «${item.name}»`);
       const daySlots=(!item.daySlots || typeof item.daySlots!=='object'||Array.isArray(item.daySlots)) ? {} : item.daySlots as Record<string,unknown>;
