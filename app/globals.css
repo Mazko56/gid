@@ -3810,7 +3810,9 @@ button.gt-service-card {
 .gt-community-hero > small { color:#cceedd; font-size:11px; }
 .gt-community-hero h1 { margin:0; font-size:26px; line-height:1.12; }
 .gt-community-hero p { margin:0; color:#e3f7ed; font-size:12px; }
-.gt-community-hero .gt-primary-button { margin-top:4px; border-color:#fff; color:#0b8951 !important; background:#fff; box-shadow:none; }
+.gt-community-hero .gt-primary-button { margin-top:4px; border-color:#087c43; color:#fff !important; background:#087c43; box-shadow:0 3px 10px rgba(0,45,24,.14); }
+.gt-community-hero .gt-primary-button:not(:disabled):hover {background:#006c3a;border-color:#006c3a;}
+.gt-community-hero .gt-primary-button:disabled {opacity:.55;cursor:not-allowed;}
 .gt-community-list { display:grid; overflow:hidden; border:1px solid #e5ebe7; border-radius:14px; background:#fff; }
 .gt-community-list > div { display:grid; grid-template-columns:42px minmax(0,1fr); gap:10px; align-items:center; padding:12px; border-bottom:1px solid #edf0ee; }
 .gt-community-list > div:last-child { border:0; }

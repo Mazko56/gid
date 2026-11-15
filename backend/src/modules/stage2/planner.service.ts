@@ -34,7 +34,7 @@ const allowedActivities=['nature','active','relax','family','food','culture','ro
 const allowedAvoid=['heights','crowds','long_trips','steep_climbs','rain','stairs'];
 const activityWords: Record<string,string[]> = {
   nature:['природ','гора','ліс','водосп','озер','краєвид','панорам','річк','nature','mountain','forest','waterfall','lake','view'],
-  active:['похід','маршрут','спорт','велосип','bike','hiking','trail','rafting','adventure'],
+  active:['актив','відпочин','розваг','entertainment','rest','похід','маршрут','спорт','велосип','квадро','рафт','джип','зіп','туризм','bike','hiking','trail','rafting','adventure','outdoor','activity'],
   relax:['чан','саун','басейн','spa','спа','масаж','relax','pool','wellness'],
   family:['діти','сімейн','парк','музей','kids','family','children','playground'],
   food:['їжа','ресторан','кафе','піц','кухн','food','restaurant','cafe','coffee','dining'],
@@ -42,6 +42,17 @@ const activityWords: Record<string,string[]> = {
   romance:['затиш','панорам','вечер','масаж','romantic','viewpoint','spa'],
   adventure:['квадро','джип','екстрем','zip','rafting','jeep','atv','adventure'],
   shopping:['магазин','сувен','ярмар','shopping','store','market','souvenir'],
+};
+// Match the platform's real section slugs as well as human-written tags.
+// 'Активний відпочинок' and 'Відпочинок' are both relevant to the active interest.
+const matchesActivity = (p:Place, activity:string):boolean => {
+  const searchable=[p.name,p.category_slug,p.subcategory||'',p.description||'',...(p.tags||[])].join(' ').toLocaleLowerCase('uk');
+  if(activity==='active' && (p.category_slug==='entertainment'||p.category_slug==='rest')) return true;
+  if(activity==='relax' && p.category_slug==='rest') return true;
+  if(activity==='adventure' && p.category_slug==='entertainment') return true;
+  if(activity==='food' && p.category_slug==='food') return true;
+  if(activity==='shopping' && p.category_slug==='shop') return true;
+  return (activityWords[activity]||[]).some(word=>searchable.includes(word));
 };
 const foodWords=activityWords.food;
 const isFood=(p:Place)=> [p.category_slug,p.subcategory||'',...(p.tags||[])].join(' ').toLowerCase().split(/\s+/).some(s=>foodWords.some(w=>s.includes(w)));
@@ -133,11 +144,10 @@ export class PlannerService {
       FROM (SELECT p.*,COALESCE((SELECT json_agg(t.tag) FROM place_tags t WHERE t.place_id=p.id),'[]'::json)::jsonb AS tags
         FROM places p WHERE p.status='approved') p`);
     const withDistance=result.rows.map(p=>({...p,lat:Number(p.lat),lng:Number(p.lng),distance_km:km(origin.lat,origin.lng,Number(p.lat),Number(p.lng))}))
-      .filter(p=>Number.isFinite(p.distance_km)&&p.distance_km<=radiusKm&&p.distance_km>0.005);
+      .filter(p=>Number.isFinite(p.distance_km)&&p.distance_km<=radiusKm);
     const eligible=withDistance.filter(p=>{
       if(selectedRegions.length&&!selectedRegions.includes(p.region_id))return false;
-      const searchable=[p.name,p.category_slug,p.subcategory||'',p.description,...(p.tags||[])].join(' ').toLowerCase();
-      if(activities.length&&!activities.some(a=>activityWords[a].some(w=>searchable.includes(w))))return false;
+      if(activities.length&&!activities.some(a=>matchesActivity(p,a)))return false;
       if(budget==='economy'&&p.price_level!=null&&Number(p.price_level)>1)return false;
       if(budget==='medium'&&p.price_level!=null&&Number(p.price_level)>2)return false;
       if(children>0&&p.attributes?.kids===false)return false;
@@ -146,10 +156,10 @@ export class PlannerService {
       if(avoid.includes('crowds')&&/фестивал|концерт|festival|concert/.test(text))return false;
       if(load==='light'&&/скелелаз|рафтинг|важкий маршрут|extreme hiking|квадроцикл|atv/.test(text))return false;
       if(load==='moderate'&&/скелелаз|extreme hiking|високогірний маршрут/.test(text))return false;
-      if(avoid.includes('stairs')&&p.attributes?.step_free!==true&&p.attributes?.wheelchair!==true)return false;
-      if(avoid.includes('rain')&&p.attributes?.indoor!==true&&!/(ресторан|кафе|магазин|музей|галерея|спа|spa|сауна|басейн|restaurant|cafe|shop|museum)/.test(text))return false;
-      if(diet==='vegetarian'&&isFood(p)&&p.attributes?.vegetarian!==true&&!/вегетар|vegetarian|vegan/.test(text))return false;
-      if(diet==='local'&&isFood(p)&&p.attributes?.local_cuisine!==true&&!/українськ|традицій|локальн|місцев|ukrainian|traditional|local cuisine/.test(text))return false;
+      if(avoid.includes('stairs')&&p.attributes?.stairs===true&&p.attributes?.step_free!==true&&p.attributes?.wheelchair!==true)return false;
+      if(avoid.includes('rain')&&p.attributes?.outdoor===true&&p.attributes?.indoor!==true&&!/(ресторан|кафе|магазин|музей|галерея|спа|spa|сауна|басейн|restaurant|cafe|shop|museum)/.test(text))return false;
+      if(diet==='vegetarian'&&isFood(p)&&p.attributes?.vegetarian===false)return false;
+      if(diet==='local'&&isFood(p)&&p.attributes?.local_cuisine===false)return false;
       return true;
     });
     const variants=mode==='extended'?['balanced','nearby','activity']:['balanced'];
@@ -178,7 +188,7 @@ export class PlannerService {
               if(proposed<from||proposed+45>to)return null;
             }
             const text=[p.name,p.category_slug,p.subcategory,p.description,...(p.tags||[])].join(' ').toLowerCase();
-            const matched=activities.filter(a=>activityWords[a].some(w=>text.includes(w))).length;
+            const matched=activities.filter(a=>matchesActivity(p,a)).length;
             const preference=activities.length?(matched?matched*9:-12):0;
             const foodBoost=n===1&&isFood(p)?5:0;
             const variantBoost=variant==='nearby'?-leg*2:variant==='activity'?matched*8:0;
@@ -202,6 +212,6 @@ export class PlannerService {
     }).filter(v=>v.stop_count>0).filter((v,i,a)=>a.findIndex(x=>x.days.map(d=>d.stops.map(s=>s.place_id).join(',')).join('|')===v.days.map(d=>d.stops.map(s=>s.place_id).join(',')).join('|'))===i);
     return {origin,criteria,nearby_cities:allRegions.filter(r=>r.distance_km!==null&&r.distance_km<=radiusKm).slice(0,15),
       candidates_count:eligible.length,variants:built,
-      notice:'Відстані між точками — географічні, час переїздів орієнтовний. Наявність вільних слотів, графік і точні ціни перевіряйте в картці закладу.'};
+      notice:'Маршрут складено з реальних опублікованих закладів. Відстані — географічні, час переїздів орієнтовний. Для закладів без заповнених ознак харчування чи доступності уточнюйте умови перед відвідуванням. Наявність місць і графік перевіряйте у картці.'};
   }
 }

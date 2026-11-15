@@ -524,6 +524,13 @@ export class Stage2Service {
     };
   }
 
+  async community(regionId: string) {
+    const rows = await this.db.query<{community_url:string|null}>(
+      'SELECT community_url FROM regions WHERE id=$1 AND active=true LIMIT 1',[regionId]);
+    if (!rows.rows[0]) throw new NotFoundException('Місто не знайдено');
+    return {region_id:regionId,community_url:rows.rows[0].community_url || null};
+  }
+
   async categories() {
     const result = await this.db.query(
       "SELECT slug,name,name_en,name_pl,sort_order,subcategories,subcategories_i18n,filter_config FROM categories WHERE active=true ORDER BY sort_order,name",
@@ -1211,7 +1218,7 @@ export class Stage2Service {
   async adminEmergencyServices(regionId: string) {
     if (regionId !== "all") return this.emergencyServices(regionId, true);
     const result = await this.db.query(
-      `SELECT s.id,s.region_id,s.title,s.note,s.tone,s.icon,s.sort_order,s.active,s.updated_at,s.translations
+      `SELECT s.id,s.region_id,s.title,s.note,s.phone,s.tone,s.icon,s.sort_order,s.active,s.updated_at,s.translations
        FROM emergency_services s JOIN regions r ON r.id=s.region_id
        WHERE s.deleted_at IS NULL AND r.active=true ORDER BY r.name,s.sort_order,s.title`,
     );
@@ -1221,7 +1228,7 @@ export class Stage2Service {
   async emergencyServices(regionId: string, includeInactive = false) {
     const [services, region] = await Promise.all([
       this.db.query(
-        `SELECT id,region_id,title,note,tone,icon,sort_order,active,updated_at,translations
+        `SELECT id,region_id,title,note,phone,tone,icon,sort_order,active,updated_at,translations
          FROM emergency_services
          WHERE region_id=$1 AND deleted_at IS NULL ${includeInactive ? "" : "AND active=true"}
          ORDER BY sort_order,title`,
@@ -1610,6 +1617,7 @@ export class Stage2Service {
               COALESCE((SELECT json_agg(a.telegram_id::text ORDER BY a.telegram_id) FROM organization_telegram_access a WHERE a.organization_id=o.id AND a.active=true),'[]'::json) telegram_ids,
               (SELECT q.start_param FROM qr_points q WHERE q.place_id=p.id AND q.type='partner_access' AND q.active=true ORDER BY q.created_at DESC LIMIT 1) partner_start_param
        FROM places p JOIN organizations o ON o.id=p.organization_id JOIN regions r ON r.id=p.region_id
+       WHERE p.status<>'archived'
        ORDER BY p.updated_at DESC`,
     );
     return result.rows;
@@ -1625,7 +1633,7 @@ export class Stage2Service {
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='route_clicked'),0) route_clicks,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='call_clicked'),0) call_clicks
        FROM places p JOIN regions r ON r.id=p.region_id LEFT JOIN organizations o ON o.id=p.organization_id
-       WHERE p.id=$1 LIMIT 1`,
+       WHERE p.id=$1 AND p.status<>'archived' LIMIT 1`,
       [placeId],
     );
     if (!result.rows[0]) throw new NotFoundException("Partner not found");
@@ -1725,7 +1733,51 @@ export class Stage2Service {
     return this.adminPartner(placeId);
   }
 
+  async adminArchivePartner(placeId:string) {
+    return this.db.transaction(async client=>{
+      const found=await client.query<{id:string;organization_id:string|null;name:string;status:string}>(
+        'SELECT id,organization_id,name,status FROM places WHERE id=$1 FOR UPDATE',[placeId]);
+      const place=found.rows[0];
+      if(!place||place.status==='archived') throw new NotFoundException('Партнера не знайдено');
+      const active=await client.query<{count:string}>(
+        `SELECT COUNT(*)::text AS count FROM bookings WHERE place_id=$1 AND status IN ('pending_partner','confirmed') AND ends_at>now()`,[placeId]);
+      if(Number(active.rows[0]?.count)>0) throw new BadRequestException('Є активні майбутні бронювання. Завершіть або скасуйте їх перед видаленням партнера.');
+      const pending=await client.query<{count:string}>(
+        `SELECT COUNT(*)::text AS count FROM purchase_transactions WHERE place_id=$1 AND status='pending_customer'`,[placeId]);
+      if(Number(pending.rows[0]?.count)>0) throw new BadRequestException('Є незавершені клієнтські операції. Спочатку завершіть їх.');
+      // Never hard-delete an entity referenced by historical bookings, purchases or reviews.
+      await client.query(`UPDATE places SET status='archived',updated_at=now() WHERE id=$1`,[placeId]);
+      await client.query(`UPDATE qr_points SET active=false,updated_at=now() WHERE place_id=$1`,[placeId]);
+      if(place.organization_id){
+        const other=await client.query<{id:string}>(
+          `SELECT id FROM places WHERE organization_id=$1 AND status<>'archived' LIMIT 1`,[place.organization_id]);
+        if(!other.rows.length){
+          await client.query(`UPDATE organization_telegram_access SET active=false,updated_at=now() WHERE organization_id=$1`,[place.organization_id]);
+          await client.query(`UPDATE organizations SET status='archived',updated_at=now() WHERE id=$1`,[place.organization_id]);
+        }
+      }
+      return {ok:true,id:placeId,archived:true};
+    });
+  }
+
   async adminCreatePartner(body: Record<string, unknown>) {
+    // A stable idempotency token prevents repeated taps/retries from creating duplicate places.
+    const requestId=typeof body.creation_request_id==='string' && /^[a-zA-Z0-9-]{16,100}$/.test(body.creation_request_id)
+      ? body.creation_request_id : '';
+    const findExisting=async (query:(sql:string,args?:unknown[])=>Promise<{rows:any[]}>)=>{
+      const existing=await query(`SELECT p.id AS place_id,p.organization_id,p.status,
+        p.details->>'partner_invite_start_param' AS start_param,
+        COALESCE((SELECT json_agg(a.telegram_id::text ORDER BY a.telegram_id) FROM organization_telegram_access a
+          WHERE a.organization_id=p.organization_id AND a.active=true),'[]'::json) AS telegram_ids
+        FROM places p WHERE p.details->>'admin_creation_request_id'=$1 LIMIT 1`,[requestId]);
+      const row=existing.rows[0];
+      return row ? {ok:true,organization_id:row.organization_id,place_id:row.place_id,status:row.status,
+        start_param:row.start_param,telegram_ids:row.telegram_ids} : null;
+    };
+    if(requestId){
+      const existing=await findExisting((sql,args)=>this.db.query(sql,args));
+      if(existing)return existing;
+    }
     const name = String(body.name ?? "").trim();
     const categorySlug = String(body.category_slug ?? "").trim();
     const telegramIds = parseTelegramIds(body.telegram_ids);
@@ -1778,12 +1830,19 @@ export class Stage2Service {
       ...detailsInput,
       admin_created: true,
       partner_invite_start_param: startParam,
+      ...(requestId ? {admin_creation_request_id:requestId} : {}),
       allowed_telegram_ids: telegramIds,
       admin_category_subcategories: categorySelections,
       admin_nearby_filters: nearbySelections,
     };
 
+    let repeated:Awaited<ReturnType<typeof findExisting>>=null;
     await this.db.transaction(async (client) => {
+      if(requestId){
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[requestId]);
+        repeated=await findExisting((sql,args)=>client.query(sql,args));
+        if(repeated)return;
+      }
       await client.query(
         "INSERT INTO organizations(id,region_id,name,status) VALUES($1,$2,$3,$4)",
         [organizationId, regionId, name, publish ? "approved" : "invited"],
@@ -1808,12 +1867,13 @@ export class Stage2Service {
         [qrId, startParam, regionId, placeId],
       );
     });
+    if(repeated)return repeated;
     return { ok: true, organization_id: organizationId, place_id: placeId, status, start_param: startParam, telegram_ids: telegramIds };
   }
 
   async adminRegions() {
     const result = await this.db.query(
-      `SELECT id,slug,name,name_en,name_pl,center_lat,center_lng,active
+      `SELECT id,slug,name,name_en,name_pl,center_lat,center_lng,community_url,active
        FROM regions WHERE active=true ORDER BY name`,
     );
     return result.rows;
@@ -1832,9 +1892,17 @@ export class Stage2Service {
   }
 
   async adminUpdateRegion(regionId: string, body: Record<string, unknown>) {
-    const communityUrl = body.community_url === undefined ? undefined : String(body.community_url ?? "").trim() || null;
+    let communityUrl = body.community_url === undefined ? undefined : String(body.community_url ?? '').trim() || null;
+    if (communityUrl) {
+      if (/^(t\.me|telegram\.me)\//i.test(communityUrl)) communityUrl=`https://${communityUrl}`;
+      try { const target=new URL(communityUrl);
+        if(target.protocol!=='https:'||!['t.me','telegram.me','www.t.me','www.telegram.me'].includes(target.hostname.toLowerCase()) || !target.pathname.replace(/^\//,'').trim())
+          throw new Error('invalid');
+        communityUrl=target.href;
+      } catch { throw new BadRequestException('Вкажіть коректне посилання Telegram-спільноти (https://t.me/...)'); }
+    }
     const result = await this.db.query(
-      `UPDATE regions SET community_url=COALESCE($2,community_url),updated_at=now() WHERE id=$1
+      `UPDATE regions SET community_url=$2,updated_at=now() WHERE id=$1
        RETURNING id,name,community_url`,
       [regionId, communityUrl ?? null],
     );
@@ -2012,10 +2080,10 @@ export class Stage2Service {
     if (!title) throw new BadRequestException("title is required");
     const active = body.active === undefined ? true : (body.active === true || String(body.active) === "true");
     await this.db.query(
-      `INSERT INTO emergency_services(id,region_id,title,note,tone,icon,sort_order,active,translations)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,deleted_at=NULL,updated_at=now()`,
-      [id,regionId,title,String(body.note ?? ""),String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {})],
+      `INSERT INTO emergency_services(id,region_id,title,note,phone,tone,icon,sort_order,active,translations)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,deleted_at=NULL,updated_at=now()`,
+      [id,regionId,title,String(body.note ?? ""),String(body.phone ?? "").trim()||null,String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {})],
     );
     await this.touchEmergencyVerification(regionId);
     return { ok: true, id };

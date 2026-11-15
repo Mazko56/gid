@@ -11,6 +11,7 @@ export type EmergencyService = {
   id: string;
   title: string;
   note: string;
+  phone?: string | null;
   tone: EmergencyServiceTone;
   icon: EmergencyServiceIcon;
   active: boolean;

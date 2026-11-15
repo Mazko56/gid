@@ -9,6 +9,9 @@ export class Stage2Controller {
   @Get("context/:startParam")
   context(@Param("startParam") startParam: string) { return this.service.context(startParam); }
 
+  @Get("community")
+  community(@Query("region_id") regionId = "region-tatariv") { return this.service.community(regionId); }
+
   @Get("categories")
   categories() { return this.service.categories(); }
 
@@ -164,6 +167,10 @@ export class Stage2Controller {
   @UseGuards(AdminKeyGuard)
   @Patch("admin/stage2/partners/:id")
   adminUpdatePartner(@Param("id") id: string, @Body() body: Record<string, unknown>) { return this.service.adminUpdatePartner(id, body); }
+
+  @UseGuards(AdminKeyGuard)
+  @Delete("admin/stage2/partners/:id")
+  adminArchivePartner(@Param("id") id: string) { return this.service.adminArchivePartner(id); }
 
   @UseGuards(AdminKeyGuard)
   @Get("admin/stage2/regions")

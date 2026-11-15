@@ -2664,6 +2664,15 @@ function EmergencyScreen() {
     else await navigator.clipboard?.writeText(text);
   };
 
+  const emergencyPhoneHref=(phone?:string|null)=>{
+    const clean=String(phone||'').replace(/[^+\d]/g,'');
+    return /^\+?\d{2,15}$/.test(clean)?`tel:${clean}`:null;
+  };
+  const callEmergency=(phone?:string|null)=>{
+    const href=emergencyPhoneHref(phone);
+    if(href) window.location.href=href;
+  };
+
   const handleServiceScroll = () => {
     const element = serviceScrollerRef.current;
     if (!element) return;
@@ -2709,7 +2718,8 @@ function EmergencyScreen() {
           {contactRows.map(({ icon: Icon, title, note, phone, tone }) => (
             <a
               className={phone.startsWith("+") ? "is-long-number" : undefined}
-              href={`tel:${phone.replaceAll(" ", "")}`}
+              href={emergencyPhoneHref(phone)||undefined}
+              onClick={e=>{if(!emergencyPhoneHref(phone))e.preventDefault();}}
               key={title}
             >
               <span className={`gt-tone--${tone}`}><Icon size={21} /></span>
@@ -2723,7 +2733,7 @@ function EmergencyScreen() {
           {services.filter((service) => service.active).map((service) => {
             const ServiceIcon = emergencyServiceIcons[service.icon] ?? CircleHelp;
             return (
-              <button type="button" className={`is-${service.tone}`} key={service.id}>
+              <button type="button" className={`is-${service.tone}`} key={service.id} onClick={()=>callEmergency(service.phone)} disabled={!emergencyPhoneHref(service.phone)} title={service.phone||touristInterfaceText(runtime.language,"Номер не вказано")}>
                 <span className={`gt-tone--${service.tone}`}><ServiceIcon size={22} /></span>
                 <strong>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"title"))}</strong>
                 <small>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"note"))}</small>
@@ -3267,8 +3277,37 @@ function LanguageScreen({ navigate }: { navigate: Navigate }) {
 }
 
 function CommunityScreen() {
-  const { context, language } = useTouristRuntime();
-  const communityUrl = context?.region.communityUrl || process.env.NEXT_PUBLIC_TELEGRAM_COMMUNITY_URL || "";
+  const { context, language, location } = useTouristRuntime();
+  const [storedUrl,setStoredUrl] = useState<string|null>(null);
+  const [loaded,setLoaded] = useState(false);
+  const regionId=context?.region.id;
+  const gpsLat=location?.source==='gps'?location.lat:null;
+  const gpsLng=location?.source==='gps'?location.lng:null;
+  useEffect(()=>{
+    let alive=true;
+    setLoaded(false);
+    setStoredUrl(null);
+    const fetchUrl=async()=>{
+      let resolvedRegion=regionId;
+      if(!resolvedRegion && gpsLat!==null && gpsLng!==null){
+        const cities=await stage2Fetch<Array<{id:string}>>(`/planner/regions?lat=${encodeURIComponent(gpsLat)}&lng=${encodeURIComponent(gpsLng)}`);
+        resolvedRegion=cities[0]?.id;
+      }
+      if(!resolvedRegion)return null;
+      return stage2Fetch<{community_url:string|null}>(`/community?region_id=${encodeURIComponent(resolvedRegion)}`);
+    };
+    void fetchUrl().then(data=>{if(alive){setStoredUrl(data?.community_url||null);setLoaded(true);}})
+      .catch(()=>{if(alive){setStoredUrl(null);setLoaded(true);}});
+    return ()=>{alive=false;};
+  },[regionId,gpsLat,gpsLng]);
+  const rawUrl = loaded ? storedUrl : (context?.region.communityUrl || process.env.NEXT_PUBLIC_TELEGRAM_COMMUNITY_URL || '');
+  const communityUrl=typeof rawUrl==='string'&&/^https:\/\/(?:www\.)?(?:t\.me|telegram\.me)\/[^\s/]+/i.test(rawUrl) ? rawUrl : '';
+  const openCommunity=()=>{
+    if(!communityUrl)return;
+    const telegram=(window as Window & {Telegram?:{WebApp?:{openTelegramLink?:(url:string)=>void}}}).Telegram?.WebApp;
+    if(telegram?.openTelegramLink) telegram.openTelegramLink(communityUrl);
+    else window.open(communityUrl,'_blank','noopener,noreferrer');
+  };
   return (
     <div className="tourist-screen gt-screen">
       <main className="gt-content">
@@ -3277,7 +3316,7 @@ function CommunityScreen() {
           <small>{tr(language, "Telegram-спільнота регіону", "Regional Telegram community", "Regionalna społeczność Telegram")}</small>
           <h1>{tr(language, "Подорожуйте разом з місцевими", "Travel with locals", "Podróżuj z mieszkańcami")}</h1>
           <p>{tr(language, "Новини, маршрути, події та перевірені рекомендації регіону.", "News, routes, events and verified local recommendations.", "Aktualności, trasy, wydarzenia i sprawdzone lokalne rekomendacje.")}</p>
-          <button type="button" className="gt-primary-button" disabled={!communityUrl} onClick={() => communityUrl ? window.open(communityUrl, "_blank", "noopener,noreferrer") : undefined}>{tr(language, "Відкрити спільноту", "Open community", "Otwórz społeczność")} <ExternalLink size={19} /></button>
+          <button type="button" className="gt-primary-button" disabled={!communityUrl} onClick={openCommunity}>{tr(language, "Відкрити спільноту", "Open community", "Otwórz społeczność")} <ExternalLink size={19} /></button>
         </section>
         <SectionTitle title={tr(language, "У спільноті ви знайдете", "In the community", "W społeczności znajdziesz")} />
         <div className="gt-community-list">

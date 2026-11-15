@@ -218,6 +218,7 @@ CREATE TABLE IF NOT EXISTS emergency_services (
 );
 ALTER TABLE emergency_services ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE emergency_services ADD COLUMN IF NOT EXISTS translations jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE emergency_services ADD COLUMN IF NOT EXISTS phone text;
 CREATE INDEX IF NOT EXISTS idx_emergency_services_region ON emergency_services(region_id, active, sort_order);
 
 CREATE TABLE IF NOT EXISTS hot_offers (

@@ -269,9 +269,9 @@ function PrimaryButton({ children, onClick, disabled = false }: { children: Reac
   );
 }
 
-function OutlineButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+function OutlineButton({ children, onClick,disabled = false }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
-    <button type="button" className="ad-btn ad-btn--outline" onClick={onClick}>
+    <button type="button" className="ad-btn ad-btn--outline" onClick={onClick} disabled={disabled}>
       {children}
     </button>
   );
@@ -387,6 +387,14 @@ function PartnersScreen({ navigate }: AdminProps) {
   const filters=useTableFilters();
   const [categories, setCategories] = useState<Stage2Category[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [deletingId,setDeletingId] = useState("");
+  const deletePartner=async (id:string,name:string)=>{
+    if(deletingId||!window.confirm(`Видалити партнера «${name}» із каталогу та відключити його QR? Історія бронювань та операцій залишиться у базі.`))return;
+    setDeletingId(id);setLoadError("");
+    try{await adminStage2Fetch(`/admin/stage2/partners/${encodeURIComponent(id)}`,"",{method:"DELETE"});setRows(rows=>rows.filter(x=>x.id!==id));}
+    catch(e){setLoadError(e instanceof Error?e.message:"Не вдалося видалити партнера");}
+    finally{setDeletingId("");}
+  };
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
@@ -432,6 +440,7 @@ function PartnersScreen({ navigate }: AdminProps) {
             <div className="ad-row-actions">
               <button onClick={() => { rememberPartner(row.id); navigate("admin", "admin-partner-details"); }} aria-label="Переглянути"><Eye size={17} /></button>
               <button onClick={() => { rememberPartner(row.id, true); navigate("admin", "admin-partner-create"); }} aria-label="Редагувати"><Edit3 size={17} /></button>
+              <button type="button" className="is-delete" disabled={Boolean(deletingId)} onClick={()=>void deletePartner(row.id,row.name)} aria-label="Видалити партнера"><Trash2 size={17}/></button>
             </div>
           </TableRow>
         ))}
@@ -625,6 +634,9 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   const [checkIn, setCheckIn] = useState("14:00");
   const [checkOut, setCheckOut] = useState("11:00");
   const [saving, setSaving] = useState(false);
+  const savingRef=useRef(false);
+  const creationIdRef=useRef("");
+  const createdRef=useRef(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<{ place_id: string; start_param: string; status: string; telegram_ids: string[] } | null>(null);
   const [editId, setEditId] = useState("");
@@ -763,6 +775,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
   };
 
   const save = async (publish: boolean) => {
+    if(savingRef.current || (!editId&&createdRef.current))return;
     setError("");
     const ids = telegramIds.split(/[\s,;]+/g).map((item) => item.trim()).filter(Boolean);
     if (!name.trim()) return setError("Вкажіть назву партнера");
@@ -771,9 +784,13 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     if (nearbySelections.some(x => !nearbyFilterOptions.includes(x))) return setError("Оберіть фільтри з наявного списку «Що поруч»");
     if (!ids.length || ids.some((item) => !/^\d{5,20}$/.test(item))) return setError("Вкажіть один або декілька коректних числових Telegram ID");
     if (!mapSelected && (!cityPlaceId || !streetPlaceId || !housePlaceId)) return setError("Оберіть повну адресу з підказок або вкажіть точку на мапі");
+    savingRef.current=true;
     setSaving(true);
+    if(!editId && !creationIdRef.current) creationIdRef.current=typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'
+      ? crypto.randomUUID() : `creation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       const requestBody = {
+        ...(editId ? {} : {creation_request_id:creationIdRef.current}),
         name: name.trim(), category_slug: categorySlug, subcategory: categorySelections[0] || null, category_subcategories: categorySelections, nearby_filters: nearbySelections, price_level: categoryFilters.price ? (priceLevel ? Number(priceLevel) : null) : null, placement_type: placement, rate_percent: Number(rate) || 0,
         city, region_name: regionName, street, house, address, lat, lng, map_selected: mapSelected,
         phone, description, translations:partnerTranslations, image_url: photos[0] || null, telegram_ids: ids, publish,
@@ -802,6 +819,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
         const result = await adminStage2Fetch<{ place_id: string; start_param: string; status: string; telegram_ids: string[] }>("/admin/stage2/partners", "", {
           method: "POST", body: JSON.stringify(requestBody),
         });
+        createdRef.current=true;
         setCreated(result);
         rememberPartner(result.place_id);
       }
@@ -809,7 +827,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       const message = e instanceof Error ? e.message : "Не вдалося створити партнера";
       setError(/too large|payload|занадто велик/i.test(message) ? "Не вдалося відправити дані: сервер ще використовує старий ліміт запиту. Оновіть backend цією версією та повторіть." : message);
     }
-    finally { setSaving(false); }
+    finally { savingRef.current=false;setSaving(false); }
   };
 
   const geoFields = (
@@ -837,7 +855,7 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       <AdminPageHeader
         title={editId ? "Редагування партнера" : "Створення партнера"}
         subtitle={editId ? `Редагування реальних даних партнера${editStatus ? ` · ${editStatus}` : ""}` : "Заповніть інформацію про партнера"}
-        action={<div className="ad-page-actions"><OutlineButton onClick={() => { if (typeof window !== "undefined") window.sessionStorage.removeItem(ADMIN_EDIT_PARTNER_KEY); navigate("admin", "admin-partners"); }}>Скасувати</OutlineButton>{editId ? <PrimaryButton onClick={() => void save(editStatus === "approved")}><FileText size={17}/> {saving ? "Збереження…" : "Зберегти зміни"}</PrimaryButton> : <><OutlineButton onClick={() => void save(false)}>{saving ? "Збереження…" : "Зберегти"}</OutlineButton><PrimaryButton onClick={() => void save(true)}><FileText size={17}/> {saving ? "Збереження…" : "Зберегти і розмістити"}</PrimaryButton></>}</div>}
+        action={<div className="ad-page-actions"><OutlineButton onClick={() => { if (typeof window !== "undefined") window.sessionStorage.removeItem(ADMIN_EDIT_PARTNER_KEY); navigate("admin", "admin-partners"); }}>Скасувати</OutlineButton>{editId ? <PrimaryButton disabled={saving} onClick={() => void save(editStatus === "approved")}><FileText size={17}/> {saving ? "Збереження…" : "Зберегти зміни"}</PrimaryButton> : <><OutlineButton disabled={saving||Boolean(created)} onClick={() => void save(false)}>{created?"Збережено":saving ? "Збереження…" : "Зберегти"}</OutlineButton><PrimaryButton disabled={saving||Boolean(created)} onClick={() => void save(true)}><FileText size={17}/> {saving ? "Збереження…" : "Зберегти і розмістити"}</PrimaryButton></>}</div>}
       />
       {error ? <div className="ad-create-message is-error">{error}</div> : null}
       {success ? <div className="ad-create-message">{success}</div> : null}
@@ -1903,6 +1921,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const [legacyServiceTranslations,setLegacyServiceTranslations]=useState<EditableTranslations>(emptyTranslations());
   const [serviceTitle, setServiceTitle] = useState("");
   const [serviceNote, setServiceNote] = useState("");
+  const [servicePhone, setServicePhone] = useState("");
   const [serviceTone, setServiceTone] = useState<Stage2EmergencyService["tone"]>("green");
   const [serviceIcon, setServiceIcon] = useState<Stage2EmergencyService["icon"]>("custom");
   const [serviceActive, setServiceActive] = useState(true);
@@ -1921,6 +1940,10 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   const [offerValidUntil, setOfferValidUntil] = useState("");
   const [offerActive, setOfferActive] = useState(true);
   const [communityUrl, setCommunityUrl] = useState("");
+  const [communityRegionId,setCommunityRegionId] = useState("");
+  const [communityRegions,setCommunityRegions] = useState<Array<{id:string;name:string;community_url?:string|null}>>([]);
+  const [communitySaving,setCommunitySaving] = useState(false);
+  useEffect(()=>{setCommunityUrl(communityRegions.find(r=>r.id===communityRegionId)?.community_url||'');},[communityRegionId,communityRegions]);
   const [qrPreviewParam, setQrPreviewParam] = useState("");
   const [qrCreating, setQrCreating] = useState(false);
   const [qrCreateLocked, setQrCreateLocked] = useState(false);
@@ -1944,6 +1967,9 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
       setPending(moderation);
       setModerationCategories((current) => Object.fromEntries(moderation.map((row) => [row.id, current[row.id] || row.category_slug])));
       setQrRows(qr); setApprovedPlaces(approved); setStage2Categories(categories); setPlaceTemplates(templates);
+      void adminStage2Fetch<Array<{id:string;name:string;community_url?:string|null}>>('/admin/stage2/regions',key)
+        .then(items=>{setCommunityRegions(items);setCommunityRegionId(current=>current||items[0]?.id||'');})
+        .catch(()=>{});
       if (!qrPlaceId && approved[0]?.id) setQrPlaceId(approved[0].id);
       setApiStatus("connected");
     } catch (error) {
@@ -2027,7 +2053,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
   };
 
   const resetEmergencyServiceForm = () => {
-    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true);setLegacyServiceTranslations(emptyTranslations());
+    setServiceId(""); setServiceTitle(""); setServiceNote(""); setServicePhone(""); setServiceTone("green"); setServiceIcon("custom"); setServiceActive(true);setLegacyServiceTranslations(emptyTranslations());
   };
 
   const editEmergencyService = (service: Stage2EmergencyService) => {
@@ -2035,6 +2061,7 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
     setLegacyServiceTranslations(readTranslations(service.translations));
     setServiceTitle(service.title);
     setServiceNote(service.note);
+    setServicePhone(service.phone||"");
     setServiceTone(service.tone);
     setServiceIcon(service.icon);
     setServiceActive(service.active);
@@ -2246,8 +2273,15 @@ function Stage2ContentScreen({ navigate }: AdminProps) {
 
           <div className="ad-stage2-card-section">
             <h2>Telegram-спільнота</h2><p>Посилання регіону відкриватиметься туристу на екрані «Спільнота».</p>
+            <select value={communityRegionId} onChange={e=>setCommunityRegionId(e.target.value)}>
+              <option value="">Оберіть місто</option>{communityRegions.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}
+            </select>
             <input value={communityUrl} onChange={(e)=>setCommunityUrl(e.target.value)} placeholder="https://t.me/..." />
-            <PrimaryButton onClick={() => void adminStage2Fetch("/admin/stage2/regions/region-tatariv", adminKey,{method:"PATCH",body:JSON.stringify({community_url:communityUrl})}).then(()=>{setMessage("Telegram-спільноту регіону збережено");})}><Send size={16}/> Зберегти спільноту</PrimaryButton>
+            <PrimaryButton disabled={!communityRegionId || communitySaving} onClick={() => {if(!communityRegionId||communitySaving)return;setCommunitySaving(true);
+              void adminStage2Fetch(`/admin/stage2/regions/${encodeURIComponent(communityRegionId)}`,adminKey,{method:'PATCH',body:JSON.stringify({community_url:communityUrl})})
+                .then(()=>{setMessage('Telegram-спільноту збережено');setCommunityRegions(rows=>rows.map(r=>r.id===communityRegionId?{...r,community_url:communityUrl}:r));})
+                .catch(e=>setMessage(e instanceof Error?e.message:'Не вдалося зберегти посилання'))
+                .finally(()=>setCommunitySaving(false));}}><Send size={16}/> {communitySaving?'Збереження…':'Зберегти спільноту'}</PrimaryButton>
           </div>
 
           <div className="ad-stage2-card-section ad-stage2-card-section--page-editor-link">
@@ -2650,6 +2684,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           region_id: targetRegion,
           title: serviceTitle.trim(),
           note: serviceNote.trim(),
+          phone: servicePhone.trim()||null,
           tone: serviceTone,
           icon: serviceIcon,
           active: serviceActive,
@@ -2761,6 +2796,7 @@ function EmergencyPageEditorScreen({ navigate }: AdminProps) {
           {regionId === "all" ? <label><span>Місто для сервісу</span><select value={serviceTargetRegionId} disabled={Boolean(serviceId)} onChange={e=>setServiceTargetRegionId(e.target.value)}><option value="">Оберіть місто</option>{regions.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label> : null}
           <label><span>Назва</span><input ref={serviceTitleInput} value={serviceTitle} onChange={(e)=>setServiceTitle(e.target.value)} /></label>
           <label><span>Короткий опис</span><input value={serviceNote} onChange={(e)=>setServiceNote(e.target.value)} /></label>
+          <label><span>Телефон для дзвінка</span><input type="tel" value={servicePhone} onChange={e=>setServicePhone(e.target.value)} placeholder="+380..." /></label>
           <TranslationInputs fields={[{key:"title",label:"Назва"},{key:"note",label:"Опис"}]} values={serviceTranslations} onChange={setServiceTranslations}/>
           <label><span>Іконка</span><select value={serviceIcon} onChange={(e)=>setServiceIcon(e.target.value as Stage2EmergencyService["icon"])}><option value="doctor">Лікар</option><option value="pharmacy">Аптека</option><option value="repair">СТО</option><option value="tow">Евакуатор</option><option value="vet">Ветеринар</option><option value="custom">Інше</option></select></label>
           <label><span>Колір</span><select value={serviceTone} onChange={(e)=>setServiceTone(e.target.value as Stage2EmergencyService["tone"])}><option value="green">Зелений</option><option value="purple">Фіолетовий</option><option value="orange">Помаранчевий</option><option value="blue">Синій</option></select></label>
