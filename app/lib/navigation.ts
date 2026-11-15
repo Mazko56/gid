@@ -162,7 +162,7 @@ export const screens: ScreenDefinition[] = [
     slug: "plan",
     title: "Мій план",
     shortTitle: "Мій план",
-    description: "Готові сценарії відпочинку на 1–5 днів",
+    description: "Персональне планування на 1–5 днів із реальних закладів",
     role: "tourist",
   },
   {

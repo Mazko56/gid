@@ -1,11 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AdminKeyGuard, type AuthRequest, SessionGuard } from '../../common/auth.guard.js';
 import { PlatformService } from './platform.service.js';
+import { PlannerService } from './planner.service.js';
 import { PlatformSettingsService } from './platform-settings.service.js';
 
 @Controller()
 export class PlatformController {
-  constructor(private readonly platform:PlatformService, private readonly settings:PlatformSettingsService) {}
+  constructor(private readonly platform:PlatformService, private readonly settings:PlatformSettingsService, private readonly planner:PlannerService) {}
 
   @UseGuards(SessionGuard) @Get('wallet') wallet(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
   @UseGuards(SessionGuard) @Get('wallet/ledger') ledger(@Req() r:AuthRequest) { return this.platform.wallet(r.user!); }
@@ -54,6 +55,8 @@ export class PlatformController {
 
   @UseGuards(SessionGuard) @Get('me/export') exportUser(@Req() r:AuthRequest) { return this.platform.exportPersonalData(r.user!); }
   @UseGuards(SessionGuard) @Delete('me/account') deleteUser(@Req() r:AuthRequest) { return this.platform.deleteAccount(r.user!); }
+  @Get('planner/regions') plannerRegions(@Query('lat') lat?:string,@Query('lng') lng?:string) { return this.planner.regions(lat,lng); }
+  @UseGuards(SessionGuard) @Post('me/plans/generate') generatePlan(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.planner.generate(r.user!,b); }
   @UseGuards(SessionGuard) @Get('me/plans') plans(@Req() r:AuthRequest) { return this.platform.plans(r.user!); }
   @UseGuards(SessionGuard) @Post('me/plans') plan(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.savePlan(r.user!,b); }
   @UseGuards(SessionGuard) @Get('ambassador/me') ambassador(@Req() r:AuthRequest) { return this.platform.ambassador(r.user!); }

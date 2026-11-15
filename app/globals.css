@@ -31008,3 +31008,85 @@ button.gt-amenities-row {
   padding: 12px 14px;
   overflow-wrap: anywhere;
 }
+
+/* Real trip planner: isolated to the new QR-contextual itinerary builder. */
+.gt-real-planner { background:#f5f8f5; min-height:100dvh; color:#19382a; }
+.gt-real-planner .gt-planner-layout { max-width:650px; margin:0 auto; padding:0 17px calc(110px + env(safe-area-inset-bottom)); display:grid; gap:16px; }
+.gt-planner-header { display:flex; align-items:center; gap:13px; padding:24px 0 9px; }
+.gt-planner-header>button { width:42px; height:42px; border:1px solid #dde9df; background:#fff; border-radius:13px; color:#21553a; display:grid; place-items:center; }
+.gt-planner-header>strong { flex:1; font-size:20px; letter-spacing:-.3px; }
+.gt-planner-brand { display:grid; place-items:center; border-radius:13px; width:43px; height:43px; background:#dff4e7; color:#16814e; }
+.gt-planner-hero { padding:25px 24px; border-radius:23px; background:linear-gradient(135deg,#166644,#239061); color:#fff; box-shadow:0 11px 34px #207a4c20; }
+.gt-planner-hero>span { display:grid; place-items:center; width:51px; height:51px; border-radius:17px; background:#ffffff24; }
+.gt-planner-hero h1 { font-size:26px; line-height:1.13; margin:15px 0 10px; color:#fff; }
+.gt-planner-hero p { font-size:14px; line-height:1.6; margin:0; color:#e7f7ed; }
+.gt-planner-mode { width:100%; display:flex; align-items:center; text-align:left; gap:15px; padding:20px 16px; border:1px solid #dcebe0; border-radius:20px; background:#fff; color:#247a4f; box-shadow:0 5px 18px #113b2310; }
+.gt-planner-mode>span { display:grid; flex:1; gap:6px; color:#183b2c; }
+.gt-planner-mode strong { font-size:17px; }
+.gt-planner-mode small { font-size:12px; font-weight:500; color:#6d8376; line-height:1.4; }
+.gt-planner-progress { display:grid; gap:9px; color:#55715e; font-size:12px; font-weight:750; }
+.gt-planner-progress>div { height:6px; background:#dceee0; border-radius:9px; overflow:hidden; }
+.gt-planner-progress i { display:block; background:#31aa6e; height:100%; transition:width .22s ease; border-radius:9px; }
+.gt-planner-section { background:#fff; border:1px solid #e0ebe2; border-radius:21px; padding:19px; display:grid; gap:15px; box-shadow:0 5px 18px #113b2310; }
+.gt-planner-section h2 { display:flex; align-items:center; gap:9px; font-size:18px; line-height:1.25; margin:0; color:#1b4831; }
+.gt-planner-section h3 { display:flex; align-items:center; gap:7px; font-size:14px; margin:6px 0 0; color:#345441; }
+.gt-planner-section p { margin:0; font-size:12px; color:#6b7e70; line-height:1.5; }
+.gt-planner-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.gt-planner-choices button { display:flex; align-items:center; justify-content:space-between; gap:7px; min-width:0; min-height:49px; padding:10px 12px; background:#f8faf8; border:1px solid #dce9de; border-radius:13px; color:#314e3a; font-size:13px; text-align:left; line-height:1.3; font-weight:650; }
+.gt-planner-choices button.active { background:#e7f7ed; border-color:#46b37b; color:#146a3b; }
+.gt-planner-choices button svg { flex-shrink:0; }
+.gt-planner-check { width:16px; height:16px; flex-shrink:0; border:1px solid #c3d7ca; border-radius:5px; }
+.gt-planner-day-count { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; }
+.gt-planner-day-count button { height:50px; padding:5px 2px; border-radius:12px; border:1px solid #dbe8df; background:#f9fbf9; color:#47644d; font-weight:700; font-size:12px; }
+.gt-planner-day-count button.active { background:#e5f7eb; border-color:#3eaf75; color:#137447; }
+.gt-planner-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.gt-planner-field { display:grid; gap:8px; min-width:0; color:#486753; font-weight:700; font-size:12px; }
+.gt-planner-field input:not([type='range']),.gt-planner-field textarea,.gt-planner-field select { color:#1b402d; width:100%; box-sizing:border-box; padding:11px 10px; min-height:47px; border:1px solid #d5e2d8; border-radius:12px; background:#f9fbf9; font-size:14px; font-weight:500; }
+.gt-planner-field input[type='range'] { width:100%; accent-color:#208a50; cursor:pointer; }
+.gt-planner-qty { border:1px solid #dce8dd; border-radius:13px; background:#f9fbf9; padding:10px; display:grid; gap:10px; color:#536d5d; font-size:12px; font-weight:700; }
+.gt-planner-qty>span:last-child { display:flex; align-items:center; justify-content:space-between; color:#1b4831; }
+.gt-planner-qty button { width:32px; height:32px; background:#e6f3e9; border:0; border-radius:10px; color:#21754a; font-size:20px; }
+.gt-planner-qty button:disabled { opacity:.4; }
+.gt-planner-qty b { font-size:20px; }
+.gt-planner-qr-origin { display:flex; align-items:center; gap:12px; padding:14px; background:#ecf8f0; border:1px solid #c5e8ce; border-radius:15px; color:#24804c; }
+.gt-planner-qr-origin>div { display:grid; flex:1; min-width:0; gap:5px; }
+.gt-planner-qr-origin small { font-size:11px; color:#6b9074; }
+.gt-planner-qr-origin strong { font-size:15px; overflow-wrap:anywhere; color:#1b5231; }
+.gt-planner-qr-origin p { color:#4d745d; font-size:12px; }
+.gt-planner-regions { border-top:1px solid #e8f0e9; padding-top:12px; display:grid; gap:8px; }
+.gt-planner-regions>strong { font-size:12px; color:#547760; }
+.gt-planner-regions>div { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:6px 0; font-size:13px; color:#345c42; }
+.gt-planner-regions b { color:#1e7a4a; }
+.gt-planner-footer { display:flex; gap:10px; margin-top:4px; }
+.gt-planner-back,.gt-planner-primary { min-height:50px; border-radius:14px; font-size:14px; font-weight:800; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:13px 16px; }
+.gt-planner-back { flex:1; border:1px solid #cfe0d1; background:#fff; color:#326348; }
+.gt-planner-primary { flex:2; border:0; background:#158955; color:white; box-shadow:0 5px 14px #197a4c2b; }
+.gt-planner-primary:disabled { opacity:.5; }
+.gt-planner-error { margin:0; padding:13px 15px; background:#fff1ef; border:1px solid #f8beb6; border-radius:13px; color:#861c1c !important; font-size:13px; }
+.gt-planner-summary { background:linear-gradient(135deg,#165a3d,#259661); color:#fff; border-radius:21px; padding:22px; }
+.gt-planner-summary h1 { margin:11px 0 8px; font-size:22px; color:#fff; }
+.gt-planner-summary p { color:#ddf3e5; font-size:13px; margin:0; line-height:1.5; }
+.gt-planner-variant-tabs { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+.gt-planner-variant-tabs button { min-height:42px; white-space:nowrap; padding:9px 13px; border:1px solid #c8dfcf; border-radius:12px; background:white; color:#305a40; font-weight:700; font-size:12px; }
+.gt-planner-variant-tabs button.active { background:#e0f7e7; color:#13683b; border-color:#3fa66f; }
+.gt-planner-day { background:#fff; border:1px solid #e1eae2; border-radius:20px; padding:16px; display:grid; gap:13px; }
+.gt-planner-day h3 { margin:0; font-size:18px; color:#234c36; display:flex; gap:10px; align-items:baseline; }
+.gt-planner-day h3 small { font-size:11px; font-weight:550; color:#799184; }
+.gt-planner-day>p { font-size:13px; color:#667d6c; }
+.gt-planner-stop { display:flex; gap:10px; padding:12px 0; border-top:1px solid #edf2ed; align-items:center; min-width:0; }
+.gt-planner-stop-image { height:70px; width:67px; display:grid; place-items:center; flex-shrink:0; background:#e8f2e8; border-radius:12px; overflow:hidden; color:#469164; }
+.gt-planner-stop-image img { width:100%; height:100%; object-fit:cover; }
+.gt-planner-stop-info { display:grid; flex:1; min-width:0; gap:4px; }
+.gt-planner-stop-info small { font-size:10px; color:#738c79; display:flex; align-items:center; gap:4px; }
+.gt-planner-stop-info strong { font-size:14px; color:#254e38; overflow-wrap:anywhere; }
+.gt-planner-stop-info>span { font-size:11px; color:#697e70; line-height:1.3; }
+.gt-planner-stop-info button { border:0; background:transparent; display:flex; align-items:center; gap:5px; width:max-content; padding:3px 0; font-size:11px; color:#15794d; font-weight:750; }
+.gt-planner-stop>a { color:#237c4d; padding:6px; }
+.gt-planner-notice { margin:0; font-size:12px; line-height:1.6; color:#607866; background:#e9f3ea; border-radius:13px; padding:13px; }
+.gt-planner-saved-link { border:1px solid #e5eee6; background:#fafcfa; border-radius:12px; display:flex; align-items:center; gap:10px; text-align:left; color:#1e6742; padding:12px; font-size:13px; font-weight:650; }
+.gt-planner-saved-link>span { flex:1; color:#335440; }
+@media (max-width:430px) { .gt-real-planner .gt-planner-layout { padding-right:12px; padding-left:12px; gap:12px; } .gt-planner-choices { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; } .gt-planner-choices button { padding:10px 9px; font-size:12px; } .gt-planner-section { padding:15px; } .gt-planner-day-count { gap:4px; } }
+
+.gt-planner-regions>button { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:9px 10px; font-size:13px; color:#345c42; background:#f9fcf9; border:1px solid #e6efe7; border-radius:10px; text-align:left; }
+.gt-planner-regions>button.selected { background:#e6f6ed; border-color:#66ba88; color:#126a3b; }
+.gt-planner-regions>button b { margin-left:auto; color:#1e7a4a; }
