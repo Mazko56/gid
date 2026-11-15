@@ -120,7 +120,11 @@ export class Stage2Controller {
 
   @UseGuards(SessionGuard)
   @Get("partner/places")
-  partnerPlaces(@Req() request: AuthRequest) { return this.service.partnerPlaces(request.user!); }
+  partnerPlaces(@Req() request: AuthRequest, @Query("compact") compact?: string) { return this.service.partnerPlaces(request.user!, compact === "1"); }
+
+  @UseGuards(SessionGuard)
+  @Get("partner/places/:id")
+  partnerPlace(@Req() request: AuthRequest, @Param("id") id: string) { return this.service.partnerPlace(request.user!,id); }
 
   @Get("partner/services/public/:placeId")
   publicServices(@Param("placeId") placeId:string) { return this.service.publicPartnerServices(placeId); }

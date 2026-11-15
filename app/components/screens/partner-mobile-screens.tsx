@@ -119,6 +119,10 @@ type PartnerProfile = {
   workHours: string;
   checkIn: string;
   checkOut: string;
+  checkInEnabled: boolean;
+  checkOutEnabled: boolean;
+  checkInLabel: string;
+  checkOutLabel: string;
   quietHours: string;
   petPolicy: string;
   cancellation: string;
@@ -165,6 +169,11 @@ type PartnerService = {
   promo: boolean;
   image?: string;
   breaks?: Array<{ from: string; to: string }>;
+  bookingEnabled?: boolean;
+  durationMinutes?: number;
+  maxGuests?: number;
+  slotIntervalMinutes?: number;
+  daysOfWeek?: number[];
 };
 
 const defaultServices: PartnerService[] = [];
@@ -193,6 +202,11 @@ const emptyServiceDraft: PartnerService = {
   additionalInfo: "",
   amenities: [],
   promo: false,
+  bookingEnabled: false,
+  durationMinutes: 60,
+  maxGuests: 1,
+  slotIntervalMinutes: 30,
+  daysOfWeek: [1,2,3,4,5,6,7],
 };
 
 function readPartnerServices(): PartnerService[] {
@@ -285,6 +299,10 @@ const defaultProfile: PartnerProfile = {
   workHours: "09:00 - 18:00",
   checkIn: "",
   checkOut: "",
+  checkInEnabled: false,
+  checkOutEnabled: false,
+  checkInLabel: "Заїзд",
+  checkOutLabel: "Виїзд",
   quietHours: "",
   petPolicy: "",
   cancellation: "",
@@ -453,8 +471,12 @@ async function submitPartnerProfile(profile: PartnerProfile) {
       amenities: profile.amenities.filter((item) => profile.hasWifi || item !== "Wi‑Fi"),
     },
     details: {
-      check_in: profile.checkIn.match(/\d{2}:\d{2}/)?.[0] || "",
-      check_out: profile.checkOut.match(/\d{2}:\d{2}/)?.[0] || "",
+      check_in: profile.checkInEnabled ? profile.checkIn.match(/\d{2}:\d{2}/)?.[0] || "" : "",
+      check_out: profile.checkOutEnabled ? profile.checkOut.match(/\d{2}:\d{2}/)?.[0] || "" : "",
+      check_in_enabled: profile.checkInEnabled,
+      check_out_enabled: profile.checkOutEnabled,
+      check_in_label: profile.checkInLabel.trim() || "Заїзд",
+      check_out_label: profile.checkOutLabel.trim() || "Виїзд",
       wifi_ssid: profile.hasWifi ? profile.wifiSsid : "",
       wifi_password: profile.hasWifi ? profile.wifiPassword : "",
       rules: [...profile.generalRules.map((item) => item.text), profile.cancellation, profile.payment, profile.otherRules].filter(Boolean),
@@ -769,7 +791,7 @@ function buildAddress(profile: Pick<PartnerProfile, "city" | "regionName" | "str
   return [profile.street, profile.house, profile.city, profile.regionName].map((item) => item.trim()).filter(Boolean).join(", ");
 }
 
-async function resizePartnerImage(file: File) {
+async function resizePartnerImage(file: File, purpose: "cover" | "service" | "logo" = "cover") {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
@@ -782,14 +804,14 @@ async function resizePartnerImage(file: File) {
     item.onerror = reject;
     item.src = dataUrl;
   });
-  const maxWidth = 1280;
-  const maxHeight = 900;
+  const maxWidth = purpose === "service" ? 960 : purpose === "logo" ? 420 : 1280;
+  const maxHeight = purpose === "service" ? 960 : purpose === "logo" ? 420 : 900;
   const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(image.width * scale));
   canvas.height = Math.max(1, Math.round(image.height * scale));
   canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.82);
+  return canvas.toDataURL("image/jpeg", purpose === "service" ? 0.78 : 0.82);
 }
 
 function AddressAutocompleteRow({
@@ -1006,7 +1028,7 @@ function PartnerInfoScreen({ navigate, activated }: PartnerProps) {
           <input ref={logoInputRef} className="gt-visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
-            void resizePartnerImage(file).then((logoUrl) => {
+            void resizePartnerImage(file,"logo").then((logoUrl) => {
               setProfile((prev) => ({ ...prev, logoUrl }));
               const placeId=window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'';
               if(placeId)void stage2Fetch(`/partner/media/${encodeURIComponent(placeId)}`,{method:'PATCH',body:JSON.stringify({kind:'logo',image_url:logoUrl})})
@@ -1302,8 +1324,10 @@ function RulesScreen({ navigate, activated }: PartnerProps) {
     await stage2Fetch(`/partner/rules/${encodeURIComponent(placeId)}`,{
       method:'PATCH',body:JSON.stringify({
         rule_items:profile.generalRules,
-        check_in:profile.checkIn.match(/\d{2}:\d{2}/)?.[0]||'',
-        check_out:profile.checkOut.match(/\d{2}:\d{2}/)?.[0]||'',
+        check_in:profile.checkInEnabled ? profile.checkIn.match(/\d{2}:\d{2}/)?.[0]||'' : '',
+        check_out:profile.checkOutEnabled ? profile.checkOut.match(/\d{2}:\d{2}/)?.[0]||'' : '',
+        check_in_enabled: profile.checkInEnabled, check_out_enabled: profile.checkOutEnabled,
+        check_in_label: profile.checkInLabel, check_out_label: profile.checkOutLabel,
         cancellation:profile.cancellation,other_rules:profile.otherRules,
         payment_methods:paymentMethodsFromText(profile.payment),
       }),
@@ -1323,15 +1347,17 @@ function RulesScreen({ navigate, activated }: PartnerProps) {
       void stage2Fetch(`/partner/rules/${encodeURIComponent(placeId)}`, {
         method: 'PATCH', body: JSON.stringify({
           rule_items: profile.generalRules,
-          check_in: profile.checkIn.match(/\d{2}:\d{2}/)?.[0] || '',
-          check_out: profile.checkOut.match(/\d{2}:\d{2}/)?.[0] || '',
+          check_in: profile.checkInEnabled ? profile.checkIn.match(/\d{2}:\d{2}/)?.[0] || '' : '',
+          check_out: profile.checkOutEnabled ? profile.checkOut.match(/\d{2}:\d{2}/)?.[0] || '' : '',
+          check_in_enabled: profile.checkInEnabled, check_out_enabled: profile.checkOutEnabled,
+          check_in_label: profile.checkInLabel, check_out_label: profile.checkOutLabel,
           cancellation: profile.cancellation, other_rules: profile.otherRules,
           payment_methods: paymentMethodsFromText(profile.payment),
         }),
       }).catch((error) => console.warn('Правила закладу не збережено:', error));
     }, 750);
     return () => clearTimeout(timer);
-  }, [profile.generalRules,profile.checkIn,profile.checkOut,profile.cancellation,profile.otherRules,profile.payment]);
+  }, [profile.generalRules,profile.checkIn,profile.checkOut,profile.checkInEnabled,profile.checkOutEnabled,profile.checkInLabel,profile.checkOutLabel,profile.cancellation,profile.otherRules,profile.payment]);
 
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav">
@@ -1887,45 +1913,60 @@ function buildPartnerStatistics(
   };
 }
 
+type PartnerStatsRaw = {place:Record<string,any>;transactions:Array<Record<string,any>>;bookings:Array<Record<string,any>>;resources:Array<Record<string,any>>};
+let partnerStatsCache:{placeId:string;expires:number;data:PartnerStatsRaw}|null=null;
+let partnerStatsPending:Promise<PartnerStatsRaw>|null=null;
+let partnerStatsPendingPlaceId='';
+async function getPartnerStatsRaw():Promise<PartnerStatsRaw> {
+  const savedPlaceId=typeof window!=='undefined' ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'' : '';
+  if(partnerStatsCache && partnerStatsCache.placeId===savedPlaceId && Date.now()<partnerStatsCache.expires)return partnerStatsCache.data;
+  if(partnerStatsPending && partnerStatsPendingPlaceId===savedPlaceId)return partnerStatsPending;
+  partnerStatsPendingPlaceId=savedPlaceId;
+  const current=(async()=>{
+    // When the partner venue id is known, fetch the counters, purchases,
+    // bookings and service calendars simultaneously instead of sequentially.
+    const requests= savedPlaceId ? await Promise.all([
+      stage2Fetch<Array<Record<string,any>>>('/partner/places?compact=1'),
+      stage2Fetch<Array<Record<string,any>>>(`/transactions?place_id=${encodeURIComponent(savedPlaceId)}`),
+      stage2Fetch<Array<Record<string,any>>>(`/bookings?place_id=${encodeURIComponent(savedPlaceId)}`),
+      stage2Fetch<Array<Record<string,any>>>(`/partner/resources/${encodeURIComponent(savedPlaceId)}`),
+    ]) : [await stage2Fetch<Array<Record<string,any>>>('/partner/places?compact=1'),null,null,null] as const;
+    const [places,preTransactions,preBookings,preResources]=requests;
+    const place=places.find(item=>String(item.id)===savedPlaceId)??places[0];
+    if(!place?.id)throw new Error('Для статистики ще не знайдено заклад партнера');
+    const id=String(place.id);
+    const [transactions,bookings,resources]=id===savedPlaceId&&preTransactions&&preBookings&&preResources
+      ? [preTransactions,preBookings,preResources]
+      : await Promise.all([
+        stage2Fetch<Array<Record<string,any>>>(`/transactions?place_id=${encodeURIComponent(id)}`),
+        stage2Fetch<Array<Record<string,any>>>(`/bookings?place_id=${encodeURIComponent(id)}`),
+        stage2Fetch<Array<Record<string,any>>>(`/partner/resources/${encodeURIComponent(id)}`),
+      ]);
+    // The user-uploaded photos are already cached in the partner editor;
+    // do not resend large base64 photos in the statistics API payload.
+    const locallySaved=readPartnerServices();
+    const statsPlace={...place,details:{...place.details,services:(place.details?.services||[]).map((item:Record<string,any>)=>({
+      ...item,image:locallySaved.find(service=>service.name===item.name)?.image||'',
+    }))}};
+    const data={place:statsPlace,transactions,bookings,resources};
+    partnerStatsCache={placeId:id,expires:Date.now()+45_000,data};
+    return data;
+  })();
+  partnerStatsPending=current;
+  try{return await current;}finally{if(partnerStatsPending===current)partnerStatsPending=null;}
+}
 function usePartnerStatisticsData(period:PartnerStatsPeriod) {
-  const [state, setState] = useState<PartnerStatisticsData>(EMPTY_PARTNER_STATS);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setState((current) => ({ ...current, loading: true, error: "" }));
-      try {
-        const places = await stage2Fetch<Array<Record<string, any>>>("/partner/places");
-        if (cancelled) return;
-        const savedPlaceId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "" : "";
-        const place = places.find((item) => String(item.id) === savedPlaceId) ?? places[0];
-        if (!place?.id) {
-          setState({ ...EMPTY_PARTNER_STATS, loading: false, error: "Для статистики ще не знайдено заклад партнера." });
-          return;
-        }
-        const placeId = String(place.id);
-        const [transactions, bookings, resources] = await Promise.all([
-          stage2Fetch<Array<Record<string, any>>>(`/transactions?place_id=${encodeURIComponent(placeId)}`),
-          stage2Fetch<Array<Record<string, any>>>(`/bookings?place_id=${encodeURIComponent(placeId)}`),
-          stage2Fetch<Array<Record<string, any>>>(`/partner/resources/${encodeURIComponent(placeId)}`).catch(() => [] as Array<Record<string, any>>),
-        ]);
-        if (cancelled) return;
-        setState(buildPartnerStatistics(place, transactions, bookings, resources,period));
-      } catch (error) {
-        if (cancelled) return;
-        setState({
-          ...EMPTY_PARTNER_STATS,
-          loading: false,
-          error: error instanceof Error ? error.message : "Не вдалося завантажити статистику",
-        });
-      }
-    };
-
-    void load();
-    return () => { cancelled = true; };
-  }, [period]);
-
+  const [state,setState]=useState<PartnerStatisticsData>(EMPTY_PARTNER_STATS);
+  const [raw,setRaw]=useState<PartnerStatsRaw|null>(()=>partnerStatsCache&&Date.now()<partnerStatsCache.expires?partnerStatsCache.data:null);
+  useEffect(()=>{
+    let cancelled=false;
+    if(!raw)setState(current=>({...current,loading:true,error:''}));
+    void getPartnerStatsRaw().then(result=>{if(!cancelled)setRaw(result);}).catch(error=>{
+      if(!cancelled)setState({...EMPTY_PARTNER_STATS,loading:false,error:error instanceof Error?error.message:'Не вдалося завантажити статистику'});
+    });
+    return()=>{cancelled=true;};
+  },[]);
+  useEffect(()=>{if(raw)setState(buildPartnerStatistics(raw.place,raw.transactions,raw.bookings,raw.resources,period));},[period,raw]);
   return state;
 }
 
@@ -2160,9 +2201,8 @@ function PartnerPendingScreen({ navigate, onActivate }: { navigate: Navigate; on
     try {
       const session = await ensureTelegramSession();
       if (!session) throw new Error("Не вдалося авторизуватися через Telegram");
-      const places = await stage2Fetch<Array<{ id: string; status: string; moderation_comment?: string | null }>>("/partner/places");
-      const placeId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) : null;
-      const place = places.find((item) => item.id === placeId) ?? places[0];
+      const placeId = typeof window !== "undefined" ? window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||"" : "";
+      const place = await fetchCurrentPartnerPlace(placeId);
       if (!place) {
         setStatusError("Заклад ще не знайдено на сервері. Поверніться до контактів і натисніть «Зберегти» ще раз.");
         setStatus("error");
@@ -2262,13 +2302,7 @@ function UpdateScreen({ navigate, activated }: PartnerProps) {
           <RefreshCcw size={18} /> Оновити зараз
         </button>
 
-        <div className="gt-last-update">
-          <CalendarDays size={20} />
-          <span>
-            <small>Останнє оновлення</small>
-            <strong>12 травня 2024, 14:30</strong>
-          </span>
-        </div>
+
       </main>
       <PartnerBottomNav active="home" activated={activated} navigate={navigate} />
     </div>
@@ -2296,7 +2330,8 @@ function PartnerHoursScreen({ navigate }: { navigate: Navigate }) {
 function CabinetScreen({ navigate }: { navigate: Navigate }) {
   const { profile } = usePartnerProfile();
   const definitions: Record<string, { slug: string; icon: typeof Hotel; title: string; note: string }> = {
-    "Бронювання і ресурси": { slug: "partner-bookings", icon: CalendarDays, title: "Бронювання і ресурси", note: "Налаштуйте календар, підтверджуйте заявки та додавайте ручні записи" },
+    "Бронювання і ресурси": { slug: "partner-bookings", icon: CalendarDays, title: "Бронювання", note: "Календар бронювань і заявки гостей" },
+    "Бронювання": { slug: "partner-bookings", icon: CalendarDays, title: "Бронювання", note: "Календар бронювань і заявки гостей" },
     "Послуги закладу": { slug: "partner-services", icon: Hotel, title: "Послуги закладу", note: "Додавайте та керуйте послугами вашого закладу" },
     "Інформація про заклад": { slug: "partner-info", icon: Building2, title: "Інформація про заклад", note: "Фото, опис, зручності та контактні дані" },
     "Правила проживання": { slug: "partner-rules", icon: ClipboardList, title: "Правила проживання", note: "Додати або змінити правила для гостей" },
@@ -2315,7 +2350,7 @@ function CabinetScreen({ navigate }: { navigate: Navigate }) {
   const baseModules = [
     "Інформація про заклад",
     "Послуги закладу",
-    "Бронювання і ресурси",
+    "Бронювання",
     "Графік роботи",
     "Час заїзду / виїзду",
     "Правила проживання",
@@ -2633,6 +2668,7 @@ function ServiceField({
   onChange,
   multiline = false,
   counter,
+  inputType = "text",
 }: {
   label: string;
   value: string;
@@ -2640,6 +2676,7 @@ function ServiceField({
   onChange: (value: string) => void;
   multiline?: boolean;
   counter?: number;
+  inputType?: "text" | "time";
 }) {
   return (
     <label className={`gt-service-field ${multiline ? "is-multiline" : ""}`}>
@@ -2647,7 +2684,7 @@ function ServiceField({
       {multiline ? (
         <textarea value={value} placeholder={placeholder} maxLength={counter} onChange={(event) => onChange(event.target.value)} />
       ) : (
-        <input value={value} placeholder={placeholder} maxLength={counter} onChange={(event) => onChange(event.target.value)} />
+        <input type={inputType} value={value} placeholder={placeholder} maxLength={counter} onChange={(event) => onChange(event.target.value)} />
       )}
       {counter ? <small>{value.length}/{counter}</small> : null}
     </label>
@@ -2676,6 +2713,25 @@ function PartnerServiceTranslationFields({service,onChange}:{service:PartnerServ
         value={service.translations?.[lang]?.[field.key] || ""} multiline={field.key!=="name"} counter={field.key==="name"?100:500}
         onChange={(value)=>onChange({...service,translations:{en:{...(service.translations?.en||{})},pl:{...(service.translations?.pl||{})},[lang]:{...(service.translations?.[lang]||{}),[field.key]:value}}})}/>)}
     </div>)}
+  </section>;
+}
+
+function ServiceBookingSettings({service,onChange}:{service:PartnerService;onChange:(next:PartnerService)=>void}) {
+  const chosen = service.daysOfWeek || (service.scheduleType === 'weekdays' ? [1,2,3,4,5] : [1,2,3,4,5,6,7]);
+  return <section className="gt-service-bookable-settings">
+    <div className="gt-service-toggle-block"><span><strong>Онлайн-бронювання цієї послуги</strong><small>Гості зможуть обирати тільки дозволені вами години</small></span>
+      <ServiceSwitch checked={service.bookingEnabled===true} onChange={bookingEnabled=>onChange({...service,bookingEnabled})}/></div>
+    {service.bookingEnabled ? <>
+      <div className="gt-service-inline-fields">
+        <label className="gt-booking-field"><span>Тривалість, хв</span><input type="number" min="15" max="1440" step="15" value={service.durationMinutes || 60} onChange={e=>onChange({...service,durationMinutes:Number(e.target.value)})}/></label>
+        <label className="gt-booking-field"><span>Максимум гостей</span><input type="number" min="1" max="100" value={service.maxGuests || 1} onChange={e=>onChange({...service,maxGuests:Number(e.target.value)})}/></label>
+      </div>
+      <label className="gt-booking-field"><span>Інтервал між початками бронювань</span><select value={service.slotIntervalMinutes || 30} onChange={e=>onChange({...service,slotIntervalMinutes:Number(e.target.value)})}>
+        <option value={15}>15 хв</option><option value={30}>30 хв</option><option value={60}>60 хв</option>
+      </select></label>
+      <div className="gt-service-days"><strong>Дні доступності</strong><div>{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day,index)=><button type="button" key={day} className={chosen.includes(index+1)?'is-active':''} onClick={()=>onChange({...service,daysOfWeek:chosen.includes(index+1)?chosen.filter(v=>v!==index+1):[...chosen,index+1].sort()})}>{day}</button>)}</div></div>
+      <p className="gt-service-photo-hint">Час «Від» і «До» вище визначає доступний період; перерви також блокують слоти. Бронювання поза графіком сервер відхиляє.</p>
+    </> : null}
   </section>;
 }
 
@@ -2727,7 +2783,7 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              void resizePartnerImage(file).then((image) => {
+              void resizePartnerImage(file,"service").then((image) => {
                 setPreview(image);
                 setDraft((current) => ({ ...current, image }));
               }).catch((error) => setSaveError(error instanceof Error ? error.message : 'Фото не вдалося завантажити'));
@@ -2773,11 +2829,12 @@ function AddServiceScreen({ navigate }: { navigate: Navigate }) {
           <ServiceField label="Валюта" value={draft.currency} onChange={(currency) => setDraft((current) => ({...current, currency}))} />
         </div> : null}
         <h3 className="gt-service-section-title">Графік роботи</h3>
-        <ServiceSelectRow label="Тип графіку" value={draft.scheduleLabel} placeholder="Оберіть графік" onClick={() => navigate('partner','partner-service-schedule-type')} />
+        <ServiceSelectRow label="Тип графіку" value={draft.scheduleLabel} placeholder="Оберіть графік" onClick={() => {window.sessionStorage.setItem('gid-service-schedule-mode','new');navigate('partner','partner-service-schedule-type');}} />
         <div className="gt-service-inline-fields">
-          <ServiceField label="Від" value={draft.timeFrom} onChange={(timeFrom) => setDraft((current)=>({...current,timeFrom}))} />
-          <ServiceField label="До" value={draft.timeTo} onChange={(timeTo) => setDraft((current)=>({...current,timeTo}))} />
+          <ServiceField label="Від" value={draft.timeFrom} inputType="time" onChange={(timeFrom) => setDraft((current)=>({...current,timeFrom}))} />
+          <ServiceField label="До" value={draft.timeTo} inputType="time" onChange={(timeTo) => setDraft((current)=>({...current,timeTo}))} />
         </div>
+        <ServiceBookingSettings service={draft} onChange={setDraft} />
         <h3 className="gt-service-section-title">Контакти й умови</h3>
         <ServiceField label="Телефон" value={draft.phone} onChange={(phone) => setDraft((current)=>({...current,phone}))} />
         <ServiceField label="Як забронювати" value={draft.bookingNote} multiline onChange={(bookingNote) => setDraft((current)=>({...current,bookingNote}))} />
@@ -2915,7 +2972,7 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
         <h3 className="gt-service-section-title">Фото послуги</h3>
         <div className="gt-service-photo-grid">
           {images.map((image, index) => <img src={image} key={`${image}-${index}`} alt="" />)}
-          <label className="gt-service-photo-add"><input type="file" accept="image/*" onChange={(event)=>{const file=event.target.files?.[0];if(file)void resizePartnerImage(file).then(image=>setService(current=>({...current,image}))).catch(error=>window.alert(String(error)));}}/><ImagePlus size={22}/><small>Додати фото</small></label>
+          <label className="gt-service-photo-add"><input type="file" accept="image/*" onChange={(event)=>{const file=event.target.files?.[0];if(file)void resizePartnerImage(file,"service").then(image=>setService(current=>({...current,image}))).catch(error=>window.alert(String(error)));}}/><ImagePlus size={22}/><small>Додати фото</small></label>
         </div>
         <p className="gt-service-photo-hint">Фото відображатиметься у картці послуги після збереження.</p>
 
@@ -2955,11 +3012,12 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
         <ServiceSelectRow label="Тип графіку" value={service.scheduleType === "daily" ? "Щодня" : service.scheduleType === "weekdays" ? "По днях тижня" : "Вибрані дні"} placeholder="Оберіть графік" onClick={() => {
           savePartnerServices(readPartnerServices().map((item) => item.id === service.id ? service : item));
           saveServiceDraft(service);
+          window.sessionStorage.setItem('gid-service-schedule-mode','edit');
           navigate("partner", "partner-service-schedule-type");
         }} />
         <div className="gt-service-inline-fields">
-          <ServiceField label="Час роботи" value={service.timeFrom} onChange={(timeFrom) => setService((current) => ({ ...current, timeFrom }))} />
-          <ServiceField label="До" value={service.timeTo} onChange={(timeTo) => setService((current) => ({ ...current, timeTo }))} />
+          <ServiceField label="Час роботи" value={service.timeFrom} inputType="time" onChange={(timeFrom) => setService((current) => ({ ...current, timeFrom }))} />
+          <ServiceField label="До" value={service.timeTo} inputType="time" onChange={(timeTo) => setService((current) => ({ ...current, timeTo }))} />
         </div>
         {service.breaks?.map((item, index) => (
           <div className="gt-service-break-row" key={`${item.from}-${item.to}-${index}`}>
@@ -2973,6 +3031,7 @@ function EditServiceScreen({ navigate }: { navigate: Navigate }) {
           navigate("partner", "partner-service-break");
         }}><Plus size={15} /> Додати перерву</button>
 
+        <ServiceBookingSettings service={service} onChange={setService} />
         <h3 className="gt-service-section-title">Контакти для бронювання</h3>
         <ServiceField label="Телефон" value={service.phone} onChange={(phone) => setService((current) => ({ ...current, phone }))} />
         <ServiceField label="Додатковий телефон" value={service.extraPhone} onChange={(extraPhone) => setService((current) => ({ ...current, extraPhone }))} />
@@ -3060,25 +3119,24 @@ const scheduleTypeOptions: Array<[PartnerServiceScheduleType, string, string]> =
 ];
 
 function ScheduleTypeScreen({ navigate }: { navigate: Navigate }) {
-  const selectedService = readSelectedService();
-  return (
-    <div className="gt-partner-mobile-screen has-bottom-nav is-service-options-page">
-      <PartnerHeader title="Тип графіку" navigate={navigate} back="partner-service-edit" />
-      <main className="gt-partner-mobile-content gt-partner-form-page gt-service-options-content">
-        <div className="gt-service-radio-stack gt-service-radio-stack--plain">
-          {scheduleTypeOptions.map(([value, title, description]) => (
-            <ServiceRadioCard key={value} title={title} description={description} checked={selectedService.scheduleType === value} onClick={() => {
-              const current = readSelectedService();
-              const next = { ...current, scheduleType: value, scheduleLabel: value === "daily" ? `Щодня · з ${current.timeFrom} до ${current.timeTo}` : title };
-              savePartnerServices(readPartnerServices().map((item) => item.id === next.id ? next : item));
-              navigate("partner", "partner-service-edit");
-            }} />
-          ))}
-        </div>
-      </main>
-      <PartnerBottomNav active="home" activated navigate={navigate} />
-    </div>
-  );
+  const mode=typeof window!=='undefined'&&window.sessionStorage.getItem('gid-service-schedule-mode')==='new'?'new':'edit';
+  const selectedService=mode==='new'?readServiceDraft():readSelectedService();
+  const back=mode==='new'?'partner-service-add':'partner-service-edit';
+  return <div className="gt-partner-mobile-screen has-bottom-nav is-service-options-page">
+    <PartnerHeader title="Тип графіку" navigate={navigate} back={back}/>
+    <main className="gt-partner-mobile-content gt-partner-form-page gt-service-options-content">
+      <div className="gt-service-radio-stack gt-service-radio-stack--plain">
+        {scheduleTypeOptions.map(([value,title,description])=><ServiceRadioCard key={value} title={title} description={description} checked={selectedService.scheduleType===value} onClick={()=>{
+          const current=mode==='new'?readServiceDraft():readSelectedService();
+          const next={...current,scheduleType:value,daysOfWeek:value==='daily'?[1,2,3,4,5,6,7]:value==='weekdays'?[1,2,3,4,5]:(current.daysOfWeek||[1,2,3,4,5,6,7]),scheduleLabel:value==='daily'?`Щодня · з ${current.timeFrom} до ${current.timeTo}`:title};
+          if(mode==='new')saveServiceDraft(next);
+          else savePartnerServices(readPartnerServices().map(item=>item.id===next.id?next:item));
+          navigate('partner',back);
+        }}/>) }
+      </div>
+    </main>
+    <PartnerBottomNav active="home" activated navigate={navigate}/>
+  </div>;
 }
 
 function ServiceBreakScreen({ navigate }: { navigate: Navigate }) {
@@ -3087,15 +3145,15 @@ function ServiceBreakScreen({ navigate }: { navigate: Navigate }) {
   return (
     <div className="gt-partner-mobile-screen has-bottom-nav is-service-options-page">
       <PartnerHeader title="Додати перерву" navigate={navigate} back="partner-service-edit" nextLabel="Зберегти" onNext={() => {
+        if (from>=to) {window.alert("Кінець перерви має бути пізніше початку");return;}
         const current = readSelectedService();
         const next = { ...current, breaks: [...(current.breaks ?? []), { from, to }] };
         savePartnerServices(readPartnerServices().map((item) => item.id === next.id ? next : item));
         navigate("partner", "partner-service-edit");
       }} />
       <main className="gt-partner-mobile-content gt-partner-form-page gt-service-options-content">
-        <ServiceSelectRow label="Час початку" value={from} placeholder="14:00" onClick={() => setFrom(from === "14:00" ? "13:00" : "14:00")} />
-        <ServiceSelectRow label="Час закінчення" value={to} placeholder="15:00" onClick={() => setTo(to === "15:00" ? "16:00" : "15:00")} />
-        <button type="button" className="gt-service-delete gt-service-delete--plain"><Trash2 size={15} /> Видалити перерву</button>
+        <label className="gt-booking-field"><span>Час початку</span><input type="time" value={from} onChange={event=>setFrom(event.target.value)}/></label>
+        <label className="gt-booking-field"><span>Час закінчення</span><input type="time" value={to} onChange={event=>setTo(event.target.value)}/></label>
       </main>
       <PartnerBottomNav active="home" activated navigate={navigate} />
     </div>
@@ -3147,46 +3205,38 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const placeId=typeof window!=='undefined'?window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY)||'':'';
   const [resources,setResources]=useState<PartnerResource[]>([]);
   const [bookings,setBookings]=useState<PartnerBooking[]>([]);
-  const [name,setName]=useState('');
-  const [editingResource,setEditingResource]=useState('');
-  const [capacity,setCapacity]=useState('4');
-  const [duration,setDuration]=useState('60');
-  const [price,setPrice]=useState('0');
   const [selectedResource,setSelectedResource]=useState('');
   const [clientName,setClientName]=useState('');
   const [phone,setPhone]=useState('');
-  const [date,setDate]=useState(()=>new Date(Date.now()+86400000).toISOString().slice(0,10));
-  const [time,setTime]=useState('12:00');
+  const [date,setDate]=useState(()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()));
+  const [time,setTime]=useState('');
+  const [availableSlots,setAvailableSlots]=useState<Record<string,string[]>>({});
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   const reload=async()=>{
-    if(!placeId) return;
+    if(!placeId)return;
     try {
       const [r,b]=await Promise.all([
         stage2Fetch<PartnerResource[]>(`/partner/resources/${encodeURIComponent(placeId)}`),
         stage2Fetch<PartnerBooking[]>(`/bookings?place_id=${encodeURIComponent(placeId)}`),
       ]);
       setResources(r);setBookings(b);
-      if(!r.some(item=>item.id===selectedResource && item.active))setSelectedResource(r.find(item=>item.active)?.id||'');
+      const bookable=r.filter(item=>item.active&&item.id.startsWith('service:'));
+      setSelectedResource(old=>bookable.some(item=>item.id===old)?old:bookable[0]?.id||'');
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося завантажити бронювання');}
   };
   useEffect(()=>{void reload();},[placeId]);
-  const createResource=async()=>{
-    setBusy(true);setMessage('');
-    try {
-      await stage2Fetch('/partner/resources',{method:'POST',body:JSON.stringify({id:editingResource || undefined,place_id:placeId,name:name.trim(),capacity:Number(capacity),duration_minutes:Number(duration),price:Number(price)})});
-      setName('');setEditingResource('');await reload();setMessage('Ресурс збережено');
-    }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося зберегти ресурс');}
-    finally{setBusy(false);}
-  };
-  const editResource=(resource:PartnerResource)=>{setEditingResource(resource.id);setName(resource.name);setCapacity(String(resource.capacity));setDuration(String(resource.duration_minutes));setPrice(String(resource.price));};
-  const removeResource=async(resource:PartnerResource)=>{
-    if(!window.confirm(`Видалити ресурс «${resource.name}»? Історія його бронювань залишиться.`))return;
-    setBusy(true);setMessage('');
-    try{const result=await stage2Fetch<{message?:string}>(`/partner/resources/${encodeURIComponent(resource.id)}`,{method:'DELETE'});await reload();setMessage(result.message||'Ресурс видалено');}
-    catch(e){setMessage(e instanceof Error?e.message:'Не вдалося видалити ресурс');}
-    finally{setBusy(false);}
-  };
+  const bookableResources=resources.filter(item=>item.active&&item.id.startsWith('service:'));
+  useEffect(()=>{
+    if(!placeId||!date){setAvailableSlots({});return;}
+    let closed=false;
+    void stage2Fetch<{slots:Record<string,string[]>}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${encodeURIComponent(date)}`)
+      .then(result=>{if(!closed)setAvailableSlots(result.slots||{});})
+      .catch(()=>{if(!closed)setAvailableSlots({});});
+    return()=>{closed=true;};
+  },[placeId,date]);
+  const slots=availableSlots[selectedResource]||[];
+  useEffect(()=>{if(!slots.includes(time))setTime(slots[0]||'');},[selectedResource,date,availableSlots,time]);
   const updateStatus=async(id:string,status:string)=>{
     setBusy(true);setMessage('');
     try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();}
@@ -3194,38 +3244,29 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
     finally{setBusy(false);}
   };
   const addManual=async()=>{
-    if(!selectedResource||!date||!time){setMessage('Оберіть ресурс, дату та час.');return;}
+    if(!selectedResource||!date||!time||!slots.includes(time)){setMessage('Оберіть послугу, дату та вільний час.');return;}
     setBusy(true);setMessage('');
     try{
       await stage2Fetch('/partner/bookings/manual',{method:'POST',body:JSON.stringify({resource_id:selectedResource,client_name:clientName.trim(),phone:phone.trim(),party_size:1,starts_at:kyivBookingIso(date,time)})});
-      setMessage('Ручне бронювання успішно додано');setClientName('');await reload();
+      setMessage('Бронювання додано');setClientName('');await reload();
     }catch(e){setMessage(e instanceof Error?e.message:'Не вдалося створити бронювання');}
     finally{setBusy(false);}
   };
   const bookingStatusText:Record<string,string>={new:'Нова',pending_partner:'Очікує підтвердження',confirmed:'Підтверджено',completed:'Завершено',alternative_proposed:'Запропоновано інший час',cancelled_by_partner:'Скасовано закладом',cancelled_by_user:'Скасовано гостем',no_show:'Не зʼявився',refunded:'Повернення'};
-  const inputField=(label:string,value:string,onChange:(v:string)=>void,props:{type?:string;min?:string;step?:string;placeholder?:string}={})=><label className="gt-booking-field"><span>{label}</span><input type={props.type||'text'} value={value} min={props.min} step={props.step} placeholder={props.placeholder} onChange={e=>onChange(e.target.value)}/></label>;
+  const inputField=(label:string,value:string,onChange:(v:string)=>void,placeholder='')=><label className="gt-booking-field"><span>{label}</span><input type="text" value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></label>;
   return <div className="gt-partner-mobile-screen has-bottom-nav gt-partner-booking-screen">
-    <PartnerHeader title="Бронювання і ресурси" navigate={navigate} back="partner-cabinet"/>
+    <PartnerHeader title="Бронювання" navigate={navigate} back="partner-cabinet"/>
     <main className="gt-partner-mobile-content gt-partner-booking-content">
       <section className="gt-booking-panel">
-        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ресурси для бронювання</h2><p>Керуйте доступними місцями та послугами</p></div></div>
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Послуги з онлайн-бронюванням</h2><p>Години, тривалість і кількість гостей задаються в картці послуги</p></div></div>
         <div className="gt-booking-resource-list">
-          {resources.map(r=><div key={r.id} className="gt-booking-resource-row"><div><strong>{r.name}</strong><small>Місткість: {r.capacity} · {r.duration_minutes} хв{!r.active?' · Вимкнено':''}</small></div><b>{financeAmount(r.price)}</b><div className="gt-booking-resource-actions"><button type="button" onClick={()=>editResource(r)}><Edit3 size={15}/> Змінити</button><button type="button" disabled={busy} onClick={()=>void removeResource(r)}><Trash2 size={15}/> Видалити</button></div></div>)}
-          {!resources.length?<p className="gt-booking-empty">Ресурсів поки немає. Додайте перший ресурс нижче.</p>:null}
+          {bookableResources.map(r=><div key={r.id} className="gt-booking-resource-row"><div><strong>{r.name}</strong><small>До {r.capacity} гостей · {r.duration_minutes} хв</small></div><b>{financeAmount(r.price)}</b></div>)}
+          {!bookableResources.length?<p className="gt-booking-empty">Поки немає послуг із налаштованим онлайн-бронюванням.</p>:null}
         </div>
-        <div className="gt-booking-panel__subheading">{editingResource ? "Редагувати ресурс" : "Додати ресурс"}</div>
-        <div className="gt-booking-field-grid">
-          {inputField('Назва ресурсу',name,setName,{placeholder:'Наприклад, чан №1'})}
-          {inputField('Місткість (осіб)',capacity,setCapacity,{type:'number',min:'1',step:'1'})}
-          {inputField('Тривалість (хв)',duration,setDuration,{type:'number',min:'15',step:'15'})}
-          {inputField('Ціна (₴)',price,setPrice,{type:'number',min:'0',step:'0.01'})}
-        </div>
-        <button className="gt-booking-action" type="button" disabled={busy||!name.trim()} onClick={()=>void createResource()}><Plus size={18}/> {editingResource ? 'Зберегти зміни' : 'Додати ресурс'}</button>
-        {editingResource ? <button type="button" className="gt-booking-resource-cancel" onClick={()=>{setEditingResource('');setName('');}}>Скасувати редагування</button> : null}
+        <button className="gt-booking-action" type="button" onClick={()=>navigate('partner','partner-services')}><Plus size={18}/>Налаштувати послуги</button>
       </section>
-
       <section className="gt-booking-panel">
-        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><ClipboardList size={20}/></span><div><h2>Календар і заявки</h2><p>Тільки реальні бронювання вашого закладу</p></div></div>
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><ClipboardList size={20}/></span><div><h2>Календар і заявки</h2><p>Реальні бронювання закладу, включно з попередніми</p></div></div>
         {!bookings.length?<p className="gt-booking-empty">Заявок поки немає.</p>:bookings.map(b=><article key={b.id} className="gt-booking-request">
           <div className="gt-booking-request__head"><strong>{b.resource_name}</strong><span>{bookingStatusText[b.status]||b.status}</span></div>
           <time>{new Date(b.starts_at).toLocaleString('uk-UA',{dateStyle:'medium',timeStyle:'short'})}</time>
@@ -3235,17 +3276,16 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
           {b.status==='confirmed'?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button></div>:null}
         </article>)}
       </section>
-
       <section className="gt-booking-panel">
-        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Ручне бронювання</h2><p>Зайняті слоти перевіряються автоматично</p></div></div>
-        <label className="gt-booking-field"><span>Ресурс</span><select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{!resources.length?<option value="">Спочатку створіть ресурс</option>:null}{resources.filter(r=>r.active).map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
-        {inputField('Імʼя клієнта',clientName,setClientName,{placeholder:'Імʼя гостя'})}
-        {inputField('Контакт',phone,setPhone,{placeholder:'+380 …'})}
+        <div className="gt-booking-panel__heading"><span className="gt-booking-panel__icon"><CalendarDays size={20}/></span><div><h2>Додати бронювання</h2><p>Тільки послуги та вільний час із вашого календаря</p></div></div>
+        <label className="gt-booking-field"><span>Послуга</span><select value={selectedResource} onChange={e=>setSelectedResource(e.target.value)}>{!bookableResources.length?<option value="">Налаштуйте послугу</option>:null}{bookableResources.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
+        {inputField('Імʼя клієнта',clientName,setClientName,'Імʼя гостя')}
+        {inputField('Контакт',phone,setPhone,'Телефон гостя')}
         <div className="gt-booking-date-grid">
-          <label className="gt-booking-field"><span>Дата</span><input type="date" value={date} min={new Date().toISOString().slice(0,10)} onChange={e=>setDate(e.target.value)}/></label>
-          <label className="gt-booking-field"><span>Час</span><input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label>
+          <label className="gt-booking-field"><span>Дата</span><input type="date" value={date} min={new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())} onChange={e=>setDate(e.target.value)}/></label>
+          <label className="gt-booking-field"><span>Час</span><select value={time} onChange={e=>setTime(e.target.value)}>{slots.length?slots.map(v=><option key={v} value={v}>{v}</option>):<option value="">Немає вільного часу</option>}</select></label>
         </div>
-        <button className="gt-booking-action" type="button" disabled={busy||!selectedResource||!date||!time} onClick={()=>void addManual()}><Check size={18}/> Зберегти бронювання</button>
+        <button className="gt-booking-action" type="button" disabled={busy||!selectedResource||!date||!time||!slots.includes(time)} onClick={()=>void addManual()}><Check size={18}/> Зберегти бронювання</button>
       </section>
       {message?<p role="status" className="gt-booking-message">{message}</p>:null}
     </main><PartnerBottomNav active="home" activated navigate={navigate}/>
@@ -3254,49 +3294,54 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
 
 function CheckInScreen({ navigate }: { navigate: Navigate }) {
   const { profile, setProfile } = usePartnerProfile();
-  const [earlyEnabled, setEarlyEnabled] = useState(true);
-  const [lateEnabled, setLateEnabled] = useState(true);
-  const [earlyTime, setEarlyTime] = useState("08:00");
-  const [lateTime, setLateTime] = useState("18:00");
-
-  const checkIn = profile.checkIn.replace("Поселення з ", "") || "14:00";
-  const checkOut = profile.checkOut.replace("Виселення до ", "") || "11:00";
-
-  return (
-    <div className="gt-partner-mobile-screen has-bottom-nav gt-stay-time-screen">
-      <PartnerHeader
-        title="Час заїзду-виїзду"
-        navigate={navigate}
-        back="partner-dashboard"
-        nextLabel="Зберегти"
-        onNext={() => navigate("partner", "partner-dashboard")}
-      />
-      <main className="gt-partner-mobile-content gt-partner-form-page gt-stay-time-content">
-        <section className="gt-stay-time-card">
-          <TimeSelectRow
-            label="Час заїзду"
-            value={checkIn}
-            onToggle={() => setProfile((prev) => ({ ...prev, checkIn: checkIn === "14:00" ? "Поселення з 15:00" : "Поселення з 14:00" }))}
-          />
-          <TimeSelectRow
-            label="Час виїзду"
-            value={checkOut}
-            onToggle={() => setProfile((prev) => ({ ...prev, checkOut: checkOut === "11:00" ? "Виселення до 12:00" : "Виселення до 11:00" }))}
-          />
-          <ToggleRow label={"Ранній заїзд\n(за можливості)"} enabled={earlyEnabled} onToggle={() => setEarlyEnabled((prev) => !prev)} />
-          <TimeSelectRow label="Час" value={earlyTime} onToggle={() => setEarlyTime((prev) => prev === "08:00" ? "09:00" : "08:00")} />
-          <ToggleRow label={"Пізній виїзд\n(за можливості)"} enabled={lateEnabled} onToggle={() => setLateEnabled((prev) => !prev)} />
-          <TimeSelectRow label="Час" value={lateTime} onToggle={() => setLateTime((prev) => prev === "18:00" ? "19:00" : "18:00")} />
-        </section>
-
-        <div className="gt-stay-time-note">
-          <strong>Інформація для гостей</strong>
-          <p>Бронювання номера діє з часу заселення до часу виїзду, вказаного вище.</p>
-        </div>
-      </main>
-      <PartnerBottomNav active="home" activated navigate={navigate} />
-    </div>
-  );
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true); setError("");
+    try {
+      const placeId = window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "";
+      if (!placeId) throw new Error("Не знайдено заклад партнера");
+      await stage2Fetch(`/partner/rules/${encodeURIComponent(placeId)}`, {
+        method: "PATCH", body: JSON.stringify({
+          rule_items: profile.generalRules,
+          check_in: profile.checkInEnabled ? profile.checkIn : "",
+          check_out: profile.checkOutEnabled ? profile.checkOut : "",
+          check_in_enabled: profile.checkInEnabled,
+          check_out_enabled: profile.checkOutEnabled,
+          check_in_label: profile.checkInLabel.trim(),
+          check_out_label: profile.checkOutLabel.trim(),
+          cancellation: profile.cancellation,
+          other_rules: profile.otherRules,
+          payment_methods: paymentMethodsFromText(profile.payment),
+        }),
+      });
+      navigate("partner", "partner-cabinet");
+    } catch (e) { setError(e instanceof Error ? e.message : "Не вдалося зберегти"); }
+    finally { setSaving(false); }
+  };
+  return <div className="gt-partner-mobile-screen has-bottom-nav gt-stay-time-screen">
+    <PartnerHeader title="Час заїзду / виїзду" navigate={navigate} back="partner-cabinet" nextLabel={saving ? "Зберігаємо…" : "Зберегти"} onNext={() => void save()} />
+    <main className="gt-partner-mobile-content gt-partner-form-page gt-stay-time-content">
+      <section className="gt-stay-time-card gt-stay-time-card--editable">
+        {(["checkIn","checkOut"] as const).map(key => {
+          const isIn = key === "checkIn";
+          const enabled = isIn ? profile.checkInEnabled : profile.checkOutEnabled;
+          const label = isIn ? profile.checkInLabel : profile.checkOutLabel;
+          const time = isIn ? profile.checkIn : profile.checkOut;
+          return <div className="gt-stay-setting" key={key}>
+            <div className="gt-stay-setting__switch"><strong>{isIn ? "Час заїзду" : "Час виїзду"}</strong>
+              <ServiceSwitch checked={enabled} onChange={value=>setProfile(prev=>isIn ? {...prev,checkInEnabled:value} : {...prev,checkOutEnabled:value})}/></div>
+            {enabled ? <div className="gt-stay-setting__fields">
+              <label>Назва для гостей<input value={label} maxLength={60} onChange={event=>setProfile(prev=>isIn?{...prev,checkInLabel:event.target.value}:{...prev,checkOutLabel:event.target.value})}/></label>
+              <label>Час<input type="time" value={/^\d\d:\d\d$/.test(time) ? time : ""} onChange={event=>setProfile(prev=>isIn?{...prev,checkIn:event.target.value}:{...prev,checkOut:event.target.value})}/></label>
+            </div> : <p>Вимкнено — інформація про час не показуватиметься гостям.</p>}
+          </div>;
+        })}
+      </section>
+      {error ? <p className="gt-booking-message" role="alert">{error}</p> : null}
+    </main>
+    <PartnerBottomNav active="home" activated navigate={navigate}/>
+  </div>;
 }
 
 type ScannedCustomer = {customer_name:string;place_name:string;balance:number;expires_at:string};
@@ -3737,12 +3782,11 @@ function usePartnerSettlement(from = "", to = "") {
   const refresh = async () => {
     setLoading(true); setError("");
     try {
-      const places = await stage2Fetch<Array<{ id: string }>>( "/partner/places");
       const saved = typeof window === "undefined" ? "" : window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY) || "";
-      const place = places.find((x) => x.id === saved) || places[0];
-      if (!place) throw new Error("Заклад партнера не знайдено");
+      const placeId = saved || String((await fetchCurrentPartnerPlace("")).id || "");
+      if (!placeId) throw new Error("Заклад партнера не знайдено");
       const periodQuery = `${from ? `&from=${encodeURIComponent(from)}` : ""}${to ? `&to=${encodeURIComponent(to)}` : ""}`;
-      const result = await stage2Fetch<PartnerSettlement>(`/partner/settlement?place_id=${encodeURIComponent(place.id)}${periodQuery}`);
+      const result = await stage2Fetch<PartnerSettlement>(`/partner/settlement?place_id=${encodeURIComponent(placeId)}${periodQuery}`);
       setState(result);
     } catch(e) { setError(e instanceof Error ? e.message : "Не вдалося отримати взаєморозрахунки"); setState(null); }
     finally { setLoading(false); }
@@ -4046,8 +4090,12 @@ function hydratePartnerProfileFromDb(place: Record<string, any>) {
     facebook: String(details.facebook || ""),
     workMode: work.always_open === true ? "Цілодобово" : "Щодня",
     workHours: work.always_open === true ? "00:00 - 24:00" : daily.from && daily.to ? `${daily.from} - ${daily.to}` : "",
-    checkIn: details.check_in ? `Поселення з ${details.check_in}` : "",
-    checkOut: details.check_out ? `Виселення до ${details.check_out}` : "",
+    checkIn: typeof details.check_in === "string" ? details.check_in : "",
+    checkOut: typeof details.check_out === "string" ? details.check_out : "",
+    checkInEnabled: details.check_in_enabled === true || (details.check_in_enabled === undefined && Boolean(details.check_in)),
+    checkOutEnabled: details.check_out_enabled === true || (details.check_out_enabled === undefined && Boolean(details.check_out)),
+    checkInLabel: String(details.check_in_label || "Заїзд"),
+    checkOutLabel: String(details.check_out_label || "Виїзд"),
     cancellation: String(details.cancellation || ""),
     payment: Array.isArray(details.payment_methods) ? details.payment_methods.join(", ") : String(details.payment || ""),
     otherRules: String(details.other_rules || ""),
@@ -4062,6 +4110,19 @@ function hydratePartnerProfileFromDb(place: Record<string, any>) {
     // Migrate legacy on-device services when the currently owned place has no server copy yet.
     savePartnerServices(locallySavedServices);
   } else savePartnerServices([],false);
+}
+
+async function fetchCurrentPartnerPlace(placeId:string) {
+  if(placeId) {
+    try{return await stage2Fetch<Record<string,any>>(`/partner/places/${encodeURIComponent(placeId)}`);}
+    catch(error){
+      // An old locally saved place ID is not permission to show another partner's data.
+      // A fresh authorized partner list will resolve the current owned place below.
+      if(error instanceof Error && /403|заборон|немає доступу/i.test(error.message)) throw error;
+    }
+  }
+  const places=await stage2Fetch<Array<Record<string,any>>>("/partner/places");
+  return places.find(item=>String(item.id)===placeId)||places[0];
 }
 
 export function PartnerMobileScreen({ slug, navigate }: { slug: string; navigate: Navigate }) {
@@ -4095,9 +4156,8 @@ export function PartnerMobileScreen({ slug, navigate }: { slug: string; navigate
           return;
         }
         try {
-          const places = await stage2Fetch<Array<Record<string, any>>>("/partner/places");
+          const place = await fetchCurrentPartnerPlace(verifiedLaunch.place_id);
           if (cancelled) return;
-          const place = places.find((item) => String(item.id) === verifiedLaunch.place_id) ?? places[0];
           if (place?.id) hydratePartnerProfileFromDb(place);
         } catch { /* access was already verified for this launch; keep local state */ }
         if (!cancelled) setPartnerDataReady(true);
@@ -4175,11 +4235,10 @@ export function PartnerMobileScreen({ slug, navigate }: { slug: string; navigate
       }
 
       try {
-        const places = await stage2Fetch<Array<Record<string, any>>>("/partner/places");
-        if (cancelled) return;
         const storedId = window.localStorage.getItem(PARTNER_STAGE2_PLACE_KEY);
         const targetId = grantedPlaceId || storedId || "";
-        const place = places.find((item) => item.id === targetId) ?? places[0];
+        const place = await fetchCurrentPartnerPlace(targetId);
+        if (cancelled) return;
         const approved = place?.status === "approved";
         if (!isInvite) { savePartnerActivated(Boolean(approved)); setActivated(Boolean(approved)); }
         if (place?.id) {

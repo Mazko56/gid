@@ -150,6 +150,14 @@ export const screens: ScreenDefinition[] = [
     role: "tourist",
   },
   {
+    id: "CBOOKINGS",
+    slug: "my-bookings",
+    title: "Мої бронювання",
+    shortTitle: "Бронювання",
+    description: "Поточні заявки й історія бронювань",
+    role: "tourist",
+  },
+  {
     id: "C08",
     slug: "booking",
     title: "Бронювання",

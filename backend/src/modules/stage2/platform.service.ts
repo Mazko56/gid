@@ -19,6 +19,56 @@ const json = (value: unknown) => JSON.stringify(value ?? {});
 const activeBookingStatuses = ['new', 'pending_partner', 'confirmed', 'alternative_proposed'];
 const allowedBookingStatuses = [...activeBookingStatuses, 'cancelled_by_user', 'cancelled_by_partner', 'completed', 'no_show', 'refunded'];
 
+// All public booking slots must come from the service's saved, real Kyiv schedule.
+// The calendar never offers a hard-coded universal list of 09:00..20:00 hours.
+function kyivParts(date:Date) {
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
+    .formatToParts(date).map(p=>[p.type,p.value]));
+  const dayString=`${parts.year}-${parts.month}-${parts.day}`;
+  return {dayString,minutes:Number(parts.hour)*60+Number(parts.minute),weekday:((new Date(dayString+'T12:00:00Z').getUTCDay()+6)%7)+1};
+}
+function kyivSlotInstant(date:string,time:string) {
+  const assumed=Date.parse(`${date}T${time}:00Z`);
+  if(!Number.isFinite(assumed))return new Date(NaN);
+  const parts=kyivParts(new Date(assumed));
+  const offset=Date.parse(`${parts.dayString}T${String(Math.floor(parts.minutes/60)).padStart(2,'0')}:${String(parts.minutes%60).padStart(2,'0')}:00Z`)-assumed;
+  return new Date(assumed-offset);
+}
+function validBookingTime(resource:Record<string,any>,start:Date) {
+  const hours=resource.working_hours as Record<string,unknown>|null;
+  if(!hours||typeof hours.from!=='string'||typeof hours.to!=='string')return false;
+  const parts=kyivParts(start);
+  const parse=(time:string)=>/^([01]\d|2[0-3]):[0-5]\d$/.test(time)?Number(time.slice(0,2))*60+Number(time.slice(3)):NaN;
+  const from=parse(String(hours.from)),to=parse(String(hours.to));
+  const duration=Number(resource.duration_minutes),minutes=parts.minutes;
+  const days=Array.isArray(hours.days)?hours.days.map(Number):[];
+  if(!days.includes(parts.weekday)||!Number.isFinite(from)||!Number.isFinite(to)||!Number.isInteger(duration)||minutes<from||minutes+duration>to)return false;
+  const interval=Number(hours.slot_minutes||30);
+  if(![15,30,60].includes(interval)||(minutes-from)%interval!==0)return false;
+  const breaks=Array.isArray(hours.breaks)?hours.breaks as Array<{from:string;to:string}>:[];
+  return !breaks.some(b=>{const a=parse(b.from),z=parse(b.to);return Number.isFinite(a)&&Number.isFinite(z)&&minutes<z&&minutes+duration>a;});
+}
+function slotsForBookingResource(resource:Record<string,any>,date:string,occupied:Array<Record<string,any>>) {
+  const hours=resource.working_hours as Record<string,unknown>|null;
+  if(!hours||typeof hours.from!=='string'||typeof hours.to!=='string')return [] as string[];
+  const start=Number(hours.from.slice(0,2))*60+Number(hours.from.slice(3));
+  const end=Number(hours.to.slice(0,2))*60+Number(hours.to.slice(3));
+  const interval=Number(hours.slot_minutes||30);
+  if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(interval)||interval<15)return [];
+  const result:string[]=[];
+  for(let t=start;t+Number(resource.duration_minutes)<=end&&result.length<100;t+=interval) {
+    const slot=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;
+    const instant=kyivSlotInstant(date,slot);
+    const milliseconds=instant.getTime();
+    const finish=milliseconds+Number(resource.duration_minutes)*60000;
+    if(!Number.isFinite(milliseconds)||milliseconds<Date.now()||!validBookingTime(resource,instant))continue;
+    if(occupied.some(b=>b.resource_id===resource.id&&milliseconds<new Date(b.ends_at).getTime()+Number(resource.buffer_minutes||0)*60000&&finish+Number(resource.buffer_minutes||0)*60000>new Date(b.starts_at).getTime()))continue;
+    result.push(slot);
+  }
+  return result;
+}
+
+
 @Injectable()
 export class PlatformService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PlatformService.name);
@@ -589,7 +639,7 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
   async resources(placeId: string) {
     const result = await this.db.query(`SELECT r.* FROM booking_resources r JOIN places p ON p.id=r.place_id
       WHERE p.id=$1 AND p.status='approved' AND r.active=true ORDER BY r.name`,[placeId]);
-    return result.rows;
+    return result.rows.filter((row:Record<string,any>)=>row.id.startsWith('service:') && row.working_hours && typeof row.working_hours.service_id==='string' && typeof row.working_hours.from==='string' && typeof row.working_hours.to==='string');
   }
 
   async partnerResources(user: AuthUser,placeId: string) {
@@ -633,8 +683,10 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
     if(!/^\d{4}-\d\d-\d\d$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new BadRequestException('Укажіть дату YYYY-MM-DD');
     const resources = await this.resources(placeId);
     const bookings = await this.db.query(`SELECT id,resource_id,starts_at,ends_at FROM bookings WHERE place_id=$1
-      AND starts_at < ($2::date+interval '1 day') AND ends_at>$2::date AND status=ANY($3::text[])`,[placeId,date,activeBookingStatuses]);
-    return { date, resources, occupied:bookings.rows, timezone:'Europe/Kyiv', note:'Доступно зараз — лише якщо слот не зайнятий; для графіка перевіряйте години партнера' };
+      AND starts_at < (($2::date+interval '1 day') AT TIME ZONE 'Europe/Kyiv')
+      AND ends_at>($2::date AT TIME ZONE 'Europe/Kyiv') AND status=ANY($3::text[])`,[placeId,date,activeBookingStatuses]);
+    const slots=Object.fromEntries(resources.map((resource:Record<string,any>)=>[resource.id,slotsForBookingResource(resource,date,bookings.rows)]));
+    return { date, resources, slots, occupied:bookings.rows, timezone:'Europe/Kyiv' };
   }
 
   async newBooking(user: AuthUser,body: Record<string,unknown>,manual=false) {
@@ -647,6 +699,8 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
     const start=new Date(txt(body.starts_at,50));
     if(Number.isNaN(start.getTime()) || start.getTime() < Date.now()-60_000) throw new BadRequestException('Оберіть майбутній час');
     const end=new Date(start.getTime() + Number(resource.duration_minutes)*60_000);
+    if((!manual || resource.working_hours?.service_id) && !validBookingTime(resource,start))
+      throw new BadRequestException('Час недоступний за графіком цієї послуги');
     const people=Number(body.party_size ?? 1);
     if(!Number.isInteger(people)||people<1||people>Number(resource.capacity)) throw new BadRequestException('Кількість гостей перевищує місткість');
     const phone=txt(body.phone,40);

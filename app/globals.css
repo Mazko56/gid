@@ -31089,3 +31089,76 @@ button.gt-amenities-row {
 .gt-place-hero .gt-place-display-badge--recommended { background:rgba(80,40,140,.85); }
 .gt-reviews-state { margin:12px 0; font-size:13px; line-height:1.5; color:#65746c; }
 .gt-review-partner-reply { background:#eef9f3; padding:10px; border-radius:10px; font-size:12px; color:#315b44; }
+
+/* Live venue services: the original layout (hero + dynamic wide/grid/list cards),
+   using real partner photos only. Photos are never cropped; the soft blurred
+   background fills any unused aspect-ratio area without white letterboxes. */
+.gt-real-services { padding-bottom:38px; }
+.gt-real-service-feature-wrapper { position:relative; }
+.gt-real-service-photo {position:relative; overflow:hidden; isolation:isolate; background:#1c3025; }
+.gt-real-service-photo__blur {position:absolute; inset:-14px; z-index:0; background-size:cover; background-position:center; filter:blur(14px) brightness(.65); transform:scale(1.06); pointer-events:none; }
+.gt-real-service-photo__image {position:absolute; inset:0; z-index:0; width:100%; height:100%; object-fit:contain; object-position:center; pointer-events:none; }
+.gt-real-service-photo__empty {position:absolute; inset:0; display:grid; place-items:center; background:#e9f4ef; color:#23865e; }
+.gt-real-service-photo.gt-hotel-services-feature::before,
+.gt-real-service-photo.gt-hotel-services-card::before,
+.gt-real-services-card::before {z-index:1; pointer-events:none; }
+.gt-real-service-photo .gt-hotel-services-feature__copy {z-index:2;}
+.gt-real-service-photo .gt-hotel-services-feature__copy small {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;}
+.gt-real-service-feature-button {display:flex; align-items:center; gap:8px; min-height:44px; margin-top:15px; padding:10px 18px; border-radius:11px; background:#099653; color:white; font-size:15px; font-weight:800;}
+.gt-real-service-feature-wrapper .gt-hotel-services-dots {bottom:9px;pointer-events:auto;}
+.gt-real-service-feature-wrapper .gt-hotel-services-feature {min-height:290px;}
+.gt-real-services-list {display:grid;gap:11px;}
+.gt-real-services-card {position:relative;display:block;width:100%;height:172px;padding:0;border:0;border-radius:16px;color:#fff!important;text-align:left;box-shadow:0 5px 16px rgba(10,34,22,.12);cursor:pointer;}
+.gt-real-services-card::before {position:absolute;inset:0;background:linear-gradient(180deg,transparent 18%,rgba(0,12,8,.8) 100%);content:"";}
+.gt-real-services-card .gt-real-services-card__copy {position:absolute;z-index:2;bottom:18px;left:18px;right:65px;display:grid;gap:6px;}
+.gt-real-services-card .gt-real-services-card__copy strong {font-size:18px;line-height:1.16;}
+.gt-real-services-card .gt-real-services-card__copy small {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.3;color:#f3fff7;}
+.gt-real-services-card>i {position:absolute;z-index:2;right:15px;bottom:16px;display:grid;place-items:center;width:44px;height:44px;background:white;color:#078d54;border-radius:13px;}
+.gt-real-services-grid .gt-hotel-services-card {min-height:185px;}
+.gt-real-services-grid .gt-hotel-services-card .gt-real-services-card__copy {position:absolute;z-index:2;bottom:14px;left:12px;right:43px;display:grid;gap:6px;}
+.gt-real-services-grid .gt-real-services-card__copy strong {font-size:14px;line-height:1.2;}
+.gt-real-services-grid .gt-real-services-card__copy small {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;line-height:1.3;color:#f3fff7;}
+.gt-real-services-grid .gt-hotel-services-card>i {right:7px;bottom:12px;width:34px;height:37px;}
+.gt-real-services-list--compact .gt-real-services-card {height:105px;background:#fff;color:#101b15!important;border:1px solid #e7ece9;box-shadow:0 2px 9px rgba(10,34,22,.05);}
+.gt-real-services-list--compact .gt-real-service-photo__blur,.gt-real-services-list--compact .gt-real-service-photo__image,.gt-real-services-list--compact .gt-real-service-photo__empty {right:auto;left:8px;top:8px;bottom:8px;width:100px;height:calc(100% - 16px);border-radius:12px;}
+.gt-real-services-list--compact .gt-real-service-photo__blur {inset:8px auto 8px 8px;transform:none;}
+.gt-real-services-list--compact .gt-real-services-card::before {display:none;}
+.gt-real-services-list--compact .gt-real-services-card .gt-real-services-card__copy {top:50%;bottom:auto;left:122px;right:43px;transform:translateY(-50%);}
+.gt-real-services-list--compact .gt-real-services-card .gt-real-services-card__copy strong {font-size:15px;}
+.gt-real-services-list--compact .gt-real-services-card .gt-real-services-card__copy small {font-size:12px;color:#62776b;}
+.gt-real-services-list--compact .gt-real-services-card>i {width:27px;height:35px;right:9px;bottom:35px;}
+.gt-real-service-detail-screen {padding:10px 16px 25px!important;display:grid;gap:15px;align-content:start;}
+.gt-real-service-detail-screen .gt-hotel-service-photo {min-height:260px;height:290px;overflow:hidden;border-radius:17px;}
+.gt-real-service-detail-screen .gt-hotel-service-photo .gt-real-service-photo__image {background:transparent;}
+.gt-real-service-detail-screen .gt-hotel-service-price {margin:0;}
+.gt-real-service-note {margin:0;white-space:pre-line;color:#425649;font-size:13px;line-height:1.5;}
+.gt-real-service-actions {display:grid;gap:10px;}
+.gt-real-service-actions .gt-primary-button {display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;}
+.gt-real-service-actions .gt-hotel-service-call {min-height:48px;}
+.gt-real-booking-place {display:flex;align-items:center;gap:12px;}
+.gt-real-booking-image {width:86px;height:76px;object-fit:contain;border-radius:11px;background:#eef5f1;flex:0 0 auto;}
+.gt-real-booking-placeholder {display:grid;place-items:center;color:#188455;}
+.gt-real-booking-fields {display:grid;gap:12px;margin:18px 0;}
+.gt-real-booking-fields label {display:grid;gap:6px;font-size:13px;font-weight:600;}
+.gt-real-booking-fields input,.gt-real-booking-fields textarea {width:100%;min-width:0;padding:10px;border:1px solid #dae5df;border-radius:10px;background:#fff;}
+/* Preserve the existing partner editor and cabinet scale, only add controls. */
+.gt-stay-time-card--editable {display:grid;gap:15px;padding:15px;}
+.gt-stay-setting {display:grid;gap:10px;border-bottom:1px solid #edf0ed;padding-bottom:14px;}
+.gt-stay-setting:last-child {border-bottom:0;padding-bottom:0;}
+.gt-stay-setting__switch {display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.gt-stay-setting__switch strong {font-size:14px;}
+.gt-stay-setting__fields {display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px;}
+.gt-stay-setting__fields label {display:grid;gap:6px;font-size:11px;color:#74877b;}
+.gt-stay-setting__fields input {min-width:0;width:100%;height:42px;padding:8px;border:1px solid #dce7df;border-radius:10px;color:#22362a;background:white;}
+.gt-stay-setting p {font-size:12px;margin:0;color:#7b8b80;}
+.gt-service-bookable-settings {display:grid;gap:12px;margin:15px 0;}
+.gt-service-bookable-settings .gt-booking-field {display:grid;gap:6px;}
+.gt-service-bookable-settings .gt-booking-field select {height:42px;min-width:0;width:100%;border-radius:10px;border:1px solid #e0e7e2;background:#fff;}
+.gt-service-days {display:grid;gap:8px;}
+.gt-service-days>strong {font-size:13px;}
+.gt-service-days>div {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;}
+.gt-service-days button {padding:7px 0;border-radius:8px;border:1px solid #dae8df;background:#fff;color:#3c6650;font-size:11px;}
+.gt-service-days button.is-active {background:#099854;color:white;border-color:#099854;}
+/* Use the actual uploaded logo to fill the image slot. No nested 42x42 letterboxed thumbnail. */
+.gt-partner-logo-card__icon {width:calc(100% - 6px);height:76px;overflow:hidden;border-radius:12px 12px 6px 6px;background:transparent;}
+.gt-partner-logo-card__icon img {width:100%;height:100%;object-fit:cover;object-position:center;border-radius:0;display:block;}

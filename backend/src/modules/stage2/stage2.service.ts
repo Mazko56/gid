@@ -1298,7 +1298,20 @@ export class Stage2Service {
     }));
   }
 
-  async partnerPlaces(user: AuthUser) {
+  async partnerPlaces(user: AuthUser, compact=false) {
+    if (compact) {
+      // Statistics needs counters, not potentially megabytes of base64 photos or full partner profiles.
+      const rows=await this.db.query(`SELECT p.id,p.name,
+        jsonb_build_object('services',COALESCE((SELECT jsonb_agg(jsonb_build_object('name',service.value->>'name'))
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.details->'services')='array' THEN p.details->'services' ELSE '[]'::jsonb END) service),'[]'::jsonb)) AS details,
+        COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='place_viewed'),0) AS views,
+        COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='qr_scanned'),0) AS qr_scans,
+        COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='partner_customer_qr_scanned'),0) AS customer_qr_scans
+      FROM places p JOIN organizations o ON o.id=p.organization_id
+      WHERE o.owner_user_id=$1 OR EXISTS(SELECT 1 FROM organization_telegram_access a WHERE a.organization_id=o.id AND a.telegram_id::text=$2 AND a.active=true)
+      ORDER BY p.updated_at DESC`,[user.id,user.telegram_id??'']);
+      return rows.rows;
+    }
     const result = await this.db.query(
       `SELECT DISTINCT p.*,
               COALESCE((SELECT COUNT(*)::int FROM activity_events e WHERE e.place_id=p.id AND e.event_type='place_viewed'),0) AS views,
@@ -1316,6 +1329,13 @@ export class Stage2Service {
       [user.id, user.telegram_id ?? ""],
     );
     return result.rows;
+  }
+
+  async partnerPlace(user: AuthUser, placeId: string) {
+    await this.assertOwnedPartnerPlace(user,placeId);
+    const result=await this.db.query('SELECT * FROM places WHERE id=$1 LIMIT 1',[placeId]);
+    if(!result.rows[0]) throw new NotFoundException('Заклад не знайдено');
+    return result.rows[0];
   }
 
   private async assertOwnedPartnerPlace(user: AuthUser, placeId: string) {
@@ -1343,13 +1363,54 @@ export class Stage2Service {
       const record = item as Record<string,unknown>;
       const name = String(record.name || '').trim().slice(0,160);
       if (!name) throw new BadRequestException('Вкажіть назву послуги');
-      return { ...record, id:String(record.id || `service-${index}`).slice(0,90),name };
+      const id = String(record.id || `service-${index}`).slice(0,90);
+      if (!/^[a-zA-Z0-9_-]{1,90}$/.test(id)) throw new BadRequestException('Некоректний ID послуги');
+      return { ...record, id, name };
     });
+    if(new Set(filtered.map(item=>item.id)).size!==filtered.length) throw new BadRequestException('Повторюється ID послуги');
     const data = JSON.stringify(filtered);
     if (data.length > 7_000_000) throw new BadRequestException('Завеликий обсяг фото або послуг. Стисніть зображення');
-    const saved = await this.db.query(`UPDATE places SET details=jsonb_set(COALESCE(details,'{}'::jsonb),'{services}',$2::jsonb,true),updated_at=now()
-      WHERE id=$1 RETURNING details->'services' AS services`,[placeId,data]);
-    return saved.rows[0]?.services || [];
+    const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const bookable = filtered.filter(item=>item.bookingEnabled===true && item.active!==false && item.hidden!==true);
+    const configs = bookable.map(item=>{
+      const duration=Number(item.durationMinutes),capacity=Number(item.maxGuests),interval=Number(item.slotIntervalMinutes||30);
+      const from=String(item.timeFrom||''),to=String(item.timeTo||'');
+      const days=Array.isArray(item.daysOfWeek)?item.daysOfWeek.map(Number):[1,2,3,4,5,6,7];
+      if(!Number.isInteger(duration)||duration<15||duration>1440||!Number.isInteger(capacity)||capacity<1||capacity>100 || ![15,30,60].includes(interval))
+        throw new BadRequestException(`Уточніть тривалість, кількість гостей та інтервал для «${item.name}»`);
+      if(!timePattern.test(from)||!timePattern.test(to)||from>=to||!days.length||days.some(d=>!Number.isInteger(d)||d<1||d>7))
+        throw new BadRequestException(`Укажіть коректний графік бронювання для «${item.name}»`);
+      const breaks=Array.isArray(item.breaks)?item.breaks:[];
+      if(breaks.some(b=>!b||!timePattern.test(String(b.from))||!timePattern.test(String(b.to))||String(b.from)>=String(b.to)))
+        throw new BadRequestException(`Перевірте перерви для «${item.name}»`);
+      const matches=String(item.price||'').replace(/\s/g,'').replace(/,/g,'.').match(/\d+(?:\.\d{1,2})?/g)||[];
+      const minPrice=item.priceType==='free'?0:Number(matches[0]||0);
+      const maxPrice=item.priceType==='range'&&matches.length>1?Number(matches[1]):null;
+      if(!Number.isFinite(minPrice)||minPrice<0||minPrice>10_000_000 || (maxPrice!==null && maxPrice<minPrice))
+        throw new BadRequestException(`Некоректна ціна послуги «${item.name}»`);
+      if(!['free','fixed','from','range','request'].includes(String(item.priceType||'')))
+        throw new BadRequestException(`Оберіть тип ціни послуги «${item.name}»`);
+      return {item,duration,capacity,interval,from,to,days,breaks,minPrice,maxPrice};
+    });
+    return this.db.transaction(async(client)=>{
+      // Persist service definitions and matching reservable calendar items atomically.
+      const saved=await client.query(`UPDATE places SET details=jsonb_set(COALESCE(details,'{}'::jsonb),'{services}',$2::jsonb,true),updated_at=now()
+        WHERE id=$1 RETURNING details->'services' AS services`,[placeId,data]);
+      const activeIds: string[]=[];
+      for(const c of configs) {
+        const id=`service:${placeId}:${c.item.id}`;
+        activeIds.push(id);
+        const hours={service_id:c.item.id,from:c.from,to:c.to,days:c.days,breaks:c.breaks,slot_minutes:c.interval,price_type:c.item.priceType,price_text:String(c.item.price||''),price_max:c.maxPrice};
+        await client.query(`INSERT INTO booking_resources(id,place_id,name,capacity,duration_minutes,price,working_hours,active)
+          VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,true)
+          ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,capacity=EXCLUDED.capacity,duration_minutes=EXCLUDED.duration_minutes,
+            price=EXCLUDED.price,working_hours=EXCLUDED.working_hours,active=true
+          WHERE booking_resources.place_id=EXCLUDED.place_id`,[id,placeId,c.item.name,c.capacity,c.duration,c.minPrice,JSON.stringify(hours)]);
+      }
+      // Do not delete rows, because old bookings keep FK references to their original resource.
+      await client.query(`UPDATE booking_resources SET active=false WHERE place_id=$1 AND id LIKE $2 AND NOT (id=ANY($3::text[]))`,[placeId,`service:${placeId}:%`,activeIds]);
+      return saved.rows[0]?.services||[];
+    });
   }
 
   async savePartnerMedia(user: AuthUser, placeId: string, body: Record<string,unknown>) {
@@ -1379,7 +1440,9 @@ export class Stage2Service {
     const cancellation=String(body.cancellation||'').slice(0,2500),other=String(body.other_rules||'').slice(0,2500);
     const payment=Array.isArray(body.payment_methods) ? body.payment_methods.map(String).slice(0,8) : [];
     const details = { rule_items:rules,rules:[...rules.map(x=>x.text),cancellation,other].filter(Boolean),
-      check_in:checkIn,check_out:checkOut,cancellation,other_rules:other,payment_methods:payment };
+      check_in:checkIn,check_out:checkOut,check_in_enabled:body.check_in_enabled === true,check_out_enabled:body.check_out_enabled === true,
+      check_in_label:String(body.check_in_label||'Заїзд').trim().slice(0,60),check_out_label:String(body.check_out_label||'Виїзд').trim().slice(0,60),
+      cancellation,other_rules:other,payment_methods:payment };
     await this.db.query(`UPDATE places SET details=COALESCE(details,'{}'::jsonb)||$2::jsonb,updated_at=now() WHERE id=$1`,
       [placeId,JSON.stringify(details)]);
     return {ok:true};

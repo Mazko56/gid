@@ -1342,8 +1342,12 @@ function AboutScreen({ navigate }: { navigate: Navigate }) {
   const { context, language } = runtime;
   const place = context?.place;
   const details = place?.details ?? {};
-  const checkIn = typeof details.check_in === "string" ? details.check_in : "—";
-  const checkOut = typeof details.check_out === "string" ? details.check_out : "—";
+  const checkIn = typeof details.check_in === "string" ? details.check_in.trim() : "";
+  const checkOut = typeof details.check_out === "string" ? details.check_out.trim() : "";
+  const showCheckIn = details.check_in_enabled !== false && Boolean(checkIn);
+  const showCheckOut = details.check_out_enabled !== false && Boolean(checkOut);
+  const checkInLabel = typeof details.check_in_label === "string" && details.check_in_label.trim() ? details.check_in_label.trim() : tr(language,"Заїзд","Check-in","Zameldowanie");
+  const checkOutLabel = typeof details.check_out_label === "string" && details.check_out_label.trim() ? details.check_out_label.trim() : tr(language,"Виїзд","Check-out","Wymeldowanie");
   const placeType = place?.subcategory ? translateKnownLabel(language,place.subcategory) : localizedField(language,place,"category_name",tr(language, "заклад", "place", "miejsce"));
 
   return (
@@ -1358,12 +1362,12 @@ function AboutScreen({ navigate }: { navigate: Navigate }) {
           <h1>{localizedField(language,place,"name",tr(language, "Інформація про заклад", "Place information", "Informacje o miejscu"))}</h1>
           <p><MapPin size={18} /> {place?.address || tr(language, "Адреса завантажується", "Loading address", "Ładowanie adresu")}</p>
         </div>
-        <div className="gt-checkin-card gt-checkin-card--hero">
+        {showCheckIn || showCheckOut ? <div className="gt-checkin-card gt-checkin-card--hero">
           <p>
-            <span><Clock3 size={20} /><i>{tr(language, "Заїзд", "Check-in", "Zameldowanie")}<b>{checkIn}</b></i></span>
-            <span><Clock3 size={20} /><i>{tr(language, "Виїзд", "Check-out", "Wymeldowanie")}<b>{checkOut}</b></i></span>
+            {showCheckIn ? <span><Clock3 size={20} /><i>{checkInLabel}<b>{checkIn}</b></i></span> : null}
+            {showCheckOut ? <span><Clock3 size={20} /><i>{checkOutLabel}<b>{checkOut}</b></i></span> : null}
           </p>
-        </div>
+        </div> : null}
       </section>
       <div className="gt-about-content">
         <button type="button" className="gt-service-card gt-service-card--wide" onClick={() => { if (place) runtime.setSelectedPlace(place); navigate("tourist", "hotel-services"); }}>
@@ -1439,191 +1443,95 @@ function AboutInfoScreen({ navigate, kind }: { navigate: Navigate; kind: AboutIn
   );
 }
 
-type HotelServiceKey = "pool" | "tub" | "sauna" | "bikes" | "massage";
-
-type HotelService = {
-  key: HotelServiceKey;
-  title: string;
-  subtitle: string;
-  description: string;
-  photo: string;
-  galleryCount: string;
-  price: string;
-  priceNote: string;
-  facts: Array<{ icon: LucideIcon; label: string }>;
-};
-
-const hotelServices: HotelService[] = [
-  {
-    key: "pool",
-    title: "Відкритий басейн",
-    subtitle: "Підігрітий, з видом на гори",
-    description: "Теплий критий басейн із панорамним видом на Карпати. Комфортна температура води та спокійна зона відпочинку для гостей готелю.",
-    photo: "/images/service-pool.webp",
-    galleryCount: "1/5",
-    price: "500 грн / 2 год",
-    priceNote: "Для гостей готелю — 350 грн",
-    facts: [
-      { icon: UsersRound, label: "До 12 осіб" },
-      { icon: Clock3, label: "Щодня" },
-      { icon: MountainSnow, label: "Вид на гори" },
-      { icon: ShieldCheck, label: "Рушники" },
-    ],
-  },
-  {
-    key: "tub",
-    title: "Чан на дровах",
-    subtitle: "Релакс у гарячій воді",
-    description: "Гарячий чан просто неба з неймовірним видом на гори. Ідеальний відпочинок у будь-яку пору року.",
-    photo: "/images/service-tub.webp",
-    galleryCount: "1/5",
-    price: "2 000 грн / 2 год",
-    priceNote: "Кожна наступна година — 800 грн",
-    facts: [
-      { icon: UsersRound, label: "До 6 осіб" },
-      { icon: FlameKindling, label: "На дровах" },
-      { icon: MountainSnow, label: "Вид на гори" },
-      { icon: ShieldCheck, label: "Рушники" },
-    ],
-  },
-  {
-    key: "sauna",
-    title: "Сауна",
-    subtitle: "Тепло та здоров’я",
-    description: "Фінська сауна для глибокого розслаблення тіла та відновлення сил. Тепло, комфорт і аромат дерева.",
-    photo: "/images/service-sauna.webp",
-    galleryCount: "1/4",
-    price: "1 500 грн / 2 год",
-    priceNote: "Кожна наступна година — 800 грн",
-    facts: [
-      { icon: UsersRound, label: "До 8 осіб" },
-      { icon: Flame, label: "Фінська парна" },
-      { icon: Leaf, label: "Аромат дерева" },
-      { icon: Gift, label: "Чай включено" },
-    ],
-  },
-  {
-    key: "bikes",
-    title: "Прокат велосипедів",
-    subtitle: "Досліджуйте Карпати",
-    description: "Досліджуйте Карпати активно та комфортно. Якісні велосипеди для дорослих і дітей.",
-    photo: "/images/service-bikes.webp",
-    galleryCount: "1/6",
-    price: "від 300 грн / 1 год",
-    priceNote: "День (до 12 год) — 1 000 грн",
-    facts: [
-      { icon: Bike, label: "Гірські велосипеди" },
-      { icon: ShieldCheck, label: "Шолом включено" },
-      { icon: Bike, label: "Дитячі велосипеди" },
-      { icon: MapPin, label: "Маршрути на вибір" },
-    ],
-  },
-  {
-    key: "massage",
-    title: "Масаж",
-    subtitle: "Професійний релакс",
-    description: "Професійний масаж для тіла і душі. Знімає втому, напруження та дарує відчуття легкості.",
-    photo: "/images/rest-massage.webp",
-    galleryCount: "1/4",
-    price: "800 грн / 60 хв",
-    priceNote: "Тривалість: від 30 до 90 хв",
-    facts: [
-      { icon: UserRound, label: "Професійний масажист" },
-      { icon: Leaf, label: "Арома олії" },
-      { icon: Sparkles, label: "Релакс та відновлення" },
-      { icon: UsersRound, label: "Індивідуальний підхід" },
-    ],
-  },
-];
-
-function HotelServiceDetail({ service, onBack }: { service: HotelService; onBack: () => void }) {
-  const runtime = useTouristRuntime();
-  return (
-    <main className="tourist-screen gt-screen gt-hotel-service-detail">
-      <header className="gt-hotel-services-header">
-        <button type="button" aria-label={touristInterfaceText(runtime.language,"Назад до послуг")} onClick={onBack}><ArrowLeft size={27} /></button>
-        <h1><TouristText uk="Послуги закладу"/></h1>
-        <div className="gt-hotel-service-actions">
-          <button type="button" aria-label={touristInterfaceText(runtime.language,"Поділитися")}><Share2 size={23} /></button>
-          <button type="button" aria-label={touristInterfaceText(runtime.language,"Додати в улюблені")}><Heart size={24} /></button>
-        </div>
-      </header>
-
-      <section className="gt-hotel-service-photo" style={{ backgroundImage: `url(${service.photo})` }}>
-        <span>{service.galleryCount}</span>
-      </section>
-
-      <section className="gt-hotel-service-copy">
-        <h2>{service.title}</h2>
-        <p>{service.description}</p>
-      </section>
-
-      <div className="gt-hotel-service-facts">
-        {service.facts.map(({ icon: Icon, label }) => (
-          <div key={label}><Icon size={25} /><span>{label}</span></div>
-        ))}
-      </div>
-
-      <section className="gt-hotel-service-price">
-        <strong>{service.price}</strong>
-        <small>{service.priceNote}</small>
-      </section>
-
-      <a className="gt-hotel-service-call" href="tel:+380673421868"><Phone size={19} /> <TouristText uk="Зателефонувати"/></a>
-      <footer className="gt-hotel-service-provider"><MountainSnow size={23} /> <TouristText uk="Послуга від: Гірський затишок"/></footer>
-    </main>
-  );
-}
-
 type PublicPartnerService = {
-  id:string;name:string;category:string;description:string;active:boolean;hidden:boolean;translations?:Record<string,Record<string,string>>;
+  id:string; name:string; category:string; description:string; active:boolean; hidden:boolean;translations?:Record<string,Record<string,string>>;
   image?:string;priceType?:string;price?:string;currency?:string;audience?:string;
   timeFrom?:string;timeTo?:string;phone?:string;bookingNote?:string;additionalInfo?:string;
+  bookingEnabled?:boolean;durationMinutes?:number;maxGuests?:number;
 };
-
+const BOOKING_SERVICE_KEY='gid-tourist-booking-selected-service';
+function servicePhotoParts(photo:string|undefined,alt:string) {
+  return photo ? <><span className="gt-real-service-photo__blur" style={{backgroundImage:`url(${photo})`}}/>
+    <img className="gt-real-service-photo__image" src={photo} alt={alt} loading="lazy"/></> : <span className="gt-real-service-photo__empty"><Hotel size={38}/></span>;
+}
 function HotelServicesScreen({ navigate }: { navigate: Navigate }) {
   const runtime = useTouristRuntime();
+  const place = runtime.selectedPlace || runtime.context?.place;
   const placeId = runtime.selectedPlace?.id || runtime.selectedPlaceId || runtime.context?.place?.id || "";
-  const placeName = localizedField(runtime.language,runtime.selectedPlace||runtime.context?.place,"name",tr(runtime.language,"Заклад","Place","Obiekt"));
+  const placeName = localizedField(runtime.language,place,"name",tr(runtime.language,"Заклад","Place","Obiekt"));
   const [services,setServices] = useState<PublicPartnerService[]>([]);
   const [selected,setSelected] = useState<PublicPartnerService|null>(null);
+  const [featureIndex,setFeatureIndex] = useState(0);
+  const [showAll,setShowAll] = useState(false);
   const [loading,setLoading] = useState(true);
   const [message,setMessage] = useState("");
+  const swipeStart = useRef<number|null>(null);
   useEffect(()=>{
     if(!placeId){setServices([]);setLoading(false);return;}
     let closed=false;setLoading(true);
     void stage2Fetch<PublicPartnerService[]>(`/partner/services/public/${encodeURIComponent(placeId)}`)
-      .then((items)=>{if(!closed){setServices(items.filter(s=>s.active!==false && !s.hidden));setMessage('');}})
-      .catch((error)=>{if(!closed){setServices([]);setMessage(error instanceof Error?error.message:touristInterfaceText(runtime.language,'Послуги не вдалося завантажити'));}})
+      .then(items=>{if(!closed){setServices(items.filter(item=>item.active!==false&&!item.hidden));setMessage("");}})
+      .catch(error=>{if(!closed){setServices([]);setMessage(error instanceof Error?error.message:"Не вдалося завантажити послуги");}})
       .finally(()=>{if(!closed)setLoading(false);});
-    return ()=>{closed=true;};
+    return()=>{closed=true;};
   },[placeId]);
-  const servicePrice=(s:PublicPartnerService)=>{
-    if(s.priceType==='free')return touristInterfaceText(runtime.language,'Безкоштовно');
-    if(s.priceType==='request'||!s.price)return touristInterfaceText(runtime.language,'За запитом');
-    return `${s.priceType==='from'?touristInterfaceText(runtime.language,'Від '):''}${s.price} ${s.currency==='UAH'||!s.currency?'₴':s.currency}`;
+  const name=(service:PublicPartnerService)=>localizedField(runtime.language,service,"name");
+  const description=(service:PublicPartnerService)=>localizedField(runtime.language,service,"description");
+  const price=(service:PublicPartnerService)=>{
+    if(service.priceType==='free') return touristInterfaceText(runtime.language,"Безкоштовно");
+    if(service.priceType==='request'||!service.price) return touristInterfaceText(runtime.language,"За запитом");
+    return `${service.priceType==='from' ? touristInterfaceText(runtime.language,"Від "):''}${service.price} ${service.currency==='UAH'||!service.currency?'₴':service.currency}`;
   };
-  return <div className="tourist-screen gt-screen gt-hotel-services-screen"><main className="gt-hotel-services gt-live-services">
-    <header className="gt-hotel-services-header"><button type="button" aria-label={touristInterfaceText(runtime.language,"Назад")} onClick={()=>selected?setSelected(null):navigate('tourist',runtime.context?.place?.id===placeId?'about':'place')}><ArrowLeft size={25}/></button><h1>{touristInterfaceText(runtime.language,selected?'Деталі послуги':'Послуги закладу')}</h1><span/></header>
-    <p className="gt-live-services__place">{placeName}</p>
-    {selected?<article className="gt-live-service-detail">
-      {selected.image?<img src={selected.image} alt={selected.name}/>:null}
-      <div><small>{touristInterfaceText(runtime.language,selected.category||'Послуга закладу')}</small><h2>{localizedField(runtime.language,selected,"name")}</h2><strong>{servicePrice(selected)}</strong></div>
-      {selected.description?<p>{localizedField(runtime.language,selected,"description")}</p>:null}
-      {selected.timeFrom&&selected.timeTo?<p>{touristInterfaceText(runtime.language,"Години роботи")}: {selected.timeFrom}–{selected.timeTo}</p>:null}
-      {selected.bookingNote?<p>{touristInterfaceText(runtime.language,"Бронювання")}: {localizedField(runtime.language,selected,"bookingNote")}</p>:null}
-      {selected.additionalInfo?<p>{localizedField(runtime.language,selected,"additionalInfo")}</p>:null}
-      {selected.phone?<a className="gt-primary-button" href={`tel:${selected.phone}`}><TouristText uk="Зателефонувати щодо послуги"/> <Phone size={18}/></a>:null}
-      <button type="button" className="gt-primary-button" onClick={()=>navigate('tourist','booking')}><CalendarDays size={19}/> <TouristText uk="Перевірити можливість бронювання"/></button>
-    </article>:<>
-      {loading?<div className="gt-stage2-empty"><TouristText uk="Завантажуємо послуги закладу…"/></div>:null}
-      {!loading && message?<div className="gt-stage2-empty">{message}</div>:null}
-      {!loading&&!message&&!services.length?<div className="gt-stage2-empty"><TouristText uk="На цей момент заклад ще не додав послуг."/></div>:null}
-      <section className="gt-live-services-grid">{services.map(service=><button type="button" key={service.id} className="gt-live-service-card" onClick={()=>setSelected(service)}>
-        {service.image?<img src={service.image} alt=""/>:<span className="gt-live-service-card__icon"><Hotel size={29}/></span>}
-        <span><small>{touristInterfaceText(runtime.language,service.category||'Послуга закладу')}</small><strong>{localizedField(runtime.language,service,"name")}</strong><em>{servicePrice(service)}</em></span><ChevronRight size={19}/>
-      </button>)}</section>
-    </>}
+  const book=(service:PublicPartnerService)=>{
+    if(typeof window!=='undefined')window.sessionStorage.setItem(BOOKING_SERVICE_KEY,JSON.stringify({placeId,id:service.id,name:service.name,image:service.image||'',priceType:service.priceType||'',price:service.price||'',currency:service.currency||'UAH'}));
+    navigate('tourist','booking');
+  };
+  const phone = (selected?.phone || place?.phone || '').trim();
+  const feature = services[Math.min(featureIndex,Math.max(0,services.length-1))];
+  const other = services.filter(service=>service.id!==feature?.id);
+  const visible = showAll ? other : other.slice(0,services.length>5?4:other.length);
+  const nextFeature=(direction:number)=>setFeatureIndex(index=>(index+direction+Math.min(services.length,4))%Math.min(services.length,4));
+  if(selected)return <div className="tourist-screen gt-screen gt-hotel-service-detail gt-real-service-detail-screen">
+    <header className="gt-hotel-services-header"><button type="button" aria-label="Назад" onClick={()=>setSelected(null)}><ArrowLeft size={25}/></button><h1>{touristInterfaceText(runtime.language,'Послуги закладу')}</h1><span/></header>
+    <section className="gt-hotel-service-photo gt-real-service-photo">{servicePhotoParts(selected.image,name(selected))}</section>
+    <section className="gt-hotel-service-copy"><h2>{name(selected)}</h2>{description(selected)?<p>{description(selected)}</p>:null}</section>
+    {selected.additionalInfo?<p className="gt-real-service-note">{localizedField(runtime.language,selected,'additionalInfo')}</p>:null}
+    <section className="gt-hotel-service-price"><strong>{price(selected)}</strong>
+      {selected.durationMinutes&&selected.bookingEnabled?<small>{selected.durationMinutes} хв · до {selected.maxGuests||1} гостей</small>:null}
+      {selected.timeFrom&&selected.timeTo?<small>{selected.timeFrom}–{selected.timeTo}</small>:null}
+    </section>
+    {selected.bookingNote?<p className="gt-real-service-note">{localizedField(runtime.language,selected,'bookingNote')}</p>:null}
+    <div className="gt-real-service-actions">
+      <button className="gt-primary-button" type="button" onClick={()=>book(selected)}><CalendarDays size={19}/>{touristInterfaceText(runtime.language,'Бронювати')}</button>
+      {phone?<a className="gt-hotel-service-call" href={`tel:${phone.replace(/[^+\d]/g,'')}`}><Phone size={19}/>{touristInterfaceText(runtime.language,'Зателефонувати')}</a>:null}
+    </div>
+    <footer className="gt-hotel-service-provider"><Hotel size={21}/>{touristInterfaceText(runtime.language,'Послуга від')}: {placeName}</footer>
+  </div>;
+  return <div className="tourist-screen gt-screen gt-hotel-services-screen"><main className="gt-hotel-services gt-real-services">
+    <header className="gt-hotel-services-header"><button type="button" aria-label="Назад" onClick={()=>navigate('tourist',runtime.context?.place?.id===placeId?'about':'place')}><ArrowLeft size={25}/></button><h1>{touristInterfaceText(runtime.language,'Послуги закладу')}</h1><span/></header>
+    {loading?<p className="gt-stage2-empty">{touristInterfaceText(runtime.language,'Завантажуємо послуги закладу…')}</p>:null}
+    {!loading&&message?<p className="gt-stage2-empty" role="alert">{message}</p>:null}
+    {!loading&&!message&&!services.length?<p className="gt-stage2-empty">{touristInterfaceText(runtime.language,'Заклад поки не додав послуг.')}</p>:null}
+    {feature?<>
+      <div className="gt-real-service-feature-wrapper" onTouchStart={event=>{swipeStart.current=event.touches[0]?.clientX??null;}} onTouchEnd={event=>{if(swipeStart.current!==null){const delta=(event.changedTouches[0]?.clientX??swipeStart.current)-swipeStart.current;if(Math.abs(delta)>45)nextFeature(delta<0?1:-1);swipeStart.current=null;}}}>
+        <button type="button" className="gt-hotel-services-feature gt-real-service-photo" onClick={()=>setSelected(feature)}>
+          {servicePhotoParts(feature.image,name(feature))}
+          <span className="gt-hotel-services-feature__copy"><strong>{name(feature)}</strong>{description(feature)?<small>{description(feature)}</small>:null}
+            <span className="gt-real-service-feature-button">{touristInterfaceText(runtime.language,'Детальніше')} <ChevronRight size={20}/></span>
+          </span>
+        </button>
+        {services.length>1?<div className="gt-hotel-services-dots">{services.slice(0,4).map((service,index)=><button type="button" key={service.id} aria-label={`Послуга ${index+1}`} className={featureIndex===index?'is-active':''} onClick={()=>setFeatureIndex(index)}/>)}</div>:null}
+      </div>
+      {visible.length?<h2 className="gt-hotel-services-title">{touristInterfaceText(runtime.language,'Наші послуги')}</h2>:null}
+      {visible.length?<section className={services.length<=3?'gt-real-services-list gt-real-services-list--wide':services.length<=5?'gt-hotel-services-grid gt-real-services-grid':'gt-real-services-list gt-real-services-list--compact'}>
+        {visible.map(service=><button type="button" className={services.length<=5&&services.length>=4?'gt-hotel-services-card gt-real-service-photo':'gt-real-services-card gt-real-service-photo'} key={service.id} onClick={()=>setSelected(service)}>
+          {servicePhotoParts(service.image,name(service))}
+          <span className="gt-real-services-card__copy"><strong>{name(service)}</strong>{description(service)?<small>{description(service)}</small>:null}</span>
+          <i><ChevronRight size={22}/></i>
+        </button>)}
+      </section>:null}
+      {other.length>4?<button type="button" className="gt-hotel-services-all" onClick={()=>setShowAll(value=>!value)}>{touristInterfaceText(runtime.language,showAll?'Згорнути':'Показати всі послуги')} <ChevronDown size={18}/></button>:null}
+    </>:null}
   </main></div>;
 }
 
@@ -2407,69 +2315,88 @@ function TransferScreen({ navigate }: { navigate: Navigate }) {
   );
 }
 
-type BookingResource = {id:string; place_id:string;name:string;price:number;capacity:number;duration_minutes:number};
+type BookingResource = {id:string; place_id:string;name:string;price:number;capacity:number;duration_minutes:number;working_hours?:{service_id?:string;price_type?:string;price_text?:string;price_max?:number|null;from?:string;to?:string;days?:number[]}};
 type BookingRecord = {id:string;place_name?:string;resource_name?:string;starts_at:string;status:string;price:number};
 
 function BookingScreen({ navigate }: { navigate: Navigate }) {
-  const runtime = useTouristRuntime();
-  const selected = runtime.selectedPlace;
-  const placeId = selected?.id || runtime.selectedPlaceId || runtime.context?.place?.id || '';
-  const [resources, setResources] = useState<BookingResource[]>([]);
-  const langText=(text:string)=>touristInterfaceText(runtime.language,text);
-  const [resourceId, setResourceId] = useState('');
-  const [date, setDate] = useState(() => new Date(Date.now()+86400000).toISOString().slice(0,10));
-  const [time, setTime] = useState('16:00');
-  const [people, setPeople] = useState(1);
-  const [phone, setPhone] = useState('');
-  const [comment,setComment] = useState('');
-  const [existing, setExisting] = useState<BookingRecord[]>([]);
-  const [occupied,setOccupied]=useState<Array<{resource_id:string;starts_at:string;ends_at:string}>>([]);
-  const [saving,setSaving]=useState(false);
+  const runtime=useTouristRuntime();
+  const selected=runtime.selectedPlace;
+  const placeId=selected?.id||runtime.selectedPlaceId||runtime.context?.place?.id||'';
+  const translate=(value:string)=>touristInterfaceText(runtime.language,value);
+  const [service]=useState<{placeId:string;id:string;name:string;image:string;priceType:string;price:string;currency:string}|null>(()=>{
+    if(typeof window==='undefined')return null;
+    try{const value=window.sessionStorage.getItem(BOOKING_SERVICE_KEY);return value?JSON.parse(value):null;}catch{return null;}
+  });
+  const serviceSelected=service?.placeId===placeId?service:null;
+  const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const [date,setDate]=useState(today);
+  const [resources,setResources]=useState<BookingResource[]>([]);
+  const [slots,setSlots]=useState<Record<string,string[]>>({});
+  const [resourceId,setResourceId]=useState('');
+  const [time,setTime]=useState('');
+  const [people,setPeople]=useState(1);
+  const [phone,setPhone]=useState('');
+  const [comment,setComment]=useState('');
+  const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
+  const [saving,setSaving]=useState(false);
   const [confirmed,setConfirmed]=useState(false);
   useEffect(()=>{
-    if(!placeId)return;
-    void stage2Fetch<BookingResource[]>(`/resources/${encodeURIComponent(placeId)}`).then(setResources).catch(()=>setResources([]));
-  },[placeId]);
-  useEffect(()=>{ if(!resourceId&&resources[0])setResourceId(resources[0].id);},[resourceId,resources]);
-  useEffect(()=>{ if(!placeId)return;
-    void stage2Fetch<{occupied:typeof occupied}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${date}`).then((data)=>setOccupied(data.occupied)).catch(()=>setOccupied([]));
-  },[date,placeId]);
-  useEffect(()=>{void stage2Fetch<BookingRecord[]>('/bookings').then(setExisting).catch(()=>undefined);},[confirmed]);
-  const resource = resources.find((item)=>item.id===resourceId);
-  const availableSlots=['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
-  const slotIsBusy=(slot:string)=>{
-    if(!date) return true;
-    const start=new Date(kyivBookingIso(date,slot)).getTime();
-    const duration=(resource?.duration_minutes||60)*60000;
-    return start<Date.now()||occupied.some((b)=>b.resource_id===resourceId&&start<new Date(b.ends_at).getTime()&&start+duration>new Date(b.starts_at).getTime());
-  };
+    if(!placeId){setLoading(false);return;}
+    let cancelled=false;setLoading(true);setError('');
+    void stage2Fetch<{resources:BookingResource[];slots:Record<string,string[]>}>(`/bookings/availability?place_id=${encodeURIComponent(placeId)}&date=${date}`)
+      .then(result=>{if(!cancelled){setResources(result.resources||[]);setSlots(result.slots||{});}})
+      .catch(e=>{if(!cancelled){setResources([]);setSlots({});setError(e instanceof Error?e.message:translate('Не вдалося завантажити доступність'));}})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  },[placeId,date]);
+  const bookables=serviceSelected?resources.filter(r=>r.working_hours?.service_id===serviceSelected.id):resources;
+  useEffect(()=>{if(!bookables.some(r=>r.id===resourceId))setResourceId(bookables[0]?.id||'');},[resources,resourceId,serviceSelected?.id]);
+  const resource=bookables.find(r=>r.id===resourceId);
+  const availableSlots=resource?slots[resource.id]||[]:[];
+  useEffect(()=>{if(!availableSlots.includes(time))setTime(availableSlots[0]||'');},[resourceId,date,slots,time]);
+  const photo=serviceSelected?.image||(selected||runtime.context?.place)?.image_url||'';
+  const name=serviceSelected?.name||localizedField(runtime.language,selected||runtime.context?.place,'name',translate('Бронювання'));
+  const priceText=resource?.working_hours?.price_text||serviceSelected?.price||'';
+  const priceType=resource?.working_hours?.price_type||serviceSelected?.priceType||'';
+  const priceLabel=!resource?'—':priceType==='free'?translate('Безкоштовно'):
+    priceType==='request'?translate('За запитом'):
+    priceType==='range'?`${priceText} ₴ (${translate('діапазон')})`:
+    priceType==='from'?`${translate('Від')} ${priceText} ₴`:resource?`${Number(resource.price).toLocaleString('uk-UA')} ₴`:'—';
   const send=async()=>{
-    if(!resource)return setError(langText('У цьому закладі ще не додано ресурси для онлайн-бронювання'));
+    if(!resource||!time||!availableSlots.includes(time)){setError(translate('Оберіть доступний час'));return;}
+    if(people<1||people>resource.capacity){setError(translate('Кількість гостей перевищує місткість'));return;}
     setSaving(true);setError('');
     try{
-      await stage2Fetch('/bookings',{method:'POST',body:JSON.stringify({resource_id:resourceId,starts_at:kyivBookingIso(date,time),party_size:people,phone,comment,client_name:[runtime.user?.first_name,runtime.user?.last_name].filter(Boolean).join(' ')})});
+      await stage2Fetch('/bookings',{method:'POST',body:JSON.stringify({resource_id:resource.id,starts_at:kyivBookingIso(date,time),party_size:people,phone,comment,client_name:[runtime.user?.first_name,runtime.user?.last_name].filter(Boolean).join(' ')})});
       setConfirmed(true);
-    }catch(e){setError(e instanceof Error?e.message:langText('Не вдалося створити бронювання'));}
+    }catch(e){setError(e instanceof Error?e.message:translate('Не вдалося створити бронювання'));}
     finally{setSaving(false);}
   };
-  return (
-    <div className="tourist-screen gt-screen"><main className="gt-content">
-      <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1><TouristText uk="Бронювання"/></h1><p><TouristText uk="Оберіть вільний ресурс і час"/></p></div></div>
-      <div className="gt-booking-place"><Thumb name="tub"/><div><strong>{localizedField(runtime.language,selected||runtime.context?.place,'name',langText('Бронювання послуги'))}</strong><small>{selected?.address||runtime.context?.place?.address||langText('Оберіть заклад у каталозі')}</small></div></div>
-      <SectionTitle title="Ресурс"/>
-      {resources.length?<div className="gt-time-grid">{resources.map(r=><button type="button" key={r.id} className={resourceId===r.id?'is-active':''} onClick={()=>setResourceId(r.id)}>{langText(r.name)}</button>)}</div>:<div className="gt-notice"><Info size={20}/><p><TouristText uk="Онлайн-бронювання ще не налаштоване цим партнером. Скористайтеся контактом у картці закладу."/></p></div>}
-      <SectionTitle title="Дата"/><input aria-label={touristInterfaceText(runtime.language,"Дата бронювання")} type="date" min={new Date().toISOString().slice(0,10)} value={date} onChange={e=>setDate(e.target.value)} style={{width:'100%',padding:'14px',borderRadius:12,border:'1px solid #dde3df'}}/>
-      <SectionTitle title="Вільний час"/><div className="gt-time-grid">{availableSlots.map(slot=><button key={slot} type="button" disabled={slotIsBusy(slot)} className={time===slot?'is-active':''} onClick={()=>setTime(slot)}>{slot}{slotIsBusy(slot)?` · ${langText('Зайнято')}`:''}</button>)}</div>
-      <div className="gt-booking-summary"><div><span><TouristText uk="Тривалість"/></span><strong>{resource?.duration_minutes||'—'} {langText('хв')}</strong></div><div><span><TouristText uk="Місткість"/></span><strong>{resource?.capacity||'—'} {langText('гостей')}</strong></div><div><span><TouristText uk="Вартість"/></span><strong>{resource?`${Number(resource.price).toLocaleString('uk-UA')} ₴`:langText('Уточнити')}</strong></div></div>
-      <div style={{display:'grid',gap:12,margin:'18px 0'}}><label><TouristText uk="Кількість осіб"/> <input type="number" min={1} max={resource?.capacity||20} value={people} onChange={e=>setPeople(Number(e.target.value))} style={{width:'100%',padding:10}}/></label><label><TouristText uk="Телефон для звʼязку"/> <input type="tel" placeholder="+380XXXXXXXXX" value={phone} onChange={e=>setPhone(e.target.value)} style={{width:'100%',padding:10}}/></label><label><TouristText uk="Коментар (необовʼязково)"/><textarea value={comment} onChange={e=>setComment(e.target.value)} style={{width:'100%',padding:10}}/></label></div>
-      {error?<p role="alert" style={{color:'#a62424'}}>{error}</p>:null}
-      {confirmed?<div className="gt-success-card"><span><Check size={24}/></span><div><strong><TouristText uk="Запит надіслано"/></strong><p><TouristText uk="Бронювання очікує на підтвердження партнера."/></p></div></div>:<button type="button" className="gt-primary-button" disabled={saving||!resource||slotIsBusy(time)} onClick={()=>void send()}>{langText(saving?'Надсилаємо...':'Підтвердити бронювання')} <ChevronRight size={20}/></button>}
-      <button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={18}/> <TouristText uk="Усі мої бронювання"/></button>
-      <SectionTitle title="Мої бронювання"/>{existing.map(b=><div className="gt-booking-summary" key={b.id}><div><span>{b.place_name} · {b.resource_name}</span><strong>{new Date(b.starts_at).toLocaleString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA')}</strong></div><div><span><TouristText uk="Статус"/></span><strong>{langText(b.status)}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void stage2Fetch(`/bookings/${b.id}/status`,{method:'PATCH',body:JSON.stringify({status:'cancelled_by_user'})}).then(()=>setExisting(curr=>curr.map(x=>x.id===b.id?{...x,status:'cancelled_by_user'}:x))).catch(e=>setError(String(e)))}><TouristText uk="Скасувати"/></button>:null}</div>)}
-      <button type="button" className="gt-text-button" onClick={()=>navigate('tourist','plan')}><TouristText uk="Переглянути мій план"/></button>
-    </main></div>
-  );
+  return <div className="tourist-screen gt-screen"><main className="gt-content">
+    <button type="button" className="gt-back-button" onClick={()=>navigate('tourist','hotel-services')}><ArrowLeft size={18}/>{translate('До послуг')}</button>
+    <div className="gt-page-heading"><span className="gt-tone--green"><CalendarDays size={23}/></span><div><h1>{translate('Бронювання')}</h1><p>{translate('Оберіть доступний час послуги')}</p></div></div>
+    <div className="gt-booking-place gt-real-booking-place">
+      {photo?<img className="gt-real-booking-image" src={photo} alt={name}/>:<span className="gt-real-booking-image gt-real-booking-placeholder"><Hotel size={27}/></span>}
+      <div><strong>{name}</strong><small>{selected?.address||runtime.context?.place?.address||''}</small></div>
+    </div>
+    {resource&&['from','range','request'].includes(priceType)?<p className="gt-real-service-note">{translate('Остаточну вартість уточнює заклад під час підтвердження бронювання.')}</p>:null}
+    {loading?<p className="gt-stage2-empty">{translate('Перевіряємо доступність…')}</p>:null}
+    {!loading&&!bookables.length?<p className="gt-notice">{translate('Для цієї послуги партнер ще не налаштував онлайн-бронювання. Зверніться до закладу за телефоном.')}</p>:null}
+    {bookables.length>1?<><SectionTitle title="Послуга"/><div className="gt-time-grid">{bookables.map(item=><button type="button" key={item.id} className={resourceId===item.id?'is-active':''} onClick={()=>{setResourceId(item.id);setConfirmed(false);}}>{item.name}</button>)}</div></>:null}
+    <SectionTitle title="Дата"/><input aria-label={translate('Дата бронювання')} type="date" min={today()} value={date} onChange={event=>{setDate(event.target.value);setConfirmed(false);}} style={{width:'100%',padding:'14px',borderRadius:12,border:'1px solid #dde3df'}}/>
+    <SectionTitle title="Вільний час"/>
+    {availableSlots.length?<div className="gt-time-grid">{availableSlots.map(slot=><button type="button" key={slot} className={time===slot?'is-active':''} onClick={()=>{setTime(slot);setConfirmed(false);}}>{slot}</button>)}</div>:<p className="gt-stage2-empty">{translate('На обрану дату вільних годин немає.')}</p>}
+    <div className="gt-booking-summary"><div><span>{translate('Тривалість')}</span><strong>{resource?.duration_minutes||'—'} {translate('хв')}</strong></div><div><span>{translate('Максимум гостей')}</span><strong>{resource?.capacity||'—'}</strong></div><div><span>{translate('Ціна')}</span><strong>{priceLabel}</strong></div></div>
+    <div className="gt-real-booking-fields"><label>{translate('Кількість гостей')}<input type="number" min={1} max={resource?.capacity||1} value={people} onChange={e=>setPeople(Number(e.target.value))}/></label>
+      <label>{translate('Телефон для зв’язку')}<input type="tel" placeholder="+380XXXXXXXXX" value={phone} onChange={e=>setPhone(e.target.value)}/></label>
+      <label>{translate('Коментар (необов’язково)')}<textarea value={comment} onChange={e=>setComment(e.target.value)}/></label>
+    </div>
+    {error?<p role="alert" className="gt-booking-message">{error}</p>:null}
+    {confirmed?<div className="gt-success-card"><span><Check size={24}/></span><div><strong>{translate('Запит надіслано')}</strong><p>{translate('Бронювання очікує на підтвердження партнера.')}</p></div></div>:
+      <button type="button" className="gt-primary-button" disabled={saving||loading||!resource||!time||!availableSlots.includes(time)||people<1||people>resource.capacity} onClick={()=>void send()}>{saving?translate('Надсилаємо…'):translate('Підтвердити бронювання')} <ChevronRight size={20}/></button>}
+    <button type="button" className="gt-outline-button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={18}/>{translate('Усі мої бронювання')}</button>
+  </main></div>;
 }
 
 function MyBookingsScreen({ navigate }: {navigate:Navigate}) {
@@ -2496,7 +2423,7 @@ function MyBookingsScreen({ navigate }: {navigate:Navigate}) {
     {loading?<div className="gt-stage2-empty"><TouristText uk="Завантаження…"/></div>:null}
     {error?<p role="alert" className="gt-booking-message">{error}</p>:null}
     {!loading&&!bookings.length?<div className="gt-stage2-empty"><TouristText uk="Ви ще не створювали бронювань. Відкрийте заклад і оберіть «Забронювати»."/></div>:null}
-    {bookings.map(b=><article className="gt-booking-summary" key={b.id}><div><span>{b.place_name||langText('Заклад')} · {b.resource_name||langText('Ресурс')}</span><strong>{new Date(b.starts_at).toLocaleString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA',{dateStyle:'medium',timeStyle:'short'})}</strong></div><div><span><TouristText uk="Статус"/></span><strong>{langText(statuses[b.status]||b.status)}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void cancel(b.id)}><TouristText uk="Скасувати"/></button>:null}</article>)}
+    {bookings.map(b=><article className="gt-booking-summary" key={b.id}><div><span>{b.place_name||langText('Заклад')} · {b.resource_name||langText('Послуга')}</span><strong>{new Date(b.starts_at).toLocaleString(runtime.language==='en'?'en-GB':runtime.language==='pl'?'pl-PL':'uk-UA',{dateStyle:'medium',timeStyle:'short'})}</strong></div><div><span><TouristText uk="Статус"/></span><strong>{langText(statuses[b.status]||b.status)}</strong></div>{['pending_partner','confirmed'].includes(b.status)?<button type="button" onClick={()=>void cancel(b.id)}><TouristText uk="Скасувати"/></button>:null}</article>)}
   </main></div>;
 }
 
