@@ -50,6 +50,7 @@ type TouristRuntimeValue = {
 const TouristRuntimeContext = createContext<TouristRuntimeValue | null>(null);
 // Count each QR link opening once per actual page launch, not once per sessionStorage lifetime.
 const trackedLaunchContexts = new Set<string>();
+const DISPLAY_CONTEXT_TTL_MS = 45_000;
 
 function contextCacheKey(startParam: string) {
   return `gid-tourist-stage2-context:${startParam}`;
@@ -61,21 +62,22 @@ function readCachedContext() {
   if (!startParam) return null;
   try {
     const raw = window.sessionStorage.getItem(contextCacheKey(startParam));
-    return raw ? JSON.parse(raw) as Stage2Context : null;
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as { value?: Stage2Context; at?: number };
+    return entry.value?.qr?.startParam === startParam &&
+      Number.isFinite(entry.at) && Date.now() - Number(entry.at) < DISPLAY_CONTEXT_TTL_MS
+      ? entry.value : null;
   } catch {
     return null;
   }
 }
 
 export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
-  const initialContext = readCachedContext();
-  const [context, setContext] = useState<Stage2Context | null>(initialContext);
+  // Do not read sessionStorage in the initial React render: server and browser
+  // would produce different HTML for a cached QR and trigger slow hydration recovery.
+  const [context, setContext] = useState<Stage2Context | null>(null);
   const [user, setUser] = useState<Stage2User | null>(null);
-  const [location, setLocation] = useState<Coordinates | null>(() => initialContext ? {
-    lat: Number(initialContext.place?.lat ?? initialContext.region.lat),
-    lng: Number(initialContext.place?.lng ?? initialContext.region.lng),
-    source: "qr",
-  } : null);
+  const [location, setLocation] = useState<Coordinates | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiOnline, setApiOnline] = useState(false);
   const [manualSignIn, setManualSignIn] = useState(false);
@@ -98,7 +100,7 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
       // Resolve the QR context immediately from the launch URL. Telegram authorization runs in
       // parallel, so the UI never needs to render a hardcoded region while waiting for initData.
       const contextPromise = startParam
-        ? stage2Fetch<Stage2Context>(`/context/${encodeURIComponent(startParam)}`)
+        ? (resolvedContext ? Promise.resolve(resolvedContext) : stage2Fetch<Stage2Context>(`/context/${encodeURIComponent(startParam)}`))
             .then((ctx) => {
               resolvedContext = ctx;
               if (!cancelled) {
@@ -110,7 +112,7 @@ export function TouristRuntimeProvider({ children }: { children: ReactNode }) {
                   source: "qr",
                 });
                 setApiOnline(true);
-                try { window.sessionStorage.setItem(contextCacheKey(startParam), JSON.stringify(ctx)); } catch { /* ignore storage restrictions */ }
+                try { window.sessionStorage.setItem(contextCacheKey(startParam), JSON.stringify({ value: ctx, at: Date.now() })); } catch { /* ignore storage restrictions */ }
               }
               return ctx;
             })

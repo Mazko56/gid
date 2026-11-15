@@ -38,7 +38,7 @@ import { AdminDesktopScreen } from "./screens/admin-desktop-screens";
 import { PartnerMobileScreen } from "./screens/partner-mobile-screens";
 import { TouristScreen } from "./screens/tourist-screens";
 import { TouristAuthScreen } from "./screens/tourist-auth-screen";
-import { TouristRuntimeProvider, useTouristRuntime } from "../lib/tourist-runtime";
+import { useTouristRuntime } from "../lib/tourist-runtime";
 import { tr } from "../lib/tourist-i18n";
 import { telegramStartParam, waitForTelegramWebApp } from "../lib/stage2-api";
 import { Avatar, IconButton } from "./ui";
@@ -259,9 +259,7 @@ export default function ProductApplication({ role, slug }: { role: RoleKey; slug
     return (
       <main className={`tourist-app-shell ${isAndroidTelegram ? "tourist-app-shell--android" : ""}`}>
         <div className={`tourist-app-frame ${slug === "welcome" ? "tourist-app-frame--welcome" : ""} ${isHomeScreen ? "tourist-app-frame--home" : ""}`}>
-          <TouristRuntimeProvider>
-            <TouristScreenWithAuth slug={activeScreen.slug} activeSlug={slug} navigate={navigate} />
-          </TouristRuntimeProvider>
+          <TouristScreenWithAuth slug={activeScreen.slug} activeSlug={slug} navigate={navigate} />
         </div>
       </main>
     );

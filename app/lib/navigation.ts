@@ -214,6 +214,14 @@ export const screens: ScreenDefinition[] = [
     role: "tourist",
   },
   {
+    id: "C15F",
+    slug: "saved-plans",
+    title: "Мої плани",
+    shortTitle: "Мої плани",
+    description: "Збережені маршрути туриста з можливістю перегляду",
+    role: "tourist",
+  },
+  {
     id: "C15B",
     slug: "favorites",
     title: "Улюблені",

@@ -311,6 +311,9 @@ export async function waitForTelegramWebApp(timeoutMs = 2500) {
   return (window as TelegramWindow).Telegram?.WebApp;
 }
 
+// Telegram may provide the QR code only in the original launch URL. Next client-side
+// navigation removes URL parameters; keep the trusted launch *identifier* in this page life.
+let launchStartParam = "";
 export function telegramStartParam() {
   if (typeof window === "undefined") return "";
   const webApp = (window as TelegramWindow).Telegram?.WebApp;
@@ -321,7 +324,9 @@ export function telegramStartParam() {
     fromLaunch ||= params.get("tgWebAppStartParam") || "";
     fromFallback ||= params.get("startapp") || params.get("start") || "";
   }
-  return fromTelegram || fromLaunch || fromFallback || "";
+  const current = fromTelegram || fromLaunch || fromFallback;
+  if (current) launchStartParam = current;
+  return current || launchStartParam;
 }
 
 export function telegramLaunchKey() {

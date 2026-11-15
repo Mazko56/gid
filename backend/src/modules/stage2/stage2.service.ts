@@ -998,8 +998,17 @@ export class Stage2Service {
       const result = await this.google.details(googleId);
       return withRoute(this.googlePlaceToStage2(result, originLat, originLng));
     }
-    const rows = await this.rawPlaces(undefined, !publicOnly);
-    const place = rows.find((row) => row.id === id && (!publicOnly || row.status === "approved"));
+    // QR opening and place details need only ONE row. rawPlaces() materializes the
+    // entire catalog and computes tags for every venue, making QR launch slower as
+    // PostgreSQL grows. Keep the same response columns and authorization semantics.
+    const found = await this.db.query<PlaceRow>(
+      `SELECT p.*, c.name category_name, c.name_en category_name_en, c.name_pl category_name_pl,
+         COALESCE((SELECT json_agg(t.tag ORDER BY t.tag) FROM place_tags t WHERE t.place_id=p.id),'[]'::json)::jsonb AS tags
+       FROM places p JOIN categories c ON c.slug=p.category_slug
+       WHERE p.id=$1 AND ($2::boolean=false OR p.status='approved') LIMIT 1`,
+      [id, publicOnly],
+    );
+    const place = found.rows[0];
     if (!place) throw new NotFoundException("Place not found");
     const distance = Number.isFinite(originLat) && Number.isFinite(originLng) ? Math.round(distanceMeters(Number(originLat), Number(originLng), Number(place.lat), Number(place.lng))) : null;
     return withRoute({ ...place, rating: Number(place.rating), distance_m: distance, is_open_now: isOpenNow(place.work_hours) });

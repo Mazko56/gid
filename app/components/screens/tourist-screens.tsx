@@ -808,10 +808,34 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
 
   useEffect(() => {
     let cancelled = false;
+    // Telegram frequently sends focus/visibility events while opening a QR Mini App.
+    // Reuse recent public category data instead of sending another request on every event.
+    const cacheKey = "gid-tourist-categories-cache";
+    const refreshIntervalMs = 2 * 60 * 1000;
+    let lastFetchedAt = 0;
+    let inFlight = false;
+    try {
+      const raw = window.sessionStorage.getItem(cacheKey);
+      if (raw) {
+        const cached = JSON.parse(raw) as { value?: Stage2Category[]; at?: number };
+        if (Array.isArray(cached.value) && Number(cached.at) > Date.now() - refreshIntervalMs) {
+          setAdminCategories(cached.value);
+          lastFetchedAt = Number(cached.at);
+        }
+      }
+    } catch { /* public category cache is optional */ }
     const loadCategories = () => {
+      if (inFlight || Date.now() - lastFetchedAt < refreshIntervalMs) return;
+      inFlight = true;
       void stage2Fetch<Stage2Category[]>("/categories")
-        .then((items) => { if (!cancelled) setAdminCategories(items); })
-        .catch(() => { /* keep current labels when API is temporarily unavailable */ });
+        .then((items) => {
+          if (cancelled) return;
+          setAdminCategories(items);
+          lastFetchedAt = Date.now();
+          try { window.sessionStorage.setItem(cacheKey, JSON.stringify({ value: items, at: lastFetchedAt })); } catch { /* optional */ }
+        })
+        .catch(() => { /* keep current labels when API is temporarily unavailable */ })
+        .finally(() => { inFlight = false; });
     };
     const onVisible = () => { if (document.visibilityState === "visible") loadCategories(); };
     loadCategories();
@@ -837,7 +861,8 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
         if (parsed.value && Date.now() - Number(parsed.at || 0) < 10 * 60 * 1000) { hasFreshCache = true; setWeather(parsed.value); }
       }
     } catch { /* weather cache is optional */ }
-    if (!hasFreshCache) setWeather(null);
+    if (hasFreshCache) return; // Weather is already no older than 10 minutes; do not refetch on each QR/home opening.
+    setWeather(null);
     const saveWeather = (value: Stage2Weather) => {
       if (cancelled) return;
       setWeather(value);
