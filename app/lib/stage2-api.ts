@@ -76,6 +76,7 @@ export type Stage2EmergencyService = {
   title: string;
   note: string;
   phone?: string | null;
+  is_global?: boolean;
   tone: "green" | "purple" | "orange" | "blue";
   icon: "doctor" | "pharmacy" | "repair" | "tow" | "vet" | "custom";
   sort_order: number;

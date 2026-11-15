@@ -81,11 +81,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  DEFAULT_EMERGENCY_SERVICES,
-  readEmergencyServices,
-  type EmergencyService,
-} from "../../lib/emergency-services";
+import type { EmergencyService } from "../../lib/emergency-services";
 import type { RoleKey } from "../../lib/navigation";
 import { RealMap } from "../real-map";
 import { kyivBookingIso } from "../../lib/kyiv-time";
@@ -2566,14 +2562,6 @@ function ReviewScreen() {
   </main></div>;
 }
 
-const emergencyContacts = [
-  { icon: Cross, title: "Єдиний номер допомоги", note: "Поліція · швидка · рятувальники", phone: "112", tone: "red" },
-  { icon: Ambulance, title: "Швидка допомога", note: "Цілодобово", phone: "103", tone: "red" },
-  { icon: ShieldCheck, title: "Поліція", note: "Допомога та правопорядок", phone: "102", tone: "blue" },
-  { icon: Flame, title: "ДСНС / рятувальники", note: "Пожежі · аварії · надзвичайні ситуації", phone: "101", tone: "orange" },
-  { icon: MountainSnow, title: "Гірські рятувальники", note: "Яремче, найближчий пост", phone: "+380 67 342 18 68", tone: "green" },
-];
-
 const emergencyServiceIcons: Record<EmergencyService["icon"], LucideIcon> = {
   doctor: UserRound,
   pharmacy: Cross,
@@ -2585,7 +2573,7 @@ const emergencyServiceIcons: Record<EmergencyService["icon"], LucideIcon> = {
 
 function EmergencyScreen() {
   const runtime = useTouristRuntime();
-  const [services, setServices] = useState(DEFAULT_EMERGENCY_SERVICES);
+  const [services, setServices] = useState<EmergencyService[]>([]);
   const [remoteContacts, setRemoteContacts] = useState<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string; translations?: Record<string,Record<string,string>> }>>([]);
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
   const [pageContent, setPageContent] = useState<Record<string, string>>({});
@@ -2593,15 +2581,10 @@ function EmergencyScreen() {
   const serviceScrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setServices(readEmergencyServices());
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  useEffect(() => {
     if (!runtime.context) return;
     let cancelled = false;
+    setRemoteContacts([]);
+    setServices([]);
     const loadEmergency = () => {
       void Promise.all([
         stage2Fetch<Array<{ id: string; type: string; title: string; note: string; phone?: string | null; tone: string; translations?: Record<string,Record<string,string>> }>>(`/emergency?region_id=${encodeURIComponent(runtime.context!.region.id)}`),
@@ -2615,7 +2598,7 @@ function EmergencyScreen() {
         const raw = contentPayload.content || {};
         setPageContent(Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")])));
       }).catch(() => {
-        if (!cancelled) setServices(readEmergencyServices());
+        if (!cancelled) { setRemoteContacts([]); setServices([]); }
       });
     };
     const onVisibility = () => { if (document.visibilityState === "visible") loadEmergency(); };
@@ -2625,30 +2608,12 @@ function EmergencyScreen() {
     return () => { cancelled = true; window.removeEventListener("focus", loadEmergency); document.removeEventListener("visibilitychange", onVisibility); };
   }, [runtime.context]);
 
-  const fallbackContacts = emergencyContacts.map((contact) => {
-    const copy: Record<string, [string, string, string, string]> = {
-      "112": ["Єдиний номер допомоги", "Поліція · швидка · рятувальники", "Emergency number", "Police · ambulance · rescue"],
-      "103": ["Швидка допомога", "Цілодобово", "Ambulance", "Available 24/7"],
-      "102": ["Поліція", "Допомога та правопорядок", "Police", "Help and public safety"],
-      "101": ["ДСНС / рятувальники", "Пожежі · аварії · надзвичайні ситуації", "Fire & rescue", "Fires · accidents · emergencies"],
-      "+380 67 342 18 68": ["Гірські рятувальники", "Яремче, найближчий пост", "Mountain rescue", "Nearest rescue post"],
-    };
-    const item = copy[contact.phone];
-    if (!item || runtime.language === "uk") return contact;
-    const pl: Record<string, [string, string]> = {
-      "112": ["Numer alarmowy", "Policja · pogotowie · ratownicy"],
-      "103": ["Pogotowie", "Całodobowo"],
-      "102": ["Policja", "Pomoc i bezpieczeństwo"],
-      "101": ["Straż i ratownicy", "Pożary · wypadki · sytuacje awaryjne"],
-      "+380 67 342 18 68": ["Ratownictwo górskie", "Najbliższy posterunek ratunkowy"],
-    };
-    const [title, note] = runtime.language === "pl" ? pl[contact.phone] : [item[2], item[3]];
-    return { ...contact, title, note };
-  });
-  const contactRows = remoteContacts.length ? remoteContacts.map((contact) => ({
+  // Public rows come from PostgreSQL for this city or from global contacts.
+  // Never show an unrelated city's rescue number from a demo fallback.
+  const contactRows = remoteContacts.map((contact) => ({
     icon: contact.type === "ambulance" ? Ambulance : contact.type === "police" ? ShieldCheck : contact.type === "rescue" ? MountainSnow : Cross,
     title: touristInterfaceText(runtime.language,localizedField(runtime.language,contact,"title")), note: touristInterfaceText(runtime.language,localizedField(runtime.language,contact,"note")), phone: contact.phone || "", tone: contact.tone,
-  })) : fallbackContacts;
+  }));
 
   const verifiedDateLabel = (() => {
     if (!verifiedAt) return "—";
@@ -2668,11 +2633,6 @@ function EmergencyScreen() {
     const clean=String(phone||'').replace(/[^+\d]/g,'');
     return /^\+?\d{2,15}$/.test(clean)?`tel:${clean}`:null;
   };
-  const callEmergency=(phone?:string|null)=>{
-    const href=emergencyPhoneHref(phone);
-    if(href) window.location.href=href;
-  };
-
   const handleServiceScroll = () => {
     const element = serviceScrollerRef.current;
     if (!element) return;
@@ -2727,24 +2687,21 @@ function EmergencyScreen() {
               <b>{phone}</b><i><Phone size={17} /></i>
             </a>
           ))}
+          {!contactRows.length ? <p className="gt-emergency-empty">{tr(runtime.language,"Контактів для цього міста поки немає","No contacts available for this city yet","Brak kontaktów dla tego miasta")}</p> : null}
         </div>
         <SectionTitle title={tr(runtime.language, "Корисні сервіси", "Useful services", "Przydatne usługi")} />
         <div className="gt-service-mini-grid" ref={serviceScrollerRef} onScroll={handleServiceScroll}>
           {services.filter((service) => service.active).map((service) => {
             const ServiceIcon = emergencyServiceIcons[service.icon] ?? CircleHelp;
             return (
-              <button type="button" className={`is-${service.tone}`} key={service.id} onClick={()=>callEmergency(service.phone)} disabled={!emergencyPhoneHref(service.phone)} title={service.phone||touristInterfaceText(runtime.language,"Номер не вказано")}>
+              <a className={`is-${service.tone}`} key={service.id} href={emergencyPhoneHref(service.phone)||undefined} onClick={e=>{if(!emergencyPhoneHref(service.phone))e.preventDefault();}} aria-disabled={!emergencyPhoneHref(service.phone)} title={service.phone||touristInterfaceText(runtime.language,"Номер не вказано")}>
                 <span className={`gt-tone--${service.tone}`}><ServiceIcon size={22} /></span>
                 <strong>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"title"))}</strong>
                 <small>{touristInterfaceText(runtime.language,localizedField(runtime.language,service,"note"))}</small>
-              </button>
+              </a>
             );
           })}
-          <button type="button" className="is-location">
-            <span><MapPin size={22} /></span>
-            <strong>{tr(runtime.language, "Локації", "Places", "Miejsca")}</strong>
-            <small>{tr(runtime.language, "Пам’ятки та місця", "Landmarks and places", "Atrakcje i miejsca")}</small>
-          </button>
+          {!services.some(service=>service.active) ? <p className="gt-emergency-empty">{tr(runtime.language,"Корисні сервіси поки не додано","No useful services yet","Brak dodatkowych usług")}</p> : null}
         </div>
         <div className="gt-emergency-dots" aria-hidden="true">
           {[0, 1, 2].map((page) => <i className={servicePage === page ? "is-active" : undefined} key={page} />)}

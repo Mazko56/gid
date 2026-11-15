@@ -1192,7 +1192,7 @@ export class Stage2Service {
 
   async emergency(regionId: string) {
     const result = await this.db.query(
-      "SELECT id,type,title,note,phone,lat,lng,tone,sort_order,translations FROM emergency_contacts WHERE region_id=$1 AND active=true ORDER BY sort_order,title",
+      "SELECT id,type,title,note,phone,lat,lng,tone,sort_order,translations,is_global FROM emergency_contacts WHERE (region_id=$1 OR is_global=true) AND active=true ORDER BY is_global DESC,sort_order,title",
       [regionId],
     );
     return result.rows;
@@ -1202,13 +1202,13 @@ export class Stage2Service {
   async adminEmergencyList(regionId: string) {
     if (regionId !== "all") {
       const result = await this.db.query(
-        "SELECT id,region_id,type,title,note,phone,lat,lng,tone,sort_order,translations FROM emergency_contacts WHERE region_id=$1 AND active=true ORDER BY sort_order,title",
+        "SELECT id,region_id,type,title,note,phone,lat,lng,tone,sort_order,translations,is_global FROM emergency_contacts WHERE (region_id=$1 OR is_global=true) AND active=true ORDER BY is_global DESC,sort_order,title",
         [regionId],
       );
       return result.rows;
     }
     const result = await this.db.query(
-      `SELECT c.id,c.region_id,c.type,c.title,c.note,c.phone,c.lat,c.lng,c.tone,c.sort_order,c.translations
+      `SELECT c.id,c.region_id,c.type,c.title,c.note,c.phone,c.lat,c.lng,c.tone,c.sort_order,c.translations,c.is_global
        FROM emergency_contacts c JOIN regions r ON r.id=c.region_id
        WHERE c.active=true AND r.active=true ORDER BY r.name,c.sort_order,c.title`,
     );
@@ -1218,7 +1218,7 @@ export class Stage2Service {
   async adminEmergencyServices(regionId: string) {
     if (regionId !== "all") return this.emergencyServices(regionId, true);
     const result = await this.db.query(
-      `SELECT s.id,s.region_id,s.title,s.note,s.phone,s.tone,s.icon,s.sort_order,s.active,s.updated_at,s.translations
+      `SELECT s.id,s.region_id,s.title,s.note,s.phone,s.tone,s.icon,s.sort_order,s.active,s.updated_at,s.translations,s.is_global
        FROM emergency_services s JOIN regions r ON r.id=s.region_id
        WHERE s.deleted_at IS NULL AND r.active=true ORDER BY r.name,s.sort_order,s.title`,
     );
@@ -1228,9 +1228,9 @@ export class Stage2Service {
   async emergencyServices(regionId: string, includeInactive = false) {
     const [services, region] = await Promise.all([
       this.db.query(
-        `SELECT id,region_id,title,note,phone,tone,icon,sort_order,active,updated_at,translations
+        `SELECT id,region_id,title,note,phone,tone,icon,sort_order,active,updated_at,translations,is_global
          FROM emergency_services
-         WHERE region_id=$1 AND deleted_at IS NULL ${includeInactive ? "" : "AND active=true"}
+         WHERE (region_id=$1 OR is_global=true) AND deleted_at IS NULL ${includeInactive ? "" : "AND active=true"}
          ORDER BY sort_order,title`,
         [regionId],
       ),
@@ -1960,19 +1960,19 @@ export class Stage2Service {
   async adminQrList() {
     const result = await this.db.query(
       `SELECT q.id,q.start_param,q.type,q.source,q.active,q.created_at,r.name region_name,p.name place_name,p.id place_id
-       FROM qr_points q JOIN regions r ON r.id=q.region_id LEFT JOIN places p ON p.id=q.place_id ORDER BY q.created_at DESC`,
+       FROM qr_points q JOIN regions r ON r.id=q.region_id LEFT JOIN places p ON p.id=q.place_id WHERE q.deleted_at IS NULL ORDER BY q.created_at DESC`,
     );
     return result.rows;
   }
 
   async adminToggleQr(id: string, active: boolean) {
-    const result = await this.db.query("UPDATE qr_points SET active=$2,updated_at=now() WHERE id=$1 RETURNING id,start_param,active", [id, active]);
+    const result = await this.db.query("UPDATE qr_points SET active=$2,updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,start_param,active", [id, active]);
     if (!result.rows[0]) throw new NotFoundException("QR point not found");
     return result.rows[0];
   }
 
   async adminDeleteQr(id: string) {
-    const result = await this.db.query("DELETE FROM qr_points WHERE id=$1 RETURNING id,start_param,type,place_id", [id]);
+    const result = await this.db.query("UPDATE qr_points SET active=false,deleted_at=now(),updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,start_param,type,place_id", [id]);
     if (!result.rows[0]) throw new NotFoundException("QR point not found");
     return { ok: true, ...result.rows[0] };
   }
@@ -2056,13 +2056,15 @@ export class Stage2Service {
     const regionId = String(body.region_id ?? "region-tatariv");
     const title = String(body.title ?? "").trim();
     if (!title) throw new BadRequestException("title is required");
+    const globalScope = body.is_global === true;
     await this.db.query(
-      `INSERT INTO emergency_contacts(id,region_id,type,title,note,phone,lat,lng,tone,sort_order,active,translations)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11::jsonb)
-       ON CONFLICT (id) DO UPDATE SET type=EXCLUDED.type,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,lat=EXCLUDED.lat,lng=EXCLUDED.lng,tone=EXCLUDED.tone,sort_order=EXCLUDED.sort_order,active=true,translations=EXCLUDED.translations,updated_at=now()`,
-      [id,regionId,body.type ?? "custom",title,body.note ?? "",body.phone ?? null,num(body.lat),num(body.lng),body.tone ?? "green",num(body.sort_order,100),JSON.stringify(body.translations ?? {})],
+      `INSERT INTO emergency_contacts(id,region_id,type,title,note,phone,lat,lng,tone,sort_order,active,translations,is_global)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11::jsonb,$12)
+       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,type=EXCLUDED.type,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,lat=EXCLUDED.lat,lng=EXCLUDED.lng,tone=EXCLUDED.tone,sort_order=EXCLUDED.sort_order,active=true,translations=EXCLUDED.translations,is_global=EXCLUDED.is_global,updated_at=now()`,
+      [id,regionId,body.type ?? "custom",title,body.note ?? "",String(body.phone ?? "").trim()||null,num(body.lat),num(body.lng),body.tone ?? "green",num(body.sort_order,100),JSON.stringify(body.translations ?? {}),globalScope],
     );
-    await this.touchEmergencyVerification(regionId);
+    if (globalScope) await this.db.query("UPDATE regions SET emergency_verified_at=now(),updated_at=now() WHERE active=true");
+    else await this.touchEmergencyVerification(regionId);
     return { ok: true, id };
   }
 
@@ -2080,12 +2082,13 @@ export class Stage2Service {
     if (!title) throw new BadRequestException("title is required");
     const active = body.active === undefined ? true : (body.active === true || String(body.active) === "true");
     await this.db.query(
-      `INSERT INTO emergency_services(id,region_id,title,note,phone,tone,icon,sort_order,active,translations)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
-       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,deleted_at=NULL,updated_at=now()`,
-      [id,regionId,title,String(body.note ?? ""),String(body.phone ?? "").trim()||null,String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {})],
+      `INSERT INTO emergency_services(id,region_id,title,note,phone,tone,icon,sort_order,active,translations,is_global)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
+       ON CONFLICT (id) DO UPDATE SET region_id=EXCLUDED.region_id,title=EXCLUDED.title,note=EXCLUDED.note,phone=EXCLUDED.phone,tone=EXCLUDED.tone,icon=EXCLUDED.icon,sort_order=EXCLUDED.sort_order,active=EXCLUDED.active,translations=EXCLUDED.translations,is_global=EXCLUDED.is_global,deleted_at=NULL,updated_at=now()`,
+      [id,regionId,title,String(body.note ?? ""),String(body.phone ?? "").trim()||null,String(body.tone ?? "green"),String(body.icon ?? "custom"),num(body.sort_order,100),active,JSON.stringify(body.translations ?? {}),body.is_global === true],
     );
-    await this.touchEmergencyVerification(regionId);
+    if (body.is_global === true) await this.db.query("UPDATE regions SET emergency_verified_at=now(),updated_at=now() WHERE active=true");
+    else await this.touchEmergencyVerification(regionId);
     return { ok: true, id };
   }
 

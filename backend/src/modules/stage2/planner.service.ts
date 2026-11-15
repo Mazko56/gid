@@ -47,7 +47,7 @@ const activityWords: Record<string,string[]> = {
 // 'Активний відпочинок' and 'Відпочинок' are both relevant to the active interest.
 const matchesActivity = (p:Place, activity:string):boolean => {
   const searchable=[p.name,p.category_slug,p.subcategory||'',p.description||'',...(p.tags||[])].join(' ').toLocaleLowerCase('uk');
-  if(activity==='active' && (p.category_slug==='entertainment'||p.category_slug==='rest')) return true;
+  if(activity==='active' && (p.category_slug==='entertainment'||p.category_slug==='rest'||p.category_slug==='active_rest'||p.category_slug==='active-rest'||p.category_slug==='activities')) return true;
   if(activity==='relax' && p.category_slug==='rest') return true;
   if(activity==='adventure' && p.category_slug==='entertainment') return true;
   if(activity==='food' && p.category_slug==='food') return true;
@@ -145,11 +145,15 @@ export class PlannerService {
         FROM places p WHERE p.status='approved') p`);
     const withDistance=result.rows.map(p=>({...p,lat:Number(p.lat),lng:Number(p.lng),distance_km:km(origin.lat,origin.lng,Number(p.lat),Number(p.lng))}))
       .filter(p=>Number.isFinite(p.distance_km)&&p.distance_km<=radiusKm);
+    // Cities are chosen by their actual coordinates. Do not hide a nearby Kryvyi Rih
+    // venue merely because the venue was previously linked to a different region ID.
+    const destinationCenters=allRegions.filter(r=>selectedRegions.includes(r.id));
     const eligible=withDistance.filter(p=>{
-      if(selectedRegions.length&&!selectedRegions.includes(p.region_id))return false;
+      if(selectedRegions.length&&!selectedRegions.includes(p.region_id)
+        &&!destinationCenters.some(city=>km(Number(city.center_lat),Number(city.center_lng),p.lat,p.lng)<=Math.min(40,Math.max(15,radiusKm/2))))return false;
       if(activities.length&&!activities.some(a=>matchesActivity(p,a)))return false;
-      if(budget==='economy'&&p.price_level!=null&&Number(p.price_level)>1)return false;
-      if(budget==='medium'&&p.price_level!=null&&Number(p.price_level)>2)return false;
+      // price_level is a rough tier, not a confirmed service price: rank it below,
+      // rather than excluding every candidate at the default 'medium' setting.
       if(children>0&&p.attributes?.kids===false)return false;
       const text=[p.name,p.category_slug,p.subcategory,p.description,...(p.tags||[])].join(' ').toLowerCase();
       if((avoid.includes('heights')||avoid.includes('steep_climbs'))&&/скел|вершин|підйом|скелелаз|mountain climb|climbing/.test(text))return false;
@@ -172,34 +176,53 @@ export class PlannerService {
         let lat=origin.lat,lng=origin.lng,minute=startMinutes;
         const stops:PlannerStop[]=[];
         for(let n=0;n<perDay;n++){
+          const alreadyMatched=new Set(stops.flatMap(stop=>activities.filter(a=>{
+            const candidate=eligible.find(place=>place.id===stop.place_id);
+            return candidate ? matchesActivity(candidate,a) : false;
+          })));
           const best=eligible.map(p=>{
             if(used.has(p.id))return null;
             const leg=km(lat,lng,p.lat,p.lng);
             // Approximation only: no road network or turn-by-turn routing is asserted.
             const travel=Math.ceil(leg/speed*60*1.25);
-            if(travel>maxTravel || (avoid.includes('long_trips')&&travel>35))return null;
-            if(minute+travel+45>20*60)return null;
+            // The requested maximum applies to trips BETWEEN itinerary stops.
+            // The first drive from the scanned QR to a deliberately selected city
+            // may exceed it; the estimate is shown explicitly to the tourist.
+            if(travel>maxTravel && !(n===0&&selectedRegions.length>0))return null;
+            if(avoid.includes('long_trips')&&travel>35)return null;
+            // A late-afternoon start must not silently invalidate all real places.
+            if(minute+travel+45>23*60+30)return null;
             const hours= p.work_hours || {};
             const daily=hours.daily && typeof hours.daily==='object' ? hours.daily as {from?:string;to?:string} : undefined;
             if(hours.always_open!==true&&daily?.from&&daily?.to&&/^\d{2}:\d{2}$/.test(daily.from)&&/^\d{2}:\d{2}$/.test(daily.to)){
               const from=Number(daily.from.slice(0,2))*60+Number(daily.from.slice(3));
               const to=Number(daily.to.slice(0,2))*60+Number(daily.to.slice(3));
               const proposed=minute+travel;
-              if(proposed<from||proposed+45>to)return null;
+              // Wait until published opening hours if arriving early; never
+              // recommend a visit once published closing time has passed.
+              if(Math.max(proposed,from)+45>to)return null;
             }
             const text=[p.name,p.category_slug,p.subcategory,p.description,...(p.tags||[])].join(' ').toLowerCase();
             const matched=activities.filter(a=>matchesActivity(p,a)).length;
             const preference=activities.length?(matched?matched*9:-12):0;
+            const unvisitedInterestBoost=activities.some(a=>!alreadyMatched.has(a)&&matchesActivity(p,a))?18:0;
             const foodBoost=n===1&&isFood(p)?5:0;
+            const pricePenalty=budget==='economy'&&p.price_level!=null?Math.max(0,Number(p.price_level)-1)*4
+              :budget==='medium'&&p.price_level!=null?Math.max(0,Number(p.price_level)-2)*3:0;
             const variantBoost=variant==='nearby'?-leg*2:variant==='activity'?matched*8:0;
             const activeBoost=load==='intense'&&/похід|трек|спорт|рафт|актив|adventure|hiking|trail/.test(text)?5:0;
             const dietaryBoost=diet==='local'&&isFood(p)&&/українськ|традицій|локальн|ukrainian|traditional/.test(text)?5:0;
-            const score=preference+foodBoost+variantBoost+activeBoost+dietaryBoost+Math.min(5,Number(p.rating)||0)*1.2-leg*.55+(p.price_level==null?0:budget==='comfort'?Number(p.price_level):0);
+            const score=preference+foodBoost+variantBoost+activeBoost+dietaryBoost+unvisitedInterestBoost-pricePenalty+Math.min(5,Number(p.rating)||0)*1.2-leg*.55+(p.price_level==null?0:budget==='comfort'?Number(p.price_level):0);
             return {p,travel,leg,score};
           }).filter((x):x is NonNullable<typeof x>=>x!==null).sort((a,b)=>b.score-a.score)[0];
           if(!best)break;
           const duration=pace==='relaxed'?90:pace==='dynamic'?60:75;
           minute+=best.travel;
+          const publishedDaily=best.p.work_hours?.daily as {from?:string;to?:string}|undefined;
+          if(publishedDaily?.from && /^\d{2}:\d{2}$/.test(publishedDaily.from)){
+            const open=Number(publishedDaily.from.slice(0,2))*60+Number(publishedDaily.from.slice(3));
+            minute=Math.max(minute,open);
+          }
           stops.push({place_id:best.p.id,place_name:best.p.name,category_slug:best.p.category_slug,
             address:best.p.address,translations:best.p.translations,lat:best.p.lat,lng:best.p.lng,image_url:best.p.image_url,time:clock(minute),duration_minutes:duration,
             distance_from_previous_km:Math.round(best.leg*10)/10,estimated_travel_minutes:best.travel,price_level:best.p.price_level,
@@ -212,6 +235,10 @@ export class PlannerService {
     }).filter(v=>v.stop_count>0).filter((v,i,a)=>a.findIndex(x=>x.days.map(d=>d.stops.map(s=>s.place_id).join(',')).join('|')===v.days.map(d=>d.stops.map(s=>s.place_id).join(',')).join('|'))===i);
     return {origin,criteria,nearby_cities:allRegions.filter(r=>r.distance_km!==null&&r.distance_km<=radiusKm).slice(0,15),
       candidates_count:eligible.length,variants:built,
-      notice:'Маршрут складено з реальних опублікованих закладів. Відстані — географічні, час переїздів орієнтовний. Для закладів без заповнених ознак харчування чи доступності уточнюйте умови перед відвідуванням. Наявність місць і графік перевіряйте у картці.'};
+      notice:!eligible.length
+        ? 'У вибраному радіусі або місті немає опублікованих закладів, які відповідають обраним видам відпочинку та обмеженням. Перевірте координати й статус закладів в адмінпанелі.'
+        : !built.length
+          ? 'Відповідні заклади знайдено, але для обраного часу початку, транспорту та графіка роботи не вдалося побудувати відвідування. Спробуйте почати раніше або збільшити час у дорозі.'
+          : 'Маршрут складено з реальних опублікованих закладів. Відстані — географічні, час переїздів орієнтовний. Перший переїзд від QR до обраного міста може перевищити бажаний час у дорозі; перевірте його перед виїздом. Графік і ціну уточнюйте у закладі.'};
   }
 }

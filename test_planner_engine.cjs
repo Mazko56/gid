@@ -25,7 +25,7 @@ const svc=new modExports.PlannerService(db);
  assert.ok(result.variants[0].days.flatMap(x=>x.stops).every(x=>['p1','p2','p3'].includes(x.place_id)));
  assert.ok(result.variants[0].days.flatMap(x=>x.stops).every(x=>x.time>='10:45'));
  const restricted=await svc.generate(user,{...common,destination_region_ids:['r2']});
- assert.ok(restricted.variants.every(v=>v.days.flatMap(d=>d.stops).every(s=>s.place_id==='p3')));
+ assert.ok(restricted.variants.every(v=>v.days.flatMap(d=>d.stops).every(s=>{const venue=places.find(p=>p.id===s.place_id);return venue.region_id==='r2'||Math.hypot(venue.lat-48.39,venue.lng-24.63)<0.2;}))); // city ID OR geographic proximity
  const noMatches=await svc.generate(user,{...common,activities:['adventure'],radius_km:5});
  assert.equal(noMatches.variants.length,0);
  const tooFar=await svc.generate(user,{...common,radius_km:5});
