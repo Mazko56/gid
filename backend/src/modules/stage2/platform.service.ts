@@ -765,20 +765,55 @@ export class PlatformService implements OnModuleInit, OnModuleDestroy {
     return response.rows;
   }
 
-  async bookingStatus(user: AuthUser,id:string,status:string) {
-    if(!allowedBookingStatuses.includes(status)) throw new BadRequestException('Недопустимий статус');
-    const result=await this.db.query('SELECT * FROM bookings WHERE id=$1',[id]);
-    const booking=result.rows[0];
+  // Partner decisions are intentionally separate from a customer's cancellation.
+  // The same Telegram account can be both the guest and the authorized partner;
+  // routing by booking.user_id first wrongly denied that partner's confirmation.
+  async partnerBookingStatus(user: AuthUser,id:string,status:string) {
+    if(!['confirmed','cancelled_by_partner','completed'].includes(status))
+      throw new BadRequestException('Недопустима дія партнера з бронюванням');
+    const found=await this.db.query('SELECT * FROM bookings WHERE id=$1',[id]);
+    const booking=found.rows[0];
     if(!booking) throw new NotFoundException('Бронювання не знайдено');
-    const byCustomer=booking.user_id===user.id;
-    if(byCustomer) {
-      if(status!=='cancelled_by_user'||!['new','pending_partner','confirmed'].includes(booking.status)) throw new ForbiddenException('Клієнт може лише скасувати активне бронювання');
-    } else await this.placeWithRole(user,booking.place_id,['owner','manager']);
-    if(['cancelled_by_user','cancelled_by_partner','completed','refunded'].includes(booking.status)) throw new ConflictException('Бронювання вже завершено');
-    if(status==='completed' && booking.status!=='confirmed') throw new ConflictException('Спершу підтвердіть бронювання');
-    const updated=await this.db.query('UPDATE bookings SET status=$2,updated_at=now() WHERE id=$1 RETURNING *',[id,status]);
-    await this.audit(user.id,booking.region_id,'booking',id,'status_changed',{from:booking.status,to:status});
-    return updated.rows[0];
+    // All roles permitted to access this partner booking screen can manage its requests.
+    await this.placeWithRole(user,booking.place_id,['owner','manager','cashier']);
+    const transitions:Record<string,string[]>={
+      new:['confirmed','cancelled_by_partner'],
+      pending_partner:['confirmed','cancelled_by_partner'],
+      alternative_proposed:['confirmed','cancelled_by_partner'],
+      confirmed:['completed','cancelled_by_partner'],
+    };
+    if(!transitions[String(booking.status)]?.includes(status))
+      throw new ConflictException('Цю заявку вже оброблено або зміна статусу недоступна. Оновіть список бронювань.');
+    return this.db.transaction(async(client)=>{
+      // Optimistic compare-and-swap stops two managers from confirming/cancelling
+      // the same request concurrently; booking history is never erased.
+      const updated=await client.query('UPDATE bookings SET status=$3,updated_at=now() WHERE id=$1 AND status=$2 RETURNING *',
+        [id,booking.status,status]);
+      if(!updated.rows[0]) throw new ConflictException('Статус уже змінився. Оновіть список бронювань.');
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,region_id,entity_type,entity_id,action,details) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',
+        [makeId('audit'),user.id,booking.region_id,'booking',id,'status_changed',json({from:booking.status,to:status,via:'partner'})]);
+      return updated.rows[0];
+    });
+  }
+
+  async bookingStatus(user: AuthUser,id:string,status:string) {
+    // Compatibility for previously deployed partner clients, which used this
+    // endpoint. All other statuses are strictly partner-authorized.
+    if(status!=='cancelled_by_user') return this.partnerBookingStatus(user,id,status);
+    const found=await this.db.query('SELECT * FROM bookings WHERE id=$1',[id]);
+    const booking=found.rows[0];
+    if(!booking) throw new NotFoundException('Бронювання не знайдено');
+    if(booking.user_id!==user.id) throw new ForbiddenException('Скасувати бронювання може лише його клієнт');
+    if(!['new','pending_partner','alternative_proposed','confirmed'].includes(booking.status))
+      throw new ConflictException('Це бронювання вже не можна скасувати');
+    return this.db.transaction(async(client)=>{
+      const updated=await client.query('UPDATE bookings SET status=$3,updated_at=now() WHERE id=$1 AND status=$2 RETURNING *',
+        [id,booking.status,'cancelled_by_user']);
+      if(!updated.rows[0]) throw new ConflictException('Статус уже змінився. Оновіть список бронювань.');
+      await client.query('INSERT INTO audit_logs(id,actor_user_id,region_id,entity_type,entity_id,action,details) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',
+        [makeId('audit'),user.id,booking.region_id,'booking',id,'status_changed',json({from:booking.status,to:'cancelled_by_user',via:'customer'})]);
+      return updated.rows[0];
+    });
   }
 
   async reviewEligibility(user:AuthUser,placeId?:string) {

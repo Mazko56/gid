@@ -3291,6 +3291,8 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   const [occupiedSlots,setOccupiedSlots]=useState<OccupiedBooking[]>([]);
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
+  const [statusBusyId,setStatusBusyId]=useState<string|null>(null);
+  const [statusErrors,setStatusErrors]=useState<Record<string,string>>({});
   const reload=async()=>{
     if(!placeId)return;
     try {
@@ -3321,11 +3323,21 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
   },[placeId,date]);
   const slots=availableSlots[selectedResource]||[];
   useEffect(()=>{if(!slots.includes(time))setTime(slots[0]||'');},[selectedResource,date,availableSlots,time]);
-  const updateStatus=async(id:string,status:string)=>{
-    setBusy(true);setMessage('');
-    try{await stage2Fetch(`/bookings/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({status})});await reload();await refreshCalendar();}
-    catch(e){setMessage(e instanceof Error?e.message:'Не вдалося оновити статус');}
-    finally{setBusy(false);}
+  const updateStatus=async(id:string,status:'confirmed'|'cancelled_by_partner'|'completed')=>{
+    if(statusBusyId)return;
+    setStatusBusyId(id);
+    setStatusErrors(previous=>{const next={...previous};delete next[id];return next;});
+    try{
+      const updated=await stage2Fetch<PartnerBooking>(`/partner/bookings/${encodeURIComponent(id)}/status`,
+        {method:'PATCH',body:JSON.stringify({status})});
+      // A successful status update must be shown immediately, even if the
+      // subsequent calendar refresh fails or the network becomes unavailable.
+      setBookings(previous=>previous.map(item=>item.id===id?{...item,status:updated.status}:item));
+      void reload();
+      void refreshCalendar().catch(()=>{/* Will refresh at next poll. */});
+    }catch(e){
+      setStatusErrors(previous=>({...previous,[id]:e instanceof Error?e.message:'Не вдалося змінити статус бронювання'}));
+    }finally{setStatusBusyId(null);}
   };
   const addManual=async()=>{
     if(!selectedResource||!date||!time||!slots.includes(time)){setMessage('Оберіть послугу, дату та вільний час.');return;}
@@ -3360,8 +3372,9 @@ function PartnerBookingsScreen({ navigate }: { navigate: Navigate }) {
           <time>{new Date(b.starts_at).toLocaleString('uk-UA',{dateStyle:'medium',timeStyle:'short'})}</time>
           <p>{b.client_name||'Гість'} · {b.phone||'без телефону'} · {b.party_size} ос.</p>
           {b.comment?<small>{b.comment}</small>:null}
-          {['new','pending_partner','alternative_proposed'].includes(b.status)?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'confirmed')}>Підтвердити</button><button type="button" disabled={busy} className="is-muted" onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Відхилити</button></div>:null}
-          {b.status==='confirmed'?<div className="gt-booking-request__actions"><button type="button" disabled={busy} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button></div>:null}
+          {['new','pending_partner','alternative_proposed'].includes(b.status)?<div className="gt-booking-request__actions"><button type="button" disabled={statusBusyId!==null} onClick={()=>void updateStatus(b.id,'confirmed')}>Підтвердити</button><button type="button" disabled={statusBusyId!==null} className="is-muted" onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Відхилити</button></div>:null}
+          {b.status==='confirmed'?<div className="gt-booking-request__actions"><button type="button" disabled={statusBusyId!==null} onClick={()=>void updateStatus(b.id,'completed')}>Позначити як завершене</button><button type="button" className="is-muted" disabled={statusBusyId!==null} onClick={()=>void updateStatus(b.id,'cancelled_by_partner')}>Скасувати</button></div>:null}
+          {statusErrors[b.id]?<p className="gt-booking-request__error" role="alert">{statusErrors[b.id]}</p>:null}
         </article>)}</div>:null)}
       </section>
       <section className="gt-booking-panel">

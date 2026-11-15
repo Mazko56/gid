@@ -40,6 +40,7 @@ export class PlatformController {
   @UseGuards(SessionGuard) @Post('bookings') book(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.newBooking(r.user!,b); }
   @UseGuards(SessionGuard) @Post('partner/bookings/manual') manual(@Req() r:AuthRequest,@Body() b:Record<string,unknown>) { return this.platform.newBooking(r.user!,b,true); }
   @UseGuards(SessionGuard) @Get('bookings') bookings(@Req() r:AuthRequest,@Query('place_id') p?:string) { return this.platform.bookings(r.user!,p); }
+  @UseGuards(SessionGuard) @Patch('partner/bookings/:id/status') partnerBookingStatus(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:{status:string}) { return this.platform.partnerBookingStatus(r.user!,id,b.status); }
   @UseGuards(SessionGuard) @Patch('bookings/:id/status') status(@Req() r:AuthRequest,@Param('id') id:string,@Body() b:{status:string}) { return this.platform.bookingStatus(r.user!,id,b.status); }
 
   @UseGuards(SessionGuard) @Get('reviews/eligibility') reviewEligibility(@Req() r:AuthRequest,@Query('place_id') p?:string) { return this.platform.reviewEligibility(r.user!,p); }

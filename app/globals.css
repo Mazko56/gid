@@ -30538,6 +30538,14 @@ button.gt-amenities-row {
 .gt-booking-request__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .gt-booking-request__actions button { min-height: 39px; flex: 1 1 110px; border: 1px solid #168c56; border-radius: 11px; padding: 9px 12px; background: #159660; color: #fff; font-size: 12px; font-weight: 700; white-space: normal; }
 .gt-booking-request__actions button.is-muted { background: #fff; border-color: #d6e0d8; color: #58665e; }
+.gt-booking-request__actions button:disabled { opacity: .6; cursor: wait; }
+.gt-booking-request__error { margin: 0; color: #ab2433 !important; background: #fff0f1; border: 1px solid #f4cbd1; border-radius: 9px; padding: 9px 10px; font-size: 12px; line-height: 1.4; }
+/* Date inputs have large browser-intrinsic widths (notably inside Telegram/iOS).
+   Use a single column on phones; retain the same fields, typography and cards. */
+.gt-booking-date-grid > .gt-booking-field { min-width: 0; max-width: 100%; }
+.gt-booking-date-grid .gt-booking-field input,
+.gt-booking-date-grid .gt-booking-field select { display: block; min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; }
+@media (max-width: 560px) { .gt-booking-date-grid { grid-template-columns: minmax(0, 1fr); } }
 .gt-booking-message { font-size: 12px; font-weight: 650; line-height: 1.5; margin: 0; padding: 12px; background: #ecf6ee; border-radius: 13px; overflow-wrap: anywhere; }
 @media (max-width: 360px) {
  .gt-partner-booking-content { padding-left: 9px; padding-right: 9px; }
