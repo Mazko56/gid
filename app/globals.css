@@ -31031,3 +31031,14 @@ button.gt-amenities-row {
 .gt-plan-screen .gt-plan-saved-existing h2{font-size:16px;margin:0}
 .gt-plan-screen .gt-plan-saved-existing button{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:48px;padding:10px 14px;border:1px solid var(--plan-line);border-radius:11px;color:#173b2b;background:#fff;text-align:left;font-size:13px}
 @media(max-width:390px){.gt-plan-screen .gt-plan-real-photo{width:64px;height:64px}}
+
+
+/* Admin partner classification: uses the original native selects and form scale. */
+.ad-main--create .ad-partner-category-fields { display:grid; gap:12px; }
+.ad-main--create .ad-partner-category-field { display:grid; gap:6px; min-width:0; }
+.ad-main--create .ad-partner-category-field > span { color:#53655a; font-size:12px; font-weight:650; }
+.ad-main--create .ad-partner-category-filter-fields { display:grid; gap:11px; padding:12px 14px; border:1px solid #e7ece8; border-radius:9px; background:#fafdfe; }
+.ad-main--create .ad-partner-category-filter-fields > strong { color:#243c2d; font-size:12.5px; }
+.ad-main--create .ad-partner-category-toggle { display:flex; align-items:center; gap:9px; color:#283e30; font-size:12.5px; cursor:pointer; }
+.ad-main--create .ad-partner-category-toggle input { accent-color:#189c58; width:16px; height:16px; flex:0 0 auto; }
+.ad-main--create .ad-partner-category-hint { color:#667b6f; font-size:11.5px; line-height:1.45; }

@@ -1513,8 +1513,23 @@ export class Stage2Service {
     if (!organizationId) throw new BadRequestException("Partner organization is missing");
 
     const categorySlug = String(body.category_slug ?? current.category_slug ?? "").trim();
-    const category = await this.db.query("SELECT slug FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
+    const category = await this.db.query<{slug:string;subcategories:unknown}>("SELECT slug,subcategories FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
     if (!category.rows[0]) throw new BadRequestException("Невідома категорія");
+    const selectedSubcategory = String(body.subcategory === undefined ? (current.subcategory ?? "") : (body.subcategory ?? "")).trim() || null;
+    const allowedSubcategories = Array.isArray(category.rows[0].subcategories) ? category.rows[0].subcategories.map(String) : [];
+    if (!allowedSubcategories.length) {
+      const templates = await this.db.query<{place_type:string}>("SELECT place_type FROM place_type_templates WHERE category_slug=$1 AND active=true", [categorySlug]);
+      allowedSubcategories.push(...templates.rows.map((item) => item.place_type));
+    }
+    if (selectedSubcategory && !allowedSubcategories.includes(selectedSubcategory)
+        && !(categorySlug === current.category_slug && selectedSubcategory === current.subcategory)) {
+      throw new BadRequestException("Підкатегорія не належить обраній категорії");
+    }
+    const rawPrice = body.price_level === undefined ? current.price_level : body.price_level;
+    const priceLevel = rawPrice == null || rawPrice === "" ? null : Number(rawPrice);
+    if (priceLevel !== null && (!Number.isInteger(priceLevel) || priceLevel < 1 || priceLevel > 4)) {
+      throw new BadRequestException("Оберіть коректну цінову категорію");
+    }
 
     const telegramIds = body.telegram_ids === undefined ? (Array.isArray(current.telegram_ids) ? current.telegram_ids.map(String) : []) : parseTelegramIds(body.telegram_ids);
     if (!telegramIds.length) throw new BadRequestException("Вкажіть хоча б один числовий Telegram ID");
@@ -1553,10 +1568,10 @@ export class Stage2Service {
       await client.query("UPDATE organizations SET region_id=$2,name=$3,updated_at=now() WHERE id=$1", [organizationId, regionId, name]);
       await client.query(
         `UPDATE places SET region_id=$2,category_slug=$3,subcategory=$4,name=$5,description=$6,address=$7,lat=$8,lng=$9,phone=$10,image_url=$11,
-         work_hours=$12::jsonb,attributes=$13::jsonb,details=$14::jsonb,translations=$15::jsonb,updated_at=now() WHERE id=$1`,
-        [placeId, regionId, categorySlug, body.subcategory ?? current.subcategory ?? null, name, String(body.description ?? current.description ?? ""), address, lat, lng,
+         price_level=$12,work_hours=$13::jsonb,attributes=$14::jsonb,details=$15::jsonb,translations=$16::jsonb,updated_at=now() WHERE id=$1`,
+        [placeId, regionId, categorySlug, selectedSubcategory, name, String(body.description ?? current.description ?? ""), address, lat, lng,
          body.phone === undefined ? current.phone : body.phone || null, body.image_url === undefined ? current.image_url : body.image_url || null,
-         JSON.stringify(workHours), JSON.stringify(attributes), JSON.stringify(details), JSON.stringify(body.translations ?? current.translations ?? {})],
+         priceLevel, JSON.stringify(workHours), JSON.stringify(attributes), JSON.stringify(details), JSON.stringify(body.translations ?? current.translations ?? {})],
       );
       await client.query("UPDATE organization_telegram_access SET active=false,updated_at=now() WHERE organization_id=$1", [organizationId]);
       for (const telegramId of telegramIds) {
@@ -1577,8 +1592,22 @@ export class Stage2Service {
     if (!name) throw new BadRequestException("Вкажіть назву партнера");
     if (!categorySlug) throw new BadRequestException("Оберіть категорію");
     if (!telegramIds.length) throw new BadRequestException("Вкажіть хоча б один числовий Telegram ID");
-    const category = await this.db.query("SELECT slug FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
+    const category = await this.db.query<{slug:string;subcategories:unknown}>("SELECT slug,subcategories FROM categories WHERE slug=$1 AND active=true LIMIT 1", [categorySlug]);
     if (!category.rows[0]) throw new BadRequestException("Невідома категорія");
+    const selectedSubcategory = String(body.subcategory ?? "").trim() || null;
+    const allowedSubcategories = Array.isArray(category.rows[0].subcategories) ? category.rows[0].subcategories.map(String) : [];
+    if (!allowedSubcategories.length) {
+      const templates = await this.db.query<{place_type:string}>("SELECT place_type FROM place_type_templates WHERE category_slug=$1 AND active=true", [categorySlug]);
+      allowedSubcategories.push(...templates.rows.map((item) => item.place_type));
+    }
+    if (selectedSubcategory && !allowedSubcategories.includes(selectedSubcategory)) {
+      throw new BadRequestException("Підкатегорія не належить обраній категорії");
+    }
+    const rawPrice = body.price_level;
+    const priceLevel = rawPrice == null || rawPrice === "" ? null : Number(rawPrice);
+    if (priceLevel !== null && (!Number.isInteger(priceLevel) || priceLevel < 1 || priceLevel > 4)) {
+      throw new BadRequestException("Оберіть коректну цінову категорію");
+    }
 
     const detailsInput = body.details && typeof body.details === "object" ? body.details as Record<string, unknown> : {};
     let address = String(body.address ?? "").trim();
@@ -1620,9 +1649,9 @@ export class Stage2Service {
         [organizationId, regionId, name, publish ? "approved" : "invited"],
       );
       await client.query(
-        `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,image_url,work_hours,attributes,details,status,approved_at,translations)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,CASE WHEN $16='approved' THEN now() ELSE NULL END,$17::jsonb)`,
-        [placeId, organizationId, regionId, categorySlug, body.subcategory ?? null, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
+        `INSERT INTO places(id,organization_id,region_id,category_slug,subcategory,name,description,address,lat,lng,phone,image_url,price_level,work_hours,attributes,details,status,approved_at,translations)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,CASE WHEN $17='approved' THEN now() ELSE NULL END,$18::jsonb)`,
+        [placeId, organizationId, regionId, categorySlug, selectedSubcategory, name, String(body.description ?? ""), address, lat, lng, body.phone ?? null, body.image_url ?? null, priceLevel, JSON.stringify(workHours), JSON.stringify({ ...attributes, partner: true, placement_type: body.placement_type ?? "social", rate_percent: num(body.rate_percent, 0) ?? 0 }), JSON.stringify(details), status,JSON.stringify(body.translations ?? {})],
       );
       for (const telegramId of telegramIds) {
         await client.query(

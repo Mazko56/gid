@@ -125,6 +125,7 @@ type AdminPartnerDetail = {
   region_name?: string;
   category_slug: string;
   subcategory?: string | null;
+  price_level?: number | null;
   name: string;
   description?: string;
   address: string;
@@ -559,8 +560,29 @@ const ADMIN_CABINET_MODULES = [
 
 function PartnerCreateScreen({ navigate }: AdminProps) {
   const [categories, setCategories] = useState<Stage2Category[]>([]);
+  const [placeTypeTemplates, setPlaceTypeTemplates] = useState<Stage2PlaceTypeTemplate[]>([]);
   const [name, setName] = useState("");
   const [categorySlug, setCategorySlug] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  const [priceLevel, setPriceLevel] = useState("");
+  const [forKids, setForKids] = useState(false);
+  const [parking, setParking] = useState(false);
+  const currentCategory = categories.find((item) => item.slug === categorySlug);
+  const categorySubcategories = (currentCategory?.subcategories || []).filter((item) => typeof item === "string" && item.trim());
+  // Some categories (e.g. hotels) have no tourist subcategories, but do have
+  // administratively managed venue types such as Готель and Садиба.
+  const availableSubcategories = categorySubcategories.length
+    ? categorySubcategories
+    : Array.from(new Set(placeTypeTemplates.filter((item) => item.category_slug === categorySlug).map((item) => item.place_type).filter(Boolean)));
+  const categoryFilters = currentCategory?.filter_config || {};
+  const onCategoryChange = (next: string) => {
+    if (next === categorySlug) return;
+    setCategorySlug(next);
+    setSubcategory("");
+    setPriceLevel("");
+    setForKids(false);
+    setParking(false);
+  };
   const [placement, setPlacement] = useState<"social" | "basic" | "premium">("social");
   const [rate, setRate] = useState("15");
   const [city, setCity] = useState("");
@@ -603,8 +625,14 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     void stage2Fetch<Stage2Category[]>("/categories").then((rows) => {
       const list = rows.filter((item) => item.slug !== "emergency");
       setCategories(list);
-      if (!categorySlug && list[0]?.slug) setCategorySlug(list[0].slug);
+      setCategorySlug((previous) => previous || list[0]?.slug || "");
     }).catch((e) => setError(e instanceof Error ? e.message : "Не вдалося завантажити категорії"));
+  }, []);
+
+  useEffect(() => {
+    void stage2Fetch<Stage2PlaceTypeTemplate[]>("/place-type-templates")
+      .then(setPlaceTypeTemplates)
+      .catch(() => setPlaceTypeTemplates([]));
   }, []);
 
   useEffect(() => {
@@ -620,6 +648,10 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       const gallery = Array.isArray(details.gallery) ? details.gallery.map(String).filter(Boolean) : [];
       setName(row.name || "");
       setCategorySlug(row.category_slug || "");
+      setSubcategory(row.subcategory || "");
+      setPriceLevel(row.price_level == null ? "" : String(row.price_level));
+      setForKids(attrs.kids === true);
+      setParking(attrs.parking === true);
       setPlacement((attrs.placement_type === "basic" || attrs.placement_type === "premium") ? attrs.placement_type : "social");
       setRate(String(attrs.rate_percent ?? 0));
       setCity(String(details.city || "")); setRegionName(String(details.region_name || row.region_name || "")); setStreet(String(details.street || "")); setHouse(String(details.house || ""));
@@ -715,17 +747,17 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
     const ids = telegramIds.split(/[\s,;]+/g).map((item) => item.trim()).filter(Boolean);
     if (!name.trim()) return setError("Вкажіть назву партнера");
     if (!categorySlug) return setError("Оберіть категорію");
+    if (subcategory && !availableSubcategories.includes(subcategory) && !editId) return setError("Оберіть підкатегорію з довідника");
     if (!ids.length || ids.some((item) => !/^\d{5,20}$/.test(item))) return setError("Вкажіть один або декілька коректних числових Telegram ID");
     if (!mapSelected && (!cityPlaceId || !streetPlaceId || !housePlaceId)) return setError("Оберіть повну адресу з підказок або вкажіть точку на мапі");
     setSaving(true);
     try {
       const requestBody = {
-        name: name.trim(), category_slug: categorySlug, placement_type: placement, rate_percent: Number(rate) || 0,
+        name: name.trim(), category_slug: categorySlug, subcategory: subcategory || null, price_level: categoryFilters.price ? (priceLevel ? Number(priceLevel) : null) : null, placement_type: placement, rate_percent: Number(rate) || 0,
         city, region_name: regionName, street, house, address, lat, lng, map_selected: mapSelected,
         phone, description, translations:partnerTranslations, image_url: photos[0] || null, telegram_ids: ids, publish,
         work_hours: alwaysOpen ? { always_open: true } : { daily: { from: workFrom, to: workTo } },
-        attributes: { partner: true, placement_type: placement, rate_percent: Number(rate) || 0 },
-        subcategory: ({ hotel: "Готель", food: "Ресторан", shop: "Магазин", rest: "SPA / сауна", entertainment: "Активний відпочинок", transfer: "Трансфер / таксі" } as Record<string,string>)[categorySlug] || null,
+        attributes: { partner: true, placement_type: placement, rate_percent: Number(rate) || 0, kids: categoryFilters.kids === true && forKids, parking: categoryFilters.parking === true && parking },
         details: {
           address_verified: !mapSelected && Boolean(housePlaceId),
           geo_place_ids: { city: cityPlaceId, street: streetPlaceId, house: housePlaceId },
@@ -788,7 +820,27 @@ function PartnerCreateScreen({ navigate }: AdminProps) {
       {created && !editId ? <section className="ad-created-partner-card"><Stage2QrPreview value={partnerDeepLink(created.start_param)} /><div><h2>Партнера створено</h2><p>QR збережений у PostgreSQL і працюватиме після redeploy. Доступ мають лише вказані Telegram ID.</p><code>{created.start_param}</code><input readOnly value={partnerDeepLink(created.start_param)} /><div className="ad-page-actions"><OutlineButton onClick={() => void navigator.clipboard.writeText(partnerDeepLink(created.start_param))}>Копіювати посилання</OutlineButton><PrimaryButton onClick={() => navigate("admin", "admin-partners")}>До партнерів</PrimaryButton></div></div></section> : null}
       <section className="ad-create-form">
         <div className="ad-create-row ad-create-row--1"><div className="ad-create-row__label"><span>1</span><strong>Назва</strong></div><div className="ad-create-row__control"><input value={name} onChange={(e)=>setName(e.target.value)} placeholder="Введіть назву партнера" /></div></div>
-        <div className="ad-create-row ad-create-row--2"><div className="ad-create-row__label"><span>2</span><strong>Категорія</strong></div><div className="ad-create-row__control"><select className="ad-native-select" value={categorySlug} onChange={(e)=>setCategorySlug(e.target.value)}><option value="">Оберіть категорію</option>{categories.map((item)=><option key={item.slug} value={item.slug}>{item.slug === "hotel" ? "Готель / точка входу" : item.name}</option>)}</select></div></div>
+        <div className="ad-create-row ad-create-row--2"><div className="ad-create-row__label"><span>2</span><strong>Категорія</strong></div><div className="ad-create-row__control">
+          <div className="ad-partner-category-fields">
+            <select className="ad-native-select" aria-label="Категорія закладу" value={categorySlug} onChange={(e)=>onCategoryChange(e.target.value)}><option value="">Оберіть категорію</option>{categories.map((item)=><option key={item.slug} value={item.slug}>{item.slug === "hotel" ? "Готель / точка входу" : item.name}</option>)}</select>
+            {categorySlug ? <label className="ad-partner-category-field"><span>{categorySubcategories.length ? "Підкатегорія" : "Тип закладу / підкатегорія"}</span>
+              <select className="ad-native-select" aria-label="Підкатегорія закладу" value={subcategory} onChange={(e)=>setSubcategory(e.target.value)} disabled={!availableSubcategories.length}>
+                <option value="">{availableSubcategories.length ? "Оберіть підкатегорію" : "Підкатегорій у довіднику немає"}</option>
+                {availableSubcategories.map((value)=><option key={value} value={value}>{value}</option>)}
+                {editId && subcategory && !availableSubcategories.includes(subcategory) ? <option value={subcategory}>{subcategory} (раніше збережена)</option> : null}
+              </select>
+            </label> : null}
+            {categorySlug && (categoryFilters.price || categoryFilters.kids || categoryFilters.parking) ? <div className="ad-partner-category-filter-fields">
+              <strong>Параметри закладу для фільтрації</strong>
+              {categoryFilters.price ? <label className="ad-partner-category-field"><span>Цінова категорія</span><select className="ad-native-select" value={priceLevel} aria-label="Цінова категорія" onChange={(e)=>setPriceLevel(e.target.value)}>
+                <option value="">Не вказано</option><option value="1">Бюджетна · ₴</option><option value="2">Середня · ₴₴</option><option value="3">Висока · ₴₴₴</option><option value="4">Преміум · ₴₴₴₴</option>
+              </select></label> : null}
+              {categoryFilters.kids ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={forKids} onChange={(e)=>setForKids(e.target.checked)}/><span>Підходить для відвідування з дітьми</span></label> : null}
+              {categoryFilters.parking ? <label className="ad-partner-category-toggle"><input type="checkbox" checked={parking} onChange={(e)=>setParking(e.target.checked)}/><span>Є паркування</span></label> : null}
+            </div> : null}
+            {categorySlug ? <small className="ad-partner-category-hint">Відстань визначається за координатами, «Відкрито зараз» — за графіком, рейтинг — за відгуками. Ці значення не заповнюються вручну.</small> : null}
+          </div>
+        </div></div>
         <div className="ad-create-row ad-create-row--3"><div className="ad-create-row__label"><span>3</span><strong>Тип розміщення</strong></div><div className="ad-create-row__control"><div className="ad-placement-options">{([['social','Соціальний','Безкоштовне розміщення'],['basic','Базовий','Інфо про заклад + QR для гостей'],['premium','Платний / Преміум','Просування послуг та монетизація']] as const).map(([key,title,note])=><label key={key} className={placement===key?'is-selected':''} onClick={()=>setPlacement(key)}><i>{placement===key?<Check size={14}/>:null}</i><span><strong>{title}</strong><small>{note}</small></span></label>)}</div></div></div>
         <div className="ad-create-row ad-create-row--4"><div className="ad-create-row__label"><span>4</span><strong>Ставка, %</strong></div><div className="ad-create-row__control"><div className="ad-input-with-suffix"><input type="number" min="0" max="100" value={rate} onChange={(e)=>setRate(e.target.value)} /><span>%</span></div></div></div>
         <div className="ad-create-row ad-create-row--5"><div className="ad-create-row__label"><span>5</span><strong>Адреса або геолокація</strong></div><div className="ad-create-row__control">{geoFields}</div></div>
