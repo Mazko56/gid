@@ -339,7 +339,7 @@ export class Stage2Service {
 
   private async geoapifyAutocomplete(input: string, mode: "city" | "street" | "house", city: string, street: string) {
     const key = process.env.GEOAPIFY_API_KEY?.trim();
-    if (!key) throw new BadGatewayException("Для автопідказок адрес налаштуйте GOOGLE_MAPS_SERVER_API_KEY або GEOAPIFY_API_KEY на backend Railway");
+    if (!key) throw new BadGatewayException("Геокодування Geoapify не налаштовано: додайте GEOAPIFY_API_KEY у Railway → Backend → Variables");
     const query = [mode === "city" ? input : mode === "street" ? `${input}, ${city}` : `${input}, ${street}, ${city}`].join("");
     const params = new URLSearchParams({ text: query, format: "json", lang: "uk", limit: "8", apiKey: key });
     if (mode === "city") params.set("type", "city");
@@ -365,40 +365,26 @@ export class Stage2Service {
   async geoAutocomplete(input: string, mode: "city" | "street" | "house", city = "", street = "") {
     const text = input.trim();
     if (!text || text.length > 140) return [];
-    if (this.google.enabled()) {
-      try { return await this.google.autocomplete(text, mode, city, street); }
-      catch (error) { if (!process.env.GEOAPIFY_API_KEY) throw error; }
-    }
+    // Admin address selection must use Geoapify regardless of whether a Google Places
+    // key is also present (Google Geocoding may not be activated for that project).
     return this.geoapifyAutocomplete(text, mode, city, street);
   }
 
   async geoReverse(lat: number, lng: number) {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new BadRequestException("lat/lng are required");
-    if (this.geoapify.enabled()) {
-      try { return await this.geoapify.reverse(lat, lng); }
-      catch (error) {
-        if (!this.google.enabled()) throw error;
-      }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      throw new BadRequestException("Вкажіть коректні координати");
     }
-    if (this.google.enabled()) return this.google.reverse(lat, lng);
-    return { place_id: "", formatted_address: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, lat, lng, city: "", region: "", street: "", house: "" };
+    if (!this.geoapify.enabled()) {
+      throw new BadGatewayException("Геокодування Geoapify не налаштовано: додайте GEOAPIFY_API_KEY у Railway → Backend → Variables");
+    }
+    // Never fail over to Google Geocoding: without the activated Google API this
+    // produced an unrelated error and blocked saving a valid Geoapify address.
+    return this.geoapify.reverse(lat, lng);
   }
 
   async geoDetails(placeId: string) {
     if (placeId.startsWith("geoa_")) return this.decodeGeoAddress(placeId);
-    const place = await this.google.details(placeId);
-    const components = place.addressComponents ?? [];
-    const pick = (...types: string[]) => components.find((item) => types.some((type) => item.types?.includes(type)))?.longText ?? "";
-    return {
-      place_id: place.id,
-      formatted_address: place.formattedAddress ?? "",
-      lat: Number(place.location?.latitude ?? 0),
-      lng: Number(place.location?.longitude ?? 0),
-      city: pick("locality", "postal_town", "administrative_area_level_3"),
-      region: pick("administrative_area_level_1"),
-      street: pick("route"),
-      house: pick("street_number"),
-    };
+    throw new BadRequestException("Це застаріла підказка адреси. Виберіть адресу ще раз через Geoapify");
   }
 
   async googlePhoto(photoName: string) {
@@ -1609,7 +1595,7 @@ export class Stage2Service {
       lat = verified.lat;
       lng = verified.lng;
     } else if (lat == null || lng == null || !address) {
-      throw new BadRequestException("Оберіть адресу з Google або вкажіть точку на мапі");
+      throw new BadRequestException("Оберіть адресу з підказок Geoapify або точку на мапі");
     }
 
     const regionId = await this.ensureRegionForPlace(city, regionName, lat!, lng!, String(body.region_id ?? "region-tatariv"));
