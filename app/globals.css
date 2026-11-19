@@ -31215,3 +31215,67 @@ button.gt-amenities-row {
 .gt-emergency .gt-service-mini-grid a > span { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; }
 .gt-emergency .gt-service-mini-grid a[aria-disabled="true"] { opacity:.6; cursor:default; }
 .gt-emergency .gt-emergency-empty { font-size:11px; color:#728079; padding:12px; }
+
+/* ===== 2026-11-19: requested tourist-only corrections (keep existing layout/design) ===== */
+/* Telegram Android: use an actively refreshed height after reopening the Mini App. */
+.tourist-app-frame {
+  height: var(--gid-tourist-live-height, 100dvh) !important;
+  min-height: 0 !important;
+}
+
+/* The GPS pin inherited transparent color from the QR-only decorative sticker. */
+.gt-home-screen .gt-current-place-pin--gps,
+.tourist-app-shell--android .gt-home-screen .gt-current-place-pin--gps {
+  color: #0eaa60 !important;
+}
+.gt-home-screen .gt-current-place-pin--gps > svg {
+  display: block !important;
+  color: #0eaa60 !important;
+  stroke: currentColor !important;
+  width: 33px !important;
+  height: 33px !important;
+}
+
+/* Align title/description vertically in ALL home tiles (including the featured offer).
+   Keep the fonts, card dimensions, backgrounds and horizontal text alignment intact. */
+.gt-home-screen .gt-category-card > span:nth-child(2),
+.gt-home-screen .gt-category-card--featured > span:nth-child(2),
+.tourist-app-shell--android .gt-home-screen .gt-category-card > span:nth-child(2),
+.tourist-app-shell--android .gt-home-screen .gt-category-card--featured > span:nth-child(2) {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-self: stretch !important;
+  gap: 3px !important;
+}
+.gt-home-screen .gt-category-card strong,
+.gt-home-screen .gt-category-card--featured strong,
+.tourist-app-shell--android .gt-home-screen .gt-category-card strong,
+.tourist-app-shell--android .gt-home-screen .gt-category-card--featured strong {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+.gt-home-screen .gt-category-card small,
+.gt-home-screen .gt-category-card--featured small,
+.tourist-app-shell--android .gt-home-screen .gt-category-card small,
+.tourist-app-shell--android .gt-home-screen .gt-category-card--featured small {
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+
+/* Move the map-layer selector under the top-right locate button, outside the
+   bottom radius/zoom row. Its menu opens downward inside the map canvas. */
+.gt-nearby-design__map--live .leaflet-top.leaflet-right { z-index: 650; }
+.gt-nearby-design__map--live .gt-map-layer-picker {
+  margin: 69px 14px 0 0 !important;
+  z-index: 1;
+}
+.gt-nearby-design__map--live .gt-map-layer-picker__menu {
+  top: 51px !important;
+  bottom: auto !important;
+}
+
+/* Weather condition pictograms: cloud/rain/fog use a neutral weather tone, not the sun color. */
+.gt-home-screen .gt-weather-icon--condition { color: #668fa5 !important; }

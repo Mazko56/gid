@@ -18,6 +18,12 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
   CircleHelp,
   Clock3,
   Cross,
@@ -165,9 +171,49 @@ function Chips({ items, selected, onSelect, displayLabel }: { items: string[]; s
   );
 }
 
+// Keep the GPS city lookup shared across home and catalog strips: one reverse-geocode request
+// per location, not one request for each screen visited in the Telegram Mini App.
+const touristGeoCache = new globalThis.Map<string, { value: Stage2GeoDetails; at: number }>();
+const touristGeoRequests = new globalThis.Map<string, Promise<Stage2GeoDetails>>();
+const TOURIST_GEO_TTL = 30 * 60 * 1000;
+function useTouristGeoDetails(lat: number | null, lng: number | null) {
+  const valid = lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
+  const key = valid ? `${lat!.toFixed(4)}:${lng!.toFixed(4)}` : "";
+  const [state, setState] = useState<{ key: string; details: Stage2GeoDetails | null; failed: boolean }>({ key: "", details: null, failed: false });
+  useEffect(() => {
+    if (!key) { setState({ key: "", details: null, failed: false }); return; }
+    let cancelled = false;
+    const cached = touristGeoCache.get(key);
+    if (cached && Date.now() - cached.at < TOURIST_GEO_TTL) {
+      setState({ key, details: cached.value, failed: false });
+      return;
+    }
+    setState({ key, details: null, failed: false });
+    let pending = touristGeoRequests.get(key);
+    if (!pending) {
+      pending = stage2Fetch<Stage2GeoDetails>(`/geo/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`);
+      touristGeoRequests.set(key, pending);
+      void pending.then((details) => { touristGeoCache.set(key, { value: details, at: Date.now() }); }).catch(() => undefined).finally(() => {
+        if (touristGeoRequests.get(key) === pending) touristGeoRequests.delete(key);
+      });
+    }
+    void pending.then((details) => { if (!cancelled) setState({ key, details, failed: false }); }).catch(() => {
+      if (!cancelled) setState({ key, details: null, failed: true });
+    });
+    return () => { cancelled = true; };
+  }, [key, lat, lng]);
+  return { details: state.key === key ? state.details : null, failed: state.key === key && state.failed };
+}
+
 function MapStrip({ real = false, places = [] }: { real?: boolean; places?: Stage2Place[] } = {}) {
   const { context, location, language } = useTouristRuntime();
-  const address = location?.source === "gps" ? tr(language, "Ваше поточне місцезнаходження", "Your current location", "Twoja bieżąca lokalizacja") : (context?.place?.address || context?.region.name || tr(language, "Визначаємо точку входу…", "Detecting entry point…", "Ustalamy punkt wejścia…"));
+  const gpsPoint = location?.source === "gps" && !context ? location : null;
+  const { details: gpsDetails, failed: gpsLookupFailed } = useTouristGeoDetails(gpsPoint?.lat ?? null, gpsPoint?.lng ?? null);
+  const address = context?.place
+    ? localizedField(language, context.place, "name", context.place.name)
+    : context?.region.name || (gpsPoint
+      ? gpsDetails?.city || gpsDetails?.region || (gpsLookupFailed ? tr(language, "Не вдалося визначити населений пункт", "Could not determine city", "Nie udało się ustalić miejscowości") : tr(language, "Визначаємо населений пункт…", "Finding your city…", "Ustalamy miejscowość…"))
+      : tr(language, "Увімкніть геолокацію", "Enable location access", "Włącz lokalizację"));
   const center = location ?? (context ? { lat: Number(context.place?.lat ?? context.region.lat), lng: Number(context.place?.lng ?? context.region.lng), source: "qr" as const } : null);
   return (
     <div className={`gt-map-strip ${real ? "gt-map-strip--real" : ""}`.trim()}>
@@ -786,8 +832,7 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
   const scanLng = gpsActive ? Number(location.lng) : (hasValidPlaceCoords ? placeLng : regionLng);
   const [weather, setWeather] = useState<Stage2Weather | null>(null);
   const [weatherFailed, setWeatherFailed] = useState(false);
-  const [geoDetails, setGeoDetails] = useState<Stage2GeoDetails | null>(null);
-  const [geoLookupFailed, setGeoLookupFailed] = useState(false);
+  const { details: geoDetails, failed: geoLookupFailed } = useTouristGeoDetails(gpsActive ? scanLat : null, gpsActive ? scanLng : null);
   const [adminCategories, setAdminCategories] = useState<Stage2Category[]>([]);
   const qrRegionName = language === "en" ? (context?.region.nameEn || context?.region.name || "") : language === "pl" ? (context?.region.namePl || context?.region.name || "") : (context?.region.name || "");
   const regionName = contextPlace
@@ -795,16 +840,6 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
     : context ? qrRegionName
     : gpsActive ? (geoDetails?.city || geoDetails?.region || (geoLookupFailed ? `${scanLat.toFixed(5)}, ${scanLng.toFixed(5)}` : tr(language, "Визначаємо населений пункт…", "Finding your city…", "Ustalamy miejscowość…")))
     : tr(language, "Увімкніть геолокацію", "Enable location access", "Włącz lokalizację");
-
-  useEffect(() => {
-    if (!gpsActive) { setGeoDetails(null); setGeoLookupFailed(false); return; }
-    let cancelled = false;
-    setGeoLookupFailed(false);
-    void stage2Fetch<Stage2GeoDetails>(`/geo/reverse?lat=${encodeURIComponent(String(scanLat))}&lng=${encodeURIComponent(String(scanLng))}`)
-      .then((details) => { if (!cancelled) { setGeoDetails(details); setGeoLookupFailed(false); } })
-      .catch(() => { if (!cancelled) { setGeoDetails(null); setGeoLookupFailed(true); } });
-    return () => { cancelled = true; };
-  }, [gpsActive, scanLat, scanLng]);
 
   useEffect(() => {
     let cancelled = false;
@@ -908,6 +943,12 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
             : weatherCode >= 95
               ? (language === "en" ? "Storm" : language === "pl" ? "Burza" : "Гроза")
               : (language === "en" ? "Rain" : language === "pl" ? "Deszcz" : "Дощ");
+  const WeatherConditionIcon = weatherCode === 2 ? CloudSun
+    : weatherCode === 3 || weatherCode < 0 ? Cloud
+    : weatherCode === 45 || weatherCode === 48 ? CloudFog
+    : (weatherCode >= 71 && weatherCode <= 77) || weatherCode === 85 || weatherCode === 86 ? CloudSnow
+    : weatherCode >= 95 ? CloudLightning
+    : CloudRain;
   const sunsetTime = weather?.sunset?.includes("T") ? weather.sunset.slice(11, 16) : (weather?.sunset || "—");
   const observedTime = weather?.observed_at?.includes("T") ? weather.observed_at.slice(11, 16) : "—";
   const localizedCategories = categories.map((item) => {
@@ -939,7 +980,7 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
 
         <div className="gt-weather gt-weather--reference">
           <div className="gt-weather-item gt-weather-item--sun">
-            <WeatherSunIcon className="gt-weather-icon--sun" />
+            {weatherCode >= 0 && weatherCode <= 1 ? <WeatherSunIcon className="gt-weather-icon--sun" /> : <WeatherConditionIcon className="gt-weather-icon gt-weather-icon--condition" aria-hidden="true" />}
             <span><strong>{weather ? `${Math.round(weather.temperature_c)}°C` : "—"}</strong><small className="gt-weather-label gt-weather-label--clear">{weatherLabel}</small></span>
           </div>
           <div className="gt-weather-item gt-weather-item--rain">
@@ -965,16 +1006,16 @@ function HomeScreen({ navigate }: { navigate: Navigate }) {
       >
         <span className="gt-current-place-pin" aria-hidden="true"><CurrentPlaceSticker /></span>
         <span className="gt-current-place-copy">
-          <strong>{language === "en" ? "Your QR base point" : language === "pl" ? "Punkt bazowy z QR" : "Базова точка за QR"}</strong>
-          <small>{contextPlace?.name || tr(language, "Точка входу не визначена", "Entry point not set", "Nie ustawiono punktu wejścia")}</small>
+          <strong>{tr(language, "Ваше місцезнаходження", "Your location", "Twoja lokalizacja")}</strong>
+          <small>{contextPlace ? localizedField(language, contextPlace, "name", contextPlace.name) : qrRegionName || tr(language, "Визначаємо місце…", "Finding location…", "Ustalamy lokalizację…")}</small>
           {contextPlace ? <b><Star size={14} fill="currentColor" /> {Number(contextPlace.rating || 0).toFixed(1)} · {contextPlace.review_count || 0} {language === "en" ? "reviews" : language === "pl" ? "opinii" : "відгуків"}</b> : <b>{language === "en" ? "Loading QR context…" : language === "pl" ? "Wczytywanie kontekstu QR…" : "Завантажуємо контекст QR…"}</b>}
         </span>
         {contextPlace?.image_url ? <img src={contextPlace.image_url} alt="" className="gt-photo gt-current-place-photo gt-current-place-photo--remote" /> : <span className="gt-current-place-photo gt-current-place-photo--empty" aria-hidden="true" />}
         <i>{language === "en" ? "Details" : language === "pl" ? "Szczegóły" : "Деталі"}</i>
       </button> : <button type="button" className="gt-hotel-summary gt-hotel-summary--reference" onClick={() => navigate("tourist", "nearby")}>
-        <span className="gt-current-place-pin" aria-hidden="true"><MapPin size={26}/></span>
-        <span className="gt-current-place-copy"><strong>{tr(language,"Ваше місцеположення","Your location","Twoja lokalizacja")}</strong>
-        <small>{gpsActive ? (geoDetails?.formatted_address || geoDetails?.city || tr(language,"Визначаємо адресу…","Finding your address…","Ustalamy adres…")) : tr(language,"Дозвольте геолокацію, щоб побачити місця поруч","Allow location to see nearby places","Zezwól na lokalizację, aby zobaczyć pobliskie miejsca")}</small></span>
+        <span className="gt-current-place-pin gt-current-place-pin--gps" aria-hidden="true"><MapPin size={26}/></span>
+        <span className="gt-current-place-copy"><strong>{tr(language,"Ваше місцезнаходження","Your location","Twoja lokalizacja")}</strong>
+        <small>{gpsActive ? (geoDetails?.city || geoDetails?.region || (geoLookupFailed ? tr(language,"Не вдалося визначити населений пункт","Could not determine city","Nie udało się ustalić miejscowości") : tr(language,"Визначаємо населений пункт…","Finding your city…","Ustalamy miejscowość…"))) : tr(language,"Дозвольте геолокацію, щоб побачити місця поруч","Allow location to see nearby places","Zezwól na lokalizację, aby zobaczyć pobliskie miejsca")}</small></span>
         <i>{tr(language,"На карту","Map","Mapa")}</i>
       </button>}
 
@@ -3099,7 +3140,7 @@ function ProfileScreen({ navigate }: { navigate: Navigate }) {
         </form> : null}
         {notice && !editing ? <p className="gt-profile-edit-form__notice" role="status">{notice}</p> : null}
         <div className="gt-profile-list gt-profile-list--reference">
-          <button type="button" className="gt-profile-row--location" onClick={() => navigate("tourist", "nearby")}><LocateFixed size={27} /><span>{tr(runtime.language,"Моє місцеположення", "My location", "Moja lokalizacja")}</span><ChevronRight size={20} /></button>
+          <button type="button" className="gt-profile-row--location" onClick={() => navigate("tourist", "nearby")}><LocateFixed size={27} /><span>{tr(runtime.language,"Моє місцезнаходження", "My location", "Moja lokalizacja")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--add-location" onClick={() => navigate("tourist", "add-location")}><MapPin size={27} /><span>{tr(runtime.language, "Додати локацію", "Add place", "Dodaj miejsce")}</span><ChevronRight size={20} /></button>
           <button type="button" className="gt-profile-row--reviews" onClick={() => navigate("tourist", "review")}><MessageSquareMore size={27} /><span>{tr(runtime.language, "Мої відгуки", "My reviews", "Moje opinie")}</span><ChevronRight size={20} /></button>
           <button type="button" onClick={()=>navigate('tourist','my-bookings')}><CalendarDays size={27}/><span>{tr(runtime.language,"Мої бронювання","My bookings","Moje rezerwacje")}</span><ChevronRight size={20}/></button>

@@ -123,6 +123,17 @@ function zoomForRadius(radius: number, compact: boolean) {
 }
 
 
+// Fit the full search circle into the available map viewport. A fixed zoom for every
+// radius above 2 km made 10 / 15 / 30 km buttons appear to do nothing.
+function boundsForRadius(center: { lat: number; lng: number }, radius: number) {
+  const northSouth = radius / 111320;
+  const eastWest = radius / (111320 * Math.max(0.15, Math.cos(center.lat * Math.PI / 180)));
+  return {
+    south: center.lat - northSouth, west: center.lng - eastWest,
+    north: center.lat + northSouth, east: center.lng + eastWest,
+  };
+}
+
 type MapLayerMode = "map" | "terrain" | "satellite";
 
 function createLayerControl(onChange: (mode: MapLayerMode) => void) {
@@ -314,7 +325,7 @@ export function RealMap({
           }
         });
         runtime.layerControl = control;
-        map.controls[maps.ControlPosition.RIGHT_BOTTOM].push(control);
+        map.controls[maps.ControlPosition.RIGHT_TOP].push(control);
       }
       if (pickable && !compact) {
         runtime.clickListener = map.addListener("click", (event: any) => {
@@ -346,7 +357,7 @@ export function RealMap({
           runtime.tile = L.tileLayer(next.url, next.options).addTo(map);
           runtime.tile.bringToBack?.();
         });
-        const leafletControl = (L as any).control({ position: "bottomright" });
+        const leafletControl = (L as any).control({ position: "topright" });
         leafletControl.onAdd = () => control;
         leafletControl.addTo(map);
         runtime.layerControl = control;
@@ -381,20 +392,54 @@ export function RealMap({
     const runtime = runtimeRef.current;
     if (!runtime) return;
     const zoom = zoomForRadius(radius, compact);
+    const bounds = boundsForRadius(center, radius);
     if (runtime.provider === "google") {
-      runtime.map.setCenter({ lat: center.lat, lng: center.lng });
-      runtime.map.setZoom(zoom);
+      if (compact) {
+        runtime.map.setCenter({ lat: center.lat, lng: center.lng });
+        runtime.map.setZoom(zoom);
+      } else {
+        runtime.map.fitBounds({ north: bounds.north, south: bounds.south, east: bounds.east, west: bounds.west }, 20);
+      }
       runtime.user?.setPosition?.({ lat: center.lat, lng: center.lng });
       runtime.circle?.setCenter?.({ lat: center.lat, lng: center.lng });
       runtime.circle?.setRadius?.(radius);
     } else {
-      runtime.map.setView([center.lat, center.lng], zoom, { animate: false });
+      runtime.map.invalidateSize?.();
+      if (compact) runtime.map.setView([center.lat, center.lng], zoom, { animate: false });
+      else runtime.map.fitBounds([[bounds.south, bounds.west], [bounds.north, bounds.east]], { padding: [18, 18], animate: false, maxZoom: 16 });
       runtime.user?.setLatLng?.([center.lat, center.lng]);
       runtime.circle?.setLatLng?.([center.lat, center.lng]);
       runtime.circle?.setRadius?.(radius);
-      window.setTimeout(() => runtime.map.invalidateSize?.(), 0);
     }
   }, [center.lat, center.lng, radius, compact, readyVersion]);
+
+  // Telegram Android WebView may recreate its viewport after minimizing/restoring.
+  // Leaflet must re-measure the canvas; otherwise tiles/control positions can be stale.
+  useEffect(() => {
+    let timer: number | undefined;
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const runtime = runtimeRef.current;
+        if (!runtime || runtime.provider !== "leaflet") return;
+        runtime.map.invalidateSize?.();
+        if (!compact) {
+          const bounds = boundsForRadius(center, radius);
+          runtime.map.fitBounds?.([[bounds.south, bounds.west], [bounds.north, bounds.east]], { padding: [18, 18], animate: false, maxZoom: 16 });
+        }
+      }, 120);
+    };
+    window.addEventListener("resize", refresh);
+    window.addEventListener("pageshow", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("resize", refresh);
+      window.removeEventListener("pageshow", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [center.lat, center.lng, radius, compact]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

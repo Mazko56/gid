@@ -51,6 +51,8 @@ type TelegramWindow = Window & {
       setHeaderColor?: (color: string) => void;
       setBackgroundColor?: (color: string) => void;
       platform?: string;
+      onEvent?: (event: string, handler: () => void) => void;
+      offEvent?: (event: string, handler: () => void) => void;
       BackButton?: {
         show: () => void;
         hide: () => void;
@@ -201,6 +203,41 @@ export default function ProductApplication({ role, slug }: { role: RoleKey; slug
     connectTelegram();
     return () => {
       if (timer) clearTimeout(timer);
+    };
+  }, [role]);
+
+  // Android Telegram can retain an obsolete --tg-viewport-stable-height after resuming.
+  // Keep the frame tied to the actually visible WebView height, not its stale cached value.
+  useEffect(() => {
+    if (role !== "tourist") return;
+    let resumeTimer: number | undefined;
+    let secondTimer: number | undefined;
+    const syncHeight = () => {
+      const height = Math.round(window.innerHeight || window.visualViewport?.height || 0);
+      if (height >= 320) document.documentElement.style.setProperty("--gid-tourist-live-height", `${height}px`);
+    };
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      window.requestAnimationFrame(syncHeight);
+      if (resumeTimer) window.clearTimeout(resumeTimer);
+      if (secondTimer) window.clearTimeout(secondTimer);
+      resumeTimer = window.setTimeout(syncHeight, 180);
+      secondTimer = window.setTimeout(syncHeight, 650);
+    };
+    const telegram = (window as TelegramWindow).Telegram?.WebApp;
+    syncHeight();
+    window.addEventListener("resize", onReturn);
+    window.addEventListener("pageshow", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    telegram?.onEvent?.("viewportChanged", onReturn);
+    return () => {
+      window.removeEventListener("resize", onReturn);
+      window.removeEventListener("pageshow", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+      telegram?.offEvent?.("viewportChanged", onReturn);
+      if (resumeTimer) window.clearTimeout(resumeTimer);
+      if (secondTimer) window.clearTimeout(secondTimer);
+      document.documentElement.style.removeProperty("--gid-tourist-live-height");
     };
   }, [role]);
 
