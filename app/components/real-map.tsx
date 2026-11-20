@@ -32,6 +32,8 @@ declare global {
     __gidLeafletPromise?: Promise<LeafletApi>;
     google?: any;
     __gidGoogleMapsPromise?: Promise<any>;
+    maplibregl?: any;
+    __gidNearbyCleanBasemapPromise?: Promise<void>;
   }
 }
 
@@ -224,6 +226,72 @@ function createLayerControl(onChange: (mode: MapLayerMode) => void) {
   return wrap;
 }
 
+
+// The nearby map must not display places baked into OpenStreetMap raster tiles.
+// Use a keyless vector basemap so POI layers can be disabled without hiding our own markers.
+function loadNearbyCleanBasemap(): Promise<void> {
+  if ((window.L as any)?.maplibreGL) return Promise.resolve();
+  if (window.__gidNearbyCleanBasemapPromise) return window.__gidNearbyCleanBasemapPromise;
+
+  const loadScript = (src: string, flag: string) => new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector(`script[data-${flag}="1"]`) as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener("error", () => reject(new Error(`Map library unavailable: ${flag}`)), { once: true });
+    if (!existing) {
+      script.src = src;
+      script.async = true;
+      script.setAttribute(`data-${flag}`, "1");
+      document.head.appendChild(script);
+    }
+  });
+
+  window.__gidNearbyCleanBasemapPromise = (async () => {
+    if (!document.querySelector('link[data-gid-maplibre-css="1"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.css";
+      link.dataset.gidMaplibreCss = "1";
+      document.head.appendChild(link);
+    }
+    if (!window.maplibregl) {
+      await loadScript("https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.1/dist/maplibre-gl.js", "gid-maplibre-js");
+    }
+    if (!(window.L as any)?.maplibreGL) {
+      await loadScript("https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js", "gid-maplibre-leaflet-js");
+    }
+    if (!(window.L as any)?.maplibreGL) throw new Error("MapLibre Leaflet adapter unavailable");
+  })().catch((error) => {
+    window.__gidNearbyCleanBasemapPromise = undefined;
+    throw error;
+  });
+  return window.__gidNearbyCleanBasemapPromise;
+}
+
+function nearbyCleanTileLayer(L: LeafletApi, map: any) {
+  const layer = (L as any).maplibreGL({ style: "https://tiles.openfreemap.org/styles/liberty" }).addTo(map);
+  const vectorMap = layer.getMaplibreMap();
+  const canvasHost = vectorMap.getContainer();
+  // No brief flash of third-party businesses before the style is filtered.
+  canvasHost.style.visibility = "hidden";
+  const hideOutsidePlaces = () => {
+    const layers = vectorMap.getStyle()?.layers || [];
+    for (const item of layers) {
+      const id = String(item.id || "");
+      const sourceLayer = String(item["source-layer"] || "");
+      // POI icons and names are part of the provider's vector style.
+      // Keep roads, addresses, terrain, and city/street names intact.
+      if (sourceLayer === "poi" || /(^|[-_])(poi|housenumber|transit[-_]?stop|bus[-_]?stop)([-_]|$)/i.test(id)) {
+        vectorMap.setLayoutProperty(id, "visibility", "none");
+      }
+    }
+    canvasHost.style.visibility = "";
+  };
+  vectorMap.on("style.load", hideOutsidePlaces);
+  if (vectorMap.isStyleLoaded?.()) hideOutsidePlaces();
+  return layer;
+}
+
 function leafletTileConfig(mode: MapLayerMode) {
   if (mode === "terrain") return {
     url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -268,6 +336,7 @@ export function RealMap({
   showCenterMarker = true,
   showRadius = true,
   showLayerControl = false,
+  hideBaseMapPois = false,
 }: {
   center: { lat: number; lng: number };
   places: Stage2Place[];
@@ -285,6 +354,8 @@ export function RealMap({
   showRadius?: boolean;
   /** Show map/terrain/satellite switcher without changing the surrounding screen layout. */
   showLayerControl?: boolean;
+  /** Nearby map only: suppress provider shops, pharmacies and other POIs. */
+  hideBaseMapPois?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<MapRuntime | null>(null);
@@ -371,10 +442,11 @@ export function RealMap({
 
     const renderFallback = async () => {
       const L = await loadLeaflet();
+      if (hideBaseMapPois) await loadNearbyCleanBasemap();
       if (cancelled || !ref.current) return;
       const map = L.map(ref.current, { zoomControl: false, attributionControl: !compact, dragging: !compact, scrollWheelZoom: !compact }).setView([center.lat, center.lng], zoomForRadius(radius, compact));
       const baseLayer = leafletTileConfig("map");
-      const tile = L.tileLayer(baseLayer.url, baseLayer.options).addTo(map);
+      const tile = hideBaseMapPois ? nearbyCleanTileLayer(L, map) : L.tileLayer(baseLayer.url, baseLayer.options).addTo(map);
       const circle = compact || !showRadius ? null : L.circle([center.lat, center.lng], { radius, color: "#20b364", weight: 1, opacity: 0.4, fillOpacity: 0.04 }).addTo(map);
       const user = showCenterMarker ? L.circleMarker([center.lat, center.lng], { radius: compact ? 5 : 8, color: "#ffffff", weight: 3, fillColor: "#1677ff", fillOpacity: 1 }).addTo(map).bindTooltip("Ваше місцезнаходження") : null;
       const runtime: MapRuntime = { provider: "leaflet", map, api: L, user, circle, picked: null, tile, markers: [], markerById: new Map(), layerControl: null };
@@ -382,7 +454,9 @@ export function RealMap({
         const control = createLayerControl((mode) => {
           const next = leafletTileConfig(mode);
           if (runtime.tile) map.removeLayer(runtime.tile);
-          runtime.tile = L.tileLayer(next.url, next.options).addTo(map);
+          runtime.tile = hideBaseMapPois && mode === "map"
+            ? nearbyCleanTileLayer(L, map)
+            : L.tileLayer(next.url, next.options).addTo(map);
           runtime.tile.bringToBack?.();
         });
         const leafletControl = (L as any).control({ position: "topright" });
@@ -414,7 +488,7 @@ export function RealMap({
       host.replaceChildren();
     };
   // The map canvas is intentionally initialized once. Data/filters update markers below without rebuilding tiles.
-  }, [compact, pickable, preferLeaflet, showCenterMarker, showRadius, showLayerControl]);
+  }, [compact, pickable, preferLeaflet, showCenterMarker, showRadius, showLayerControl, hideBaseMapPois]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

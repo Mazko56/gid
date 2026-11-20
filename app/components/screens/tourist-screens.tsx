@@ -1975,7 +1975,7 @@ function NearbyScreen({ navigate }: { navigate: Navigate }) {
         </section>
 
         <section className="gt-nearby-design__map gt-nearby-design__map--live" aria-label={tr(runtime.language, "Карта місць поруч", "Nearby places map", "Mapa miejsc w pobliżu")}>
-          {center ? <RealMap center={center} places={nearbyPlaces} radius={radius} className="gt-nearby-design__real-map" onSelect={previewMapPlace} showLayerControl /> : <div className="gt-nearby-design__map-loading">{tr(runtime.language, "Для пошуку поруч потрібна геолокація. Дозвольте доступ або відкрийте QR локації.", "Allow location access or open a location QR to see nearby places.", "Zezwól na lokalizację lub otwórz kod QR miejsca, aby zobaczyć pobliskie punkty.")}</div>}
+          {center ? <RealMap center={center} places={nearbyPlaces} radius={radius} className="gt-nearby-design__real-map" onSelect={previewMapPlace} showLayerControl hideBaseMapPois /> : <div className="gt-nearby-design__map-loading">{tr(runtime.language, "Для пошуку поруч потрібна геолокація. Дозвольте доступ або відкрийте QR локації.", "Allow location access or open a location QR to see nearby places.", "Zezwól na lokalizację lub otwórz kod QR miejsca, aby zobaczyć pobliskie punkty.")}</div>}
           {nearbyError ? <div className="gt-nearby-design__diagnostic" role="alert">
             <strong>{tr(runtime.language, "Помилка сервісу місць", "Places service error", "Błąd usługi miejsc")}</strong>
             <span>{nearbyError}</span>
