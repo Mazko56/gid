@@ -31279,3 +31279,48 @@ button.gt-amenities-row {
 
 /* Weather condition pictograms: cloud/rain/fog use a neutral weather tone, not the sun color. */
 .gt-home-screen .gt-weather-icon--condition { color: #668fa5 !important; }
+
+/* ===== 2026-11-20: Android resume — override the old stronger Telegram rule =====
+   The earlier generic .tourist-app-frame fix lost to
+   .tourist-app-shell--android .tourist-app-frame {height: --tg-viewport-stable-height !important}.
+   That stale Telegram value can collapse the whole grid to the 84px bottom bar.
+   Apply the SAME measured height to both the Android shell and its grid frame. */
+.tourist-app-shell--android {
+  height: var(--gid-tourist-live-height, 100dvh) !important;
+  min-height: var(--gid-tourist-live-height, 100dvh) !important;
+}
+.tourist-app-shell--android .tourist-app-frame {
+  height: var(--gid-tourist-live-height, 100dvh) !important;
+  min-height: 0 !important;
+  max-height: var(--gid-tourist-live-height, 100dvh) !important;
+  grid-template-rows: minmax(0, 1fr) auto !important;
+}
+
+/* Keep the layer menu above the radius bar even in Android's short Telegram viewport.
+   The available vertical space is calculated on opening by the map controller. */
+.gt-nearby-design__map--live .gt-map-layer-picker__menu {
+  top: var(--gid-layer-menu-top, 48px) !important;
+  bottom: auto !important;
+  width: 190px !important;
+  max-height: var(--gid-layer-menu-max-height, 178px) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  gap: 3px !important;
+  padding: 5px !important;
+}
+.gt-nearby-design__map--live .gt-map-layer-picker__option {
+  grid-template-columns: 36px minmax(0, 1fr) !important;
+  gap: 6px !important;
+  padding: 4px 5px !important;
+  min-height: 37px !important;
+}
+.gt-nearby-design__map--live .gt-map-layer-picker__preview {
+  width: 36px !important;
+  height: 27px !important;
+}
+.gt-nearby-design__map--live .gt-map-layer-picker__option strong { font-size: 11px !important; }
+.gt-nearby-design__map--live .gt-map-layer-picker__option small { font-size: 9px !important; }
+
+.gt-nearby-design__map--live .gt-map-layer-picker.is-sideways .gt-map-layer-picker__menu {
+  right: calc(100% + 8px) !important;
+}

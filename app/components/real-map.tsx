@@ -162,11 +162,39 @@ function createLayerControl(onChange: (mode: MapLayerMode) => void) {
     trigger.setAttribute("aria-expanded", "false");
   };
 
+  // Keep the full layer picker away from the fixed radius controls. On short
+  // Android Telegram windows a normal dropdown would hide "Супутник" behind
+  // the kilometers selector. Measure the free map area when it is opened.
+  const positionMenu = () => {
+    const mapHost = wrap.closest(".gt-nearby-design__map--live");
+    if (!mapHost) return;
+    const mapBounds = mapHost.getBoundingClientRect();
+    const radius = mapHost.querySelector(".gt-nearby-design__radius");
+    const radiusTop = radius?.getBoundingClientRect().top ?? mapBounds.bottom;
+    const triggerBounds = trigger.getBoundingClientRect();
+    const wrapBounds = wrap.getBoundingClientRect();
+    const safeTop = mapBounds.top + 8;
+    const safeBottom = Math.min(mapBounds.bottom, radiusTop) - 8;
+    const menuHeight = Math.min(menu.scrollHeight || 138, 178);
+    const below = triggerBounds.bottom + 6;
+    // When the dropdown would hit the radius row, open alongside the button.
+    // This also keeps the layer toggle accessible, unlike overlapping it.
+    const side = below + menuHeight > safeBottom;
+    wrap.classList.toggle("is-sideways", side);
+    const top = side
+      ? Math.max(safeTop, Math.min(triggerBounds.top, safeBottom - menuHeight))
+      : below;
+    const available = Math.max(24, Math.floor(safeBottom - top));
+    wrap.style.setProperty("--gid-layer-menu-top", `${Math.round(top - wrapBounds.top)}px`);
+    wrap.style.setProperty("--gid-layer-menu-max-height", `${available}px`);
+  };
+
   trigger.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     const open = wrap.classList.toggle("is-open");
     trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) positionMenu();
   });
 
   for (const [mode, label, note] of items) {

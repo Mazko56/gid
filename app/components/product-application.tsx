@@ -206,37 +206,80 @@ export default function ProductApplication({ role, slug }: { role: RoleKey; slug
     };
   }, [role]);
 
-  // Android Telegram can retain an obsolete --tg-viewport-stable-height after resuming.
-  // Keep the frame tied to the actually visible WebView height, not its stale cached value.
+  // Telegram Android occasionally reports a tiny stale stableHeight after resume.
+  // The frame must use the measured WebView height (not the Telegram CSS variable).
+  // Retain the last valid height while the OS temporarily collapses the WebView.
   useEffect(() => {
     if (role !== "tourist") return;
-    let resumeTimer: number | undefined;
-    let secondTimer: number | undefined;
-    const syncHeight = () => {
-      const height = Math.round(window.innerHeight || window.visualViewport?.height || 0);
-      if (height >= 320) document.documentElement.style.setProperty("--gid-tourist-live-height", `${height}px`);
-    };
-    const onReturn = () => {
-      if (document.visibilityState === "hidden") return;
-      window.requestAnimationFrame(syncHeight);
-      if (resumeTimer) window.clearTimeout(resumeTimer);
-      if (secondTimer) window.clearTimeout(secondTimer);
-      resumeTimer = window.setTimeout(syncHeight, 180);
-      secondTimer = window.setTimeout(syncHeight, 650);
-    };
     const telegram = (window as TelegramWindow).Telegram?.WebApp;
+    let lastGoodHeight = 0;
+    let lastGoodWidth = 0;
+    let wasHidden = false;
+    let animationFrame: number | undefined;
+    const timers = new Set<number>();
+
+    const syncHeight = () => {
+      const measured = Math.round(Math.max(
+        window.innerHeight || 0,
+        window.visualViewport?.height || 0,
+        document.documentElement.clientHeight || 0,
+      ));
+      // A suddenly collapsed WebView (or its opening keyboard) must not
+      // overwrite a valid portrait height. Allow genuine orientation changes.
+      const width = Math.round(window.innerWidth || document.documentElement.clientWidth || 0);
+      const rotated = lastGoodWidth > 0 && Math.abs(width - lastGoodWidth) >= 80;
+      if (measured >= 320 && (!lastGoodHeight || measured >= lastGoodHeight * 0.72 || rotated)) {
+        lastGoodHeight = measured;
+        lastGoodWidth = width;
+      }
+      if (lastGoodHeight >= 320) {
+        document.documentElement.style.setProperty("--gid-tourist-live-height", `${lastGoodHeight}px`);
+      }
+    };
+
+    const scheduleMeasurements = () => {
+      if (document.visibilityState === "hidden") return;
+      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(syncHeight);
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
+      // Android WebView and Telegram's viewportChanged can arrive *after* pageshow.
+      for (const delay of [100, 350, 800, 1600]) {
+        const timer = window.setTimeout(() => { timers.delete(timer); syncHeight(); }, delay);
+        timers.add(timer);
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") { wasHidden = true; return; }
+      if (wasHidden) {
+        wasHidden = false;
+        // Restore Telegram's expanded viewport after the native app resumes.
+        (window as TelegramWindow).Telegram?.WebApp?.expand?.();
+      }
+      scheduleMeasurements();
+    };
+    const onPageShow = () => {
+      (window as TelegramWindow).Telegram?.WebApp?.expand?.();
+      scheduleMeasurements();
+    };
+
     syncHeight();
-    window.addEventListener("resize", onReturn);
-    window.addEventListener("pageshow", onReturn);
-    document.addEventListener("visibilitychange", onReturn);
-    telegram?.onEvent?.("viewportChanged", onReturn);
+    window.addEventListener("resize", scheduleMeasurements);
+    window.addEventListener("focus", scheduleMeasurements);
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.visualViewport?.addEventListener("resize", scheduleMeasurements);
+    telegram?.onEvent?.("viewportChanged", scheduleMeasurements);
     return () => {
-      window.removeEventListener("resize", onReturn);
-      window.removeEventListener("pageshow", onReturn);
-      document.removeEventListener("visibilitychange", onReturn);
-      telegram?.offEvent?.("viewportChanged", onReturn);
-      if (resumeTimer) window.clearTimeout(resumeTimer);
-      if (secondTimer) window.clearTimeout(secondTimer);
+      window.removeEventListener("resize", scheduleMeasurements);
+      window.removeEventListener("focus", scheduleMeasurements);
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasurements);
+      telegram?.offEvent?.("viewportChanged", scheduleMeasurements);
+      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
+      for (const timer of timers) window.clearTimeout(timer);
       document.documentElement.style.removeProperty("--gid-tourist-live-height");
     };
   }, [role]);
